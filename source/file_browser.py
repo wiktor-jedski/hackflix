@@ -1,6 +1,10 @@
+"""
+File browser module for the Raspberry Pi Movie Player App.
+Provides functionality for browsing and managing video files.
+"""
+
 import os
-import sys
-from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, 
                            QPushButton, QListWidget, QListWidgetItem, QLabel, 
                            QFileDialog, QMessageBox)
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -16,8 +20,6 @@ class FileBrowser(QWidget):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Movie Library")
-        self.resize(600, 400)
         
         # Store the current directory path
         self.current_directory = os.path.expanduser("~")
@@ -131,12 +133,3 @@ class FileBrowser(QWidget):
                                  "Cannot delete the file due to permission issues.")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
-
-def main():
-    app = QApplication(sys.argv)
-    browser = FileBrowser()
-    browser.show()
-    sys.exit(app.exec_())
-
-if __name__ == "__main__":
-    main()

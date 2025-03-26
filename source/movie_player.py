@@ -1,16 +1,27 @@
+"""
+Main application module for the Raspberry Pi Movie Player App.
+Integrates media playback with library management and other features.
+"""
+
 import sys
 import os
 import vlc
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                            QHBoxLayout, QPushButton, QFileDialog, QLabel, 
-                            QSlider, QStyle, QSizePolicy)
-from PyQt5.QtGui import QPalette, QColor
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
+                           QHBoxLayout, QPushButton, QLabel, 
+                           QSlider, QStyle, QStackedWidget, 
+                           QTabWidget)
 from PyQt5.QtCore import Qt, QTimer
 
-class MediaPlayer(QMainWindow):
+# Import local modules
+from source.video_frame import VideoFrame
+from source.file_browser import FileBrowser
+from source.downloads_tab import DownloadsTab
+from source.placeholder_tabs import SubtitlesTab, SuggestionsTab
+
+class MoviePlayerApp(QMainWindow):
     """
-    A basic media player implementation using python-vlc and PyQt5.
-    This will serve as the core of our Raspberry Pi Movie Player App.
+    Main application window for the Raspberry Pi Movie Player App.
+    Integrates media playback with library management and other features.
     """
     
     def __init__(self):
@@ -18,29 +29,31 @@ class MediaPlayer(QMainWindow):
         
         # Set window properties
         self.setWindowTitle("Raspberry Pi Movie Player")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 1024, 768)
         
         # Create VLC instance and media player
         self.instance = vlc.Instance()
         self.mediaplayer = self.instance.media_player_new()
         
-        # Create a central widget to hold everything
+        # Create a central widget and main layout
         self.central_widget = QWidget(self)
         self.setCentralWidget(self.central_widget)
+        self.main_layout = QVBoxLayout(self.central_widget)
         
-        # Set the background color to black (better for video playback)
-        self.palette = self.palette()
-        self.palette.setColor(QPalette.Window, QColor(0, 0, 0))
-        self.setPalette(self.palette)
+        # Create a stacked widget to switch between player and browser views
+        self.stacked_widget = QStackedWidget()
         
-        # Create the video widget
-        self.video_frame = QWidget(self)
-        self.video_frame.setAutoFillBackground(True)
-        palette = self.video_frame.palette()
-        palette.setColor(QPalette.Window, QColor(0, 0, 0))
-        self.video_frame.setPalette(palette)
+        # Create the player view
+        self.player_widget = QWidget()
+        self.player_layout = QVBoxLayout(self.player_widget)
+        
+        # Create the video frame
+        self.video_frame = VideoFrame()
         
         # Create playback controls
+        self.control_widget = QWidget()
+        self.control_layout = QHBoxLayout(self.control_widget)
+        
         self.play_button = QPushButton()
         self.play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
         self.play_button.clicked.connect(self.play_pause)
@@ -49,33 +62,58 @@ class MediaPlayer(QMainWindow):
         self.stop_button.setIcon(self.style().standardIcon(QStyle.SP_MediaStop))
         self.stop_button.clicked.connect(self.stop)
         
-        self.open_button = QPushButton("Open File")
-        self.open_button.clicked.connect(self.open_file)
-        
-        # Create slider for position
         self.position_slider = QSlider(Qt.Horizontal)
         self.position_slider.setMaximum(1000)
         self.position_slider.sliderMoved.connect(self.set_position)
         
-        # Create time label
         self.time_label = QLabel("00:00 / 00:00")
+        self.back_button = QPushButton("Back to Library")
+        self.back_button.clicked.connect(self.show_browser)
         
-        # Create layouts
-        self.main_layout = QVBoxLayout()
-        self.control_layout = QHBoxLayout()
-        
-        # Add widgets to layouts
+        # Add controls to layout
         self.control_layout.addWidget(self.play_button)
         self.control_layout.addWidget(self.stop_button)
-        self.control_layout.addWidget(self.open_button)
         self.control_layout.addWidget(self.position_slider)
         self.control_layout.addWidget(self.time_label)
+        self.control_layout.addWidget(self.back_button)
         
-        self.main_layout.addWidget(self.video_frame, 1)
-        self.main_layout.addLayout(self.control_layout)
+        # Add widgets to player layout
+        self.player_layout.addWidget(self.video_frame)
+        self.player_layout.addWidget(self.control_widget)
         
-        # Set the layout
-        self.central_widget.setLayout(self.main_layout)
+        # Create the browser view with tabs
+        self.browser_widget = QWidget()
+        self.browser_layout = QVBoxLayout(self.browser_widget)
+        
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+        
+        # Create tabs
+        self.library_tab = FileBrowser()
+        self.library_tab.file_selected.connect(self.play_file)
+        
+        self.downloads_tab = DownloadsTab()
+        self.subtitles_tab = SubtitlesTab()
+        self.suggestions_tab = SuggestionsTab()
+        
+        # Add tabs to the tab widget
+        self.tab_widget.addTab(self.library_tab, "Library")
+        self.tab_widget.addTab(self.downloads_tab, "Downloads")
+        self.tab_widget.addTab(self.subtitles_tab, "Subtitles")
+        self.tab_widget.addTab(self.suggestions_tab, "Suggestions")
+        
+        # Add tab widget to browser layout
+        self.browser_layout.addWidget(self.tab_widget)
+        
+        # Add widgets to stacked widget
+        self.stacked_widget.addWidget(self.browser_widget)
+        self.stacked_widget.addWidget(self.player_widget)
+        
+        # Add stacked widget to main layout
+        self.main_layout.addWidget(self.stacked_widget)
+        
+        # Show the browser view by default
+        self.stacked_widget.setCurrentWidget(self.browser_widget)
         
         # Set up the timer for updating the UI
         self.timer = QTimer(self)
@@ -85,12 +123,9 @@ class MediaPlayer(QMainWindow):
         # Initialize playback state
         self.is_playing = False
         self.media = None
-        
-    def open_file(self):
-        """Open a media file and start playback"""
-        filepath, _ = QFileDialog.getOpenFileName(self, "Open File", os.path.expanduser('~'),
-                                                "Video Files (*.mp4 *.avi *.mkv *.mov)")
-        
+    
+    def play_file(self, filepath):
+        """Play a media file and switch to the player view"""
         if filepath:
             # Create a VLC media object from the file
             self.media = self.instance.media_new(filepath)
@@ -106,8 +141,14 @@ class MediaPlayer(QMainWindow):
             elif sys.platform == "darwin":  # for MacOS
                 self.mediaplayer.set_nsobject(int(self.video_frame.winId()))
             
+            # Switch to the player view
+            self.stacked_widget.setCurrentWidget(self.player_widget)
+            
             # Start playing
-            self.play_pause()
+            self.mediaplayer.play()
+            self.play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
+            self.is_playing = True
+            self.timer.start()
             
             # Update window title with the filename
             self.setWindowTitle(f"Raspberry Pi Movie Player - {os.path.basename(filepath)}")
@@ -152,12 +193,9 @@ class MediaPlayer(QMainWindow):
     def set_position(self, position):
         """Set the player position according to the slider value"""
         self.mediaplayer.set_position(position / 1000.0)
-
-def main():
-    app = QApplication(sys.argv)
-    player = MediaPlayer()
-    player.show()
-    sys.exit(app.exec_())
-
-if __name__ == "__main__":
-    main()
+    
+    def show_browser(self):
+        """Switch back to browser view"""
+        self.stop()
+        self.stacked_widget.setCurrentWidget(self.browser_widget)
+        self.setWindowTitle("Raspberry Pi Movie Player")
