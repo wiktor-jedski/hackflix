@@ -4,6 +4,7 @@ Provides UI for searching, downloading, and managing torrents.
 """
 
 import os
+import math
 import time
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                            QLineEdit, QTableWidget, QTableWidgetItem, QLabel, 
@@ -426,19 +427,34 @@ class DownloadsTab(QWidget):
             return f"{bytes_size / (1024 * 1024 * 1024):.1f} GB"
     
     def _format_time(self, seconds):
-        """Format time in human-readable form"""
-        if seconds <= 0:
-            return "Unknown"
-        
-        hours, remainder = divmod(int(seconds), 3600)
-        minutes, seconds = divmod(remainder, 60)
-        
-        if hours > 0:
-            return f"{hours}h {minutes}m"
-        elif minutes > 0:
-            return f"{minutes}m {seconds}s"
-        else:
-            return f"{seconds}s"
+        """Format time in human-readable form, handling infinite ETA."""
+        # Check for invalid, zero, negative, or infinite values first
+        if not isinstance(seconds, (int, float)) or seconds <= 0 or not math.isfinite(seconds):
+            # Return a suitable placeholder for unknown/infinite ETA
+            # '∞' is the infinity symbol, looks good if font supports it.
+            # Alternatives: "-", "N/A", "Unknown", "Stalled"
+            return "∞"
+
+        # If we reach here, seconds is a positive finite number
+        try:
+            total_seconds = int(seconds) # Safe to convert now
+            hours, remainder = divmod(total_seconds, 3600)
+            minutes, seconds_rem = divmod(remainder, 60) # Use a different var name
+
+            if hours > 99: # Avoid excessively long strings for very long ETAs
+                return f"{hours // 24}d {hours % 24}h" # Example: Show days/hours
+            elif hours > 0:
+                return f"{hours}h {minutes}m"
+            elif minutes > 0:
+                return f"{minutes}m {seconds_rem}s"
+            else:
+                return f"{seconds_rem}s"
+        except OverflowError:
+            # Catch overflow for extremely large, but finite, numbers
+            return "∞" # Or ">99d" or similar indicator
+        except ValueError:
+             # Catch unexpected errors during calculation
+             return "N/A"
     
     def closeEvent(self, event):
         """Handle the tab close event"""
