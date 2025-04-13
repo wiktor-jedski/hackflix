@@ -10,19 +10,18 @@ import os
 import vlc
 import threading # For download worker thread
 import traceback # For detailed error printing
-import functools # For partial function application in retry
 
+from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
-                             QHBoxLayout, QPushButton, QLabel,
-                             QSlider, QStyle, QStackedWidget,
-                             QTabWidget, QMessageBox, QApplication)  # Added QMessageBox
-from PyQt5.QtCore import Qt, QTimer, pyqtSlot, QMetaObject, Q_ARG # Added pyqtSlot, QMetaObject, Q_ARG
+                           QHBoxLayout, QPushButton, QLabel,
+                           QSlider, QStyle, QStackedWidget,
+                           QTabWidget, QMessageBox, QApplication) # Added QApplication
+from PyQt5.QtCore import Qt, QTimer, pyqtSlot, QMetaObject, Q_ARG, pyqtSignal, QPoint
 
 # Import local modules
 from source.video_frame import VideoFrame
 from source.file_browser import FileBrowser
 from source.downloads_tab import DownloadsTab
-# from source.placeholder_tabs import SubtitlesTab, SuggestionsTab # Remove SubtitlesTab import
 from source.placeholder_tabs import SuggestionsTab # Keep SuggestionsTab for now
 from source.subtitle_manager import SubtitleManager, OPENSUBTITLES_USERNAME  # Import the new manager
 from source.subtitle_dialog import SubtitleResultsDialog # Import the new dialog
@@ -41,9 +40,18 @@ class MoviePlayerApp(QMainWindow):
         self.current_subtitle_to_download = None # Store selected subtitle dict
         self.pending_download_retry_info = None # Store {'file_id': id} for retry
 
+        # Fullscreen state flags
+        self.is_app_fullscreen = False
+        self.is_video_fullscreen = False
+        self.previous_widget_before_video_fs = None # To remember where to return
+        self.original_window_flags = self.windowFlags() # Store original flags
+        self.mouse_pos_before_hide = None # Store mouse position
+
         # Set window properties
         self.setWindowTitle("Raspberry Pi Movie Player")
         self.setGeometry(100, 100, 1024, 768)
+        # Allow the main window to receive key presses
+        self.setFocusPolicy(Qt.StrongFocus)
 
         # Create VLC instance and media player
         self.instance = vlc.Instance()
@@ -68,6 +76,7 @@ class MoviePlayerApp(QMainWindow):
         self.player_widget = QWidget()
         self.player_layout = QVBoxLayout(self.player_widget)
         self.video_frame = VideoFrame()
+        self.video_frame.doubleClicked.connect(self.toggle_video_fullscreen)  # Connect signal
         self.control_widget = QWidget()
         self.control_layout = QHBoxLayout(self.control_widget)
         self.play_button = QPushButton()
@@ -87,7 +96,7 @@ class MoviePlayerApp(QMainWindow):
         self.control_layout.addWidget(self.position_slider)
         self.control_layout.addWidget(self.time_label)
         self.control_layout.addWidget(self.back_button)
-        self.player_layout.addWidget(self.video_frame)
+        self.player_layout.addWidget(self.video_frame, 1)
         self.player_layout.addWidget(self.control_widget)
 
 
@@ -107,15 +116,22 @@ class MoviePlayerApp(QMainWindow):
         # Add tabs to the tab widget
         self.tab_widget.addTab(self.library_tab, "Library")
         self.tab_widget.addTab(self.downloads_tab, "Downloads")
-        # self.tab_widget.addTab(self.subtitles_tab, "Subtitles") # REMOVED
         self.tab_widget.addTab(self.suggestions_tab, "Suggestions")
 
         # Add tab widget to browser layout
         self.browser_layout.addWidget(self.tab_widget)
 
+        # --- Video Fullscreen View (View 2 in Stack) ---
+        self.video_fullscreen_widget = QWidget()
+        # Use a basic layout that allows the video frame to expand fully
+        self.video_fullscreen_layout = QVBoxLayout(self.video_fullscreen_widget)
+        self.video_fullscreen_layout.setContentsMargins(0, 0, 0, 0) # No margins
+        # self.video_frame will be *moved* here when fullscreen is active
+
         # Add widgets to stacked widget
-        self.stacked_widget.addWidget(self.browser_widget)
         self.stacked_widget.addWidget(self.player_widget)
+        self.stacked_widget.addWidget(self.browser_widget)
+        self.stacked_widget.addWidget(self.video_fullscreen_widget)  # Index 2
 
         # Add stacked widget to main layout
         self.main_layout.addWidget(self.stacked_widget)
@@ -146,54 +162,222 @@ class MoviePlayerApp(QMainWindow):
         self.subtitle_manager.login_status.connect(self.on_subtitle_login_status)
         self.subtitle_manager.quota_info.connect(self.on_subtitle_quota_info)
 
+        self.toggle_app_fullscreen()
+
+    # --- Fullscreen Toggling Methods ---
+
+    def toggle_app_fullscreen(self):
+        """Toggles the main application window fullscreen state."""
+        if self.is_app_fullscreen:
+            self.showNormal()
+            self.is_app_fullscreen = False
+            print("Exiting App Fullscreen")
+        else:
+            self.showFullScreen()
+            self.is_app_fullscreen = True
+            print("Entering App Fullscreen")
+
+    def toggle_video_fullscreen(self):
+        """Toggles the video playback fullscreen state within the app."""
+        if not self.mediaplayer.get_media():
+             print("Cannot enter video fullscreen: No media loaded.")
+             return
+
+        if self.is_video_fullscreen:
+            # --- Exit Video Fullscreen (via Double-Click or Escape) ---
+            print("Exiting Video Fullscreen Layout")
+
+            # --- Restore original window flags & state ---
+            # Restore cursor BEFORE changing window state
+            QApplication.restoreOverrideCursor()
+            if self.mouse_pos_before_hide:
+                 QCursor.setPos(self.mouse_pos_before_hide) # Restore mouse position
+                 self.mouse_pos_before_hide = None
+
+            # Restore normal window state *if* F11 wasn't the primary fullscreen trigger
+            # This logic gets tricky. Let's simplify: If exiting video fullscreen,
+            # always ensure the window is at least 'normal' decorated,
+            # F11 can re-apply fullscreen later if desired.
+            self.setWindowFlags(self.original_window_flags) # Restore original flags (incl. decorations)
+            if not self.is_app_fullscreen: # If F11 wasn't active, ensure normal state
+                self.showNormal()
+            else: # If F11 WAS active, re-apply fullscreen *with* decorations
+                 self.showFullScreen()
+            self.show() # Crucial: Need to re-show window after changing flags
+
+            # --- End Restore ---
+
+            if self.previous_widget_before_video_fs:
+                # Move video frame back
+                self.video_fullscreen_layout.removeWidget(self.video_frame)
+                self.player_layout.insertWidget(0, self.video_frame, 1)
+
+                # Switch back view
+                self.stacked_widget.setCurrentWidget(self.previous_widget_before_video_fs)
+                self.control_widget.show()
+
+                self.is_video_fullscreen = False
+                self.previous_widget_before_video_fs = None
+
+                QTimer.singleShot(50, lambda: self._set_vlc_window(self.video_frame.winId()))
+
+            else:
+                 # Fallback
+                 self.stacked_widget.setCurrentWidget(self.player_widget)
+                 self.is_video_fullscreen = False
+
+        else:
+            # --- Enter Video Fullscreen ---
+            if self.stacked_widget.currentWidget() is not self.player_widget:
+                 # ... (logic to switch to player view first if needed) ...
+                 return
+
+            print("Entering Video Fullscreen Layout")
+
+            # --- Store original flags if not already stored ---
+            # This ensures we capture the state *before* going borderless fullscreen
+            if self.windowFlags() == self.original_window_flags:
+                self.is_app_fullscreen = self.isFullScreen() # Check F11 state BEFORE changing flags
+
+            # --- Set Frameless Hint and Fullscreen ---
+            # Store current mouse position
+            self.mouse_pos_before_hide = QCursor.pos()
+            # Hide cursor AFTER storing position
+            QApplication.setOverrideCursor(Qt.BlankCursor)
+
+            self.setWindowFlags(self.original_window_flags | Qt.FramelessWindowHint) # Add frameless hint
+            self.showFullScreen() # Go fullscreen *after* setting flags
+            self.show() # Re-show might be needed after flag changes
+            # --- End Frameless ---
+
+            self.previous_widget_before_video_fs = self.player_widget
+
+            self.control_widget.hide()
+            self.player_layout.removeWidget(self.video_frame)
+            self.video_fullscreen_layout.addWidget(self.video_frame)
+
+            self.stacked_widget.setCurrentWidget(self.video_fullscreen_widget)
+            self.is_video_fullscreen = True
+
+            QTimer.singleShot(50, lambda: self._set_vlc_window(self.video_frame.winId()))
+
+
+    def _set_vlc_window(self, win_id_obj):
+        """Helper function to set the VLC output window, ensuring integer ID."""
+        # --- Convert winId object to integer ---
+        try:
+            # winId() can return different types, ensure it's an int
+            win_id = int(win_id_obj)
+            print(f"Setting VLC output window to ID: {win_id} (converted from {win_id_obj})")
+        except (TypeError, ValueError) as e:
+             print(f"Error converting winId ({win_id_obj}) to integer: {e}")
+             QMessageBox.warning(self, "VLC Error", f"Could not get valid window ID for video output.")
+             return # Cannot proceed without a valid integer ID
+        # --- End Conversion ---
+
+        try:
+            if sys.platform.startswith('linux'):
+                self.mediaplayer.set_xwindow(win_id) # Pass integer ID
+            elif sys.platform == "win32":
+                self.mediaplayer.set_hwnd(win_id) # Pass integer ID
+            elif sys.platform == "darwin":
+                # Casting to int should also work for the nsobject method on macOS
+                self.mediaplayer.set_nsobject(win_id) # Pass integer ID
+            # No need for the complex QMacCocoaViewContainer workaround for now
+
+        except Exception as e:
+            print(f"Error setting VLC window with ID {win_id}: {e}")
+            # Display a more specific error if possible
+            if isinstance(e, TypeError):
+                 err_msg = f"VLC reported a type error setting the window ID.\nEnsure VLC and Qt versions are compatible."
+            else:
+                 err_msg = f"Could not attach video output:\n{e}"
+            QMessageBox.warning(self, "VLC Error", err_msg)
+
+    # --- Event Handling ---
+    def keyPressEvent(self, event):
+        """Handle key presses for fullscreen toggles."""
+        key = event.key()
+
+        if key == Qt.Key_F11:
+            # F11 toggles the main window fullscreen state WITH decorations
+            if self.is_video_fullscreen:
+                # If video layout is active, exit it first, then toggle app state
+                print("F11 pressed during video fullscreen: Exiting video layout first.")
+                self.toggle_video_fullscreen()
+                 # Now toggle the app's decorated fullscreen state after a delay
+                QTimer.singleShot(100, self._toggle_app_fullscreen_decorated)
+            else:
+                 # Video layout not active, just toggle decorated fullscreen
+                 self._toggle_app_fullscreen_decorated()
+            event.accept()
+
+        elif key == Qt.Key_Escape and self.is_video_fullscreen:
+            # Escape *only* exits the internal video fullscreen layout AND restores decorations
+            print("Escape pressed: Exiting Video Fullscreen Layout")
+            self.toggle_video_fullscreen() # This now handles restoring flags/state
+            event.accept()
+
+        elif key == Qt.Key_Space:
+             current_view = self.stacked_widget.currentWidget()
+             if current_view is self.player_widget or current_view is self.video_fullscreen_widget:
+                 self.play_pause()
+                 event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def _toggle_app_fullscreen_decorated(self):
+        """Toggles app fullscreen WITH standard decorations."""
+        # Ensure we are using original flags (with decorations)
+        if self.windowFlags() != self.original_window_flags:
+            self.setWindowFlags(self.original_window_flags)
+
+        if self.isFullScreen():
+            self.showNormal()
+            self.is_app_fullscreen = False
+            print("Exiting App Fullscreen (Decorated)")
+        else:
+            self.showFullScreen()
+            self.is_app_fullscreen = True
+            print("Entering App Fullscreen (Decorated)")
+        self.show() # Ensure visibility after flag/state changes
 
     # --- Player Methods (Unchanged) ---
     def play_file(self, filepath):
         """Play a media file and switch to the player view"""
-        if filepath and os.path.isfile(filepath): # Check if file exists
-            try:
-                # Create a VLC media object from the file
-                self.media = self.instance.media_new(filepath)
+        if self.is_video_fullscreen:
+             self.toggle_video_fullscreen() # Exit video fullscreen if playing a new file
 
-                # Set the media to the player
+        if filepath and os.path.isfile(filepath):
+            try:
+                # Ensure video frame is in the correct layout before starting
+                if self.video_frame.parentWidget() is not self.player_widget:
+                     # If it was left in fullscreen layout somehow, move it back
+                     current_layout = self.video_frame.layout()
+                     if current_layout:
+                         current_layout.removeWidget(self.video_frame)
+                     self.player_layout.insertWidget(0, self.video_frame, 1)
+
+                self.media = self.instance.media_new(filepath)
                 self.mediaplayer.set_media(self.media)
 
-                # Pass the window ID to the player
-                if sys.platform.startswith('linux'):  # for Linux
-                    self.mediaplayer.set_xwindow(int(self.video_frame.winId()))
-                elif sys.platform == "win32":  # for Windows
-                    self.mediaplayer.set_hwnd(int(self.video_frame.winId()))
-                elif sys.platform == "darwin":  # for MacOS
-                    # Note: set_nsobject might need the view object, not just winId on modern macOS
-                    # This might require adjustments based on the specific Qt/VLC/macOS version
-                    try:
-                         from PyQt5.QtGui import QMacCocoaViewContainer # Requires Qt >= 5.15?
-                         view = QMacCocoaViewContainer(0, self.video_frame)
-                         self.mediaplayer.set_nsobject(view.cocoaView())
-                    except ImportError:
-                         print("Warning: QMacCocoaViewContainer not found. Trying older method for macOS.")
-                         self.mediaplayer.set_nsobject(int(self.video_frame.winId()))
-                    except Exception as e_mac:
-                         print(f"Error setting video output for macOS: {e_mac}")
+                # Set the output window *before* switching view might be safer
+                self._set_vlc_window(self.video_frame.winId())
 
-
-                # Switch to the player view
+                # Switch to the player view (Index 0)
                 self.stacked_widget.setCurrentWidget(self.player_widget)
+                self.control_widget.show() # Ensure controls are visible
 
-                # Start playing
                 self.mediaplayer.play()
-                # Wait a fraction of a second for playback to potentially start before checking state
                 QTimer.singleShot(100, self._update_play_button_icon)
 
-                self.is_playing = True # Assume playing, will be corrected by timer if needed
+                self.is_playing = True
                 self.timer.start()
-
-                # Update window title with the filename
                 self.setWindowTitle(f"Playing - {os.path.basename(filepath)}")
 
             except Exception as e:
                  QMessageBox.critical(self, "Playback Error", f"Failed to play file '{os.path.basename(filepath)}':\n{str(e)}")
-                 self.show_browser() # Go back to browser on error
+                 self.show_browser()
         elif filepath:
              QMessageBox.warning(self, "File Not Found", f"The selected file could not be found:\n{filepath}")
         else:
@@ -284,9 +468,12 @@ class MoviePlayerApp(QMainWindow):
             self.mediaplayer.set_position(position / 1000.0)
 
     def show_browser(self):
-        """Switch back to browser view"""
+        """Switch back to browser view, ensuring exit from video fullscreen."""
+        if self.is_video_fullscreen:
+             self.toggle_video_fullscreen() # Exit video fullscreen first
+
         self.stop() # Stop playback when going back
-        self.stacked_widget.setCurrentWidget(self.browser_widget)
+        self.stacked_widget.setCurrentWidget(self.browser_widget) # Index 1
         self.setWindowTitle("Raspberry Pi Movie Player")
 
 
