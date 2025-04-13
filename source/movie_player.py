@@ -435,14 +435,14 @@ class MoviePlayerApp(QMainWindow):
         self.current_search_video_path = None
         self.current_subtitle_to_download = None
 
-    @pyqtSlot(str)
+    @pyqtSlot(dict)
     def on_subtitle_download_error(self, error_message_json):
         """Slot called if requesting the download link fails. Handles auto-relogin."""
         QApplication.restoreOverrideCursor()
 
-        # --- Attempt to parse error details ---
-        error_status = -1
-        error_msg_text = error_message_json  # Default message
+        # Now 'error_details' is the actual dictionary emitted by the signal
+        error_status = error_message_json.get('status', -1)
+        error_msg_text = error_message_json.get('message', 'Unknown download error')
         try:
             # The error message is often JSON containing status and message
             # Let's try parsing it if the SubtitleManager passed JSON string
