@@ -179,9 +179,36 @@ class TorrentDownloader(QObject):
                 'enable_natpmp': True
             }
             self.session = lt.session(settings)
-            # Or try applying settings after creation if the above fails
-            # self.session = lt.session()
-            # self.session.set_settings(settings) # Older set_settings method
+            try:
+                # Enable various status and error alerts
+                alert_mask = (lt.alert.category_t.error_notification |
+                              lt.alert.category_t.peer_notification |
+                              lt.alert.category_t.port_mapping_notification |
+                              lt.alert.category_t.storage_notification |
+                              lt.alert.category_t.tracker_notification |
+                              lt.alert.category_t.connect_notification |
+                              lt.alert.category_t.status_notification |
+                              # Add DHT specific alerts
+                              lt.alert.category_t.dht_notification |
+                              lt.alert.category_t.dht_log_notification |  # Very verbose
+                              lt.alert.category_t.dht_operation_notification
+                              )
+                settings = self.session.get_settings()
+                settings['alert_mask'] = alert_mask
+                self.session.apply_settings(settings)
+                print("Enabled detailed libtorrent alerts including DHT.")
+            except AttributeError as e:
+                print(
+                    f"Warning: Could not set detailed alert mask (libtorrent version might be too old or flags changed): {e}")
+            except Exception as e:
+                print(f"Warning: Error setting alert_mask: {e}")
+
+            # Also, ensure DHT is explicitly enabled (already done, but double-check)
+            settings = self.session.get_settings()
+            if 'enable_dht' not in settings or not settings['enable_dht']:
+                settings['enable_dht'] = True
+                self.session.apply_settings(settings)
+                print("Ensured DHT is enabled.")
 
             # Listen on port
             self.session.listen_on(6881, 6891)
