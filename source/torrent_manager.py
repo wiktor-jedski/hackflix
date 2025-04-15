@@ -209,6 +209,10 @@ class TorrentDownloader(QObject):
                 settings['enable_dht'] = True
                 self.session.apply_settings(settings)
                 print("Ensured DHT is enabled.")
+            settings[
+                'dht_bootstrap_nodes'] = "dht.libtorrent.org:25401,router.utorrent.com:6881,router.bittorrent.com:6881,dht.transmissionbt.com:6881"
+            self.session.apply_settings(settings)
+            print("Set specific DHT bootstrap nodes.")
 
             # Listen on port
             self.session.listen_on(6881, 6891)
