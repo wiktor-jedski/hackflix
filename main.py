@@ -7,6 +7,7 @@ This script imports the necessary components from the source directory and runs 
 import sys
 import os
 from PyQt5.QtWidgets import QApplication
+from PyQt5.QtCore import QFile, QTextStream # Import classes for file handling
 
 # Import directly from the movie_player module
 from source.movie_player import MoviePlayerApp
@@ -14,9 +15,33 @@ from source.movie_player import MoviePlayerApp
 from source.subtitle_manager import OPENSUBTITLES_API_KEY, OPENSUBTITLES_USERNAME, OPENSUBTITLES_PASSWORD
 
 
+def load_stylesheet(app, filename="source/dark_theme.qss"):
+    """Loads a QSS file and applies it to the application."""
+    style_file = QFile(filename)
+    if not style_file.exists():
+        print(f"Warning: Stylesheet file '{filename}' not found.")
+        return False
+    if style_file.open(QFile.ReadOnly | QFile.Text):
+        stream = QTextStream(style_file)
+        stylesheet = stream.readAll()
+        app.setStyleSheet(stylesheet)
+        print(f"Applied stylesheet from '{filename}'")
+        style_file.close()
+        return True
+    else:
+        print(f"Error: Could not open stylesheet file '{filename}'.")
+        return False
+
+
 def main():
     """Initialize and run the application"""
+    # Set environment variable for Qt scaling if needed (optional)
+    os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+    os.environ["QT_SCALE_FACTOR"] = "2.0" # Adjust if UI elements are too small/large
+
     app = QApplication(sys.argv)
+
+    load_stylesheet(app)
 
     # --- Check Configuration Placeholders ---
     if OPENSUBTITLES_API_KEY == "YOUR_API_KEY_HERE":
