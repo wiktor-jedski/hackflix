@@ -165,8 +165,6 @@ class MoviePlayerApp(QMainWindow):
         self.subtitle_manager.login_status.connect(self.on_subtitle_login_status)
         self.subtitle_manager.quota_info.connect(self.on_subtitle_quota_info)
 
-        # self.toggle_app_fullscreen()
-
     # --- Fullscreen Toggling Methods ---
 
     def enter_video_fullscreen_layout(self):

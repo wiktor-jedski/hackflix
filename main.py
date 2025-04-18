@@ -59,7 +59,7 @@ def main():
     # --- End Check ---
 
     player = MoviePlayerApp()
-    player.show()
+    player.showMaximized()
     sys.exit(app.exec_())
 
 
