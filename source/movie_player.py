@@ -15,8 +15,8 @@ from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                            QHBoxLayout, QPushButton, QLabel,
                            QSlider, QStyle, QStackedWidget,
-                           QTabWidget, QMessageBox, QApplication) # Added QApplication
-from PyQt5.QtCore import Qt, QTimer, pyqtSlot, QMetaObject, Q_ARG, pyqtSignal, QPoint
+                           QTabWidget, QMessageBox, QApplication, QDesktopWidget)
+from PyQt5.QtCore import Qt, QTimer, pyqtSlot, QMetaObject, Q_ARG, pyqtSignal, QPoint, QEvent
 
 # Import local modules
 from source.video_frame import VideoFrame
@@ -36,16 +36,19 @@ class MoviePlayerApp(QMainWindow):
         super().__init__()
 
         # --- Internal State ---
+        self.previous_widget_before_video_fs = None
         self.current_search_video_path = None # Store path for subtitle context
         self.current_subtitle_to_download = None # Store selected subtitle dict
         self.pending_download_retry_info = None # Store {'file_id': id} for retry
 
         # Fullscreen state flags
-        self.is_app_fullscreen = False
-        self.is_video_fullscreen = False
-        self.previous_widget_before_video_fs = None # To remember where to return
-        self.original_window_flags = self.windowFlags() # Store original flags
-        self.mouse_pos_before_hide = None # Store mouse position
+        self.is_video_layout_fullscreen = False
+        self.original_window_flags = self.windowFlags()
+        self.mouse_pos_before_hide = None
+        self.original_geometry_before_fs = None # Store geometry too
+
+        # Get screen geometry reference
+        self.screen_geometry = QApplication.desktop().screenGeometry() # Get primary screen geometry
 
         # Set window properties
         self.setWindowTitle("Raspberry Pi Movie Player")
@@ -162,104 +165,112 @@ class MoviePlayerApp(QMainWindow):
         self.subtitle_manager.login_status.connect(self.on_subtitle_login_status)
         self.subtitle_manager.quota_info.connect(self.on_subtitle_quota_info)
 
-        self.toggle_app_fullscreen()
+        # self.toggle_app_fullscreen()
 
     # --- Fullscreen Toggling Methods ---
 
-    def toggle_app_fullscreen(self):
-        """Toggles the main application window fullscreen state."""
-        if self.is_app_fullscreen:
-            self.showNormal()
-            self.is_app_fullscreen = False
-            print("Exiting App Fullscreen")
-        else:
-            self.showFullScreen()
-            self.is_app_fullscreen = True
-            print("Entering App Fullscreen")
-
-    def toggle_video_fullscreen(self):
-        """Toggles the video playback fullscreen state within the app."""
-        if not self.mediaplayer.get_media():
-             print("Cannot enter video fullscreen: No media loaded.")
+    def enter_video_fullscreen_layout(self):
+        """Handles the transition TO video fullscreen layout."""
+        # ... (Check if in player view) ...
+        if self.stacked_widget.currentWidget() is not self.player_widget:
+             # ... (Switch to player view logic) ...
              return
 
-        if self.is_video_fullscreen:
-            # --- Exit Video Fullscreen (via Double-Click or Escape) ---
-            print("Exiting Video Fullscreen Layout")
+        print("Entering Video Fullscreen Layout")
 
-            # --- Restore original window flags & state ---
-            # Restore cursor BEFORE changing window state
-            QApplication.restoreOverrideCursor()
-            if self.mouse_pos_before_hide:
-                 QCursor.setPos(self.mouse_pos_before_hide) # Restore mouse position
-                 self.mouse_pos_before_hide = None
+        # Store original geometry and flags BEFORE changing anything
+        self.original_geometry_before_fs = self.geometry()
+        # Using original flags here, NO FramelessWindowHint yet
+        # self.setWindowFlags(self.original_window_flags) # Ensure standard flags
 
-            # Restore normal window state *if* F11 wasn't the primary fullscreen trigger
-            # This logic gets tricky. Let's simplify: If exiting video fullscreen,
-            # always ensure the window is at least 'normal' decorated,
-            # F11 can re-apply fullscreen later if desired.
-            self.setWindowFlags(self.original_window_flags) # Restore original flags (incl. decorations)
-            if not self.is_app_fullscreen: # If F11 wasn't active, ensure normal state
-                self.showNormal()
-            else: # If F11 WAS active, re-apply fullscreen *with* decorations
-                 self.showFullScreen()
-            self.show() # Crucial: Need to re-show window after changing flags
+        # Store mouse pos and hide cursor
+        self.mouse_pos_before_hide = QCursor.pos()
+        QApplication.setOverrideCursor(Qt.BlankCursor)
 
-            # --- End Restore ---
+        # --- Go Fullscreen FIRST ---
+        print("  Making App Window Fullscreen (Standard).")
+        self.showFullScreen()
+        # Give it a moment to potentially settle
+        QTimer.singleShot(50, self._adjust_fullscreen_geometry)
 
-            if self.previous_widget_before_video_fs:
-                # Move video frame back
-                self.video_fullscreen_layout.removeWidget(self.video_frame)
-                self.player_layout.insertWidget(0, self.video_frame, 1)
+        # --- Continue with layout switching ---
+        self.previous_widget_before_video_fs = self.player_widget
+        self.control_widget.hide()
+        self.player_layout.removeWidget(self.video_frame)
+        self.video_fullscreen_layout.addWidget(self.video_frame)
+        self.stacked_widget.setCurrentWidget(self.video_fullscreen_widget)
+        self.is_video_layout_fullscreen = True
 
-                # Switch back view
-                self.stacked_widget.setCurrentWidget(self.previous_widget_before_video_fs)
-                self.control_widget.show()
+        # Set VLC window ID - Delay slightly more after geometry adjustment attempt
+        QTimer.singleShot(100, lambda: self._set_vlc_window(self.video_frame.winId()))
 
-                self.is_video_fullscreen = False
-                self.previous_widget_before_video_fs = None
+    def _adjust_fullscreen_geometry(self):
+        """Attempt to force geometry over decorations after showFullScreen."""
+        if self.isFullScreen(): # Only if still fullscreen
+             print(f"  Adjusting geometry to screen: {self.screen_geometry}")
+             self.setGeometry(self.screen_geometry)
+             self.activateWindow() # Try bringing it to the front
+             self.raise_()        # Try raising it above others
+             # Forcing an update might help sometimes
+             self.update()
 
-                QTimer.singleShot(50, lambda: self._set_vlc_window(self.video_frame.winId()))
+    def exit_video_fullscreen_layout(self):
+        """Handles the transition FROM video fullscreen layout."""
+        if not self.is_video_layout_fullscreen:
+            return
 
-            else:
-                 # Fallback
-                 self.stacked_widget.setCurrentWidget(self.player_widget)
-                 self.is_video_fullscreen = False
+        print("Exiting Video Fullscreen Layout")
 
+        # Restore cursor and mouse position first
+        QApplication.restoreOverrideCursor()
+        if self.mouse_pos_before_hide:
+            QCursor.setPos(self.mouse_pos_before_hide)
+            self.mouse_pos_before_hide = None
+
+        # --- Restore App Window State to NORMAL ---
+        print("  Restoring App Window to Normal State.")
+        # Restore flags first (removes potential Frameless hint if added elsewhere)
+        self.setWindowFlags(self.original_window_flags)
+        self.showNormal() # Go back to normal windowed mode
+
+        # Restore original geometry if stored
+        if self.original_geometry_before_fs:
+             print(f"  Restoring original geometry: {self.original_geometry_before_fs}")
+             self.setGeometry(self.original_geometry_before_fs)
+             self.original_geometry_before_fs = None # Clear stored geometry
+
+        self.show() # Ensure visibility
+        # --- End App Restore ---
+
+        # Reparent video frame
+        if self.previous_widget_before_video_fs:
+            self.video_fullscreen_layout.removeWidget(self.video_frame)
+            self.player_layout.insertWidget(0, self.video_frame, 1)
+
+            # Switch back stacked widget view
+            self.stacked_widget.setCurrentWidget(self.previous_widget_before_video_fs)
+            self.control_widget.show()
         else:
-            # --- Enter Video Fullscreen ---
-            if self.stacked_widget.currentWidget() is not self.player_widget:
-                 # ... (logic to switch to player view first if needed) ...
-                 return
+            self.stacked_widget.setCurrentWidget(self.player_widget)
+            self.control_widget.show()
 
-            print("Entering Video Fullscreen Layout")
+        self.is_video_layout_fullscreen = False
+        self.previous_widget_before_video_fs = None
 
-            # --- Store original flags if not already stored ---
-            # This ensures we capture the state *before* going borderless fullscreen
-            if self.windowFlags() == self.original_window_flags:
-                self.is_app_fullscreen = self.isFullScreen() # Check F11 state BEFORE changing flags
+        # Set VLC window ID after layout settles
+        QTimer.singleShot(50, lambda: self._set_vlc_window(self.video_frame.winId()))
 
-            # --- Set Frameless Hint and Fullscreen ---
-            # Store current mouse position
-            self.mouse_pos_before_hide = QCursor.pos()
-            # Hide cursor AFTER storing position
-            QApplication.setOverrideCursor(Qt.BlankCursor)
+    # Simplified toggle method
+    def toggle_video_fullscreen(self):
+        """Toggles the video layout fullscreen state."""
+        if not self.mediaplayer.get_media():
+            print("Cannot toggle video fullscreen: No media loaded.")
+            return
 
-            self.setWindowFlags(self.original_window_flags | Qt.FramelessWindowHint) # Add frameless hint
-            self.showFullScreen() # Go fullscreen *after* setting flags
-            self.show() # Re-show might be needed after flag changes
-            # --- End Frameless ---
-
-            self.previous_widget_before_video_fs = self.player_widget
-
-            self.control_widget.hide()
-            self.player_layout.removeWidget(self.video_frame)
-            self.video_fullscreen_layout.addWidget(self.video_frame)
-
-            self.stacked_widget.setCurrentWidget(self.video_fullscreen_widget)
-            self.is_video_fullscreen = True
-
-            QTimer.singleShot(50, lambda: self._set_vlc_window(self.video_frame.winId()))
+        if self.is_video_layout_fullscreen:
+            self.exit_video_fullscreen_layout()
+        else:
+            self.enter_video_fullscreen_layout()
 
 
     def _set_vlc_window(self, win_id_obj):
@@ -301,22 +312,25 @@ class MoviePlayerApp(QMainWindow):
 
         if key == Qt.Key_F11:
             # F11 toggles the main window fullscreen state WITH decorations
-            if self.is_video_fullscreen:
-                # If video layout is active, exit it first, then toggle app state
-                print("F11 pressed during video fullscreen: Exiting video layout first.")
-                self.toggle_video_fullscreen()
-                 # Now toggle the app's decorated fullscreen state after a delay
-                QTimer.singleShot(100, self._toggle_app_fullscreen_decorated)
+            print("F11 Pressed")
+            if self.is_video_layout_fullscreen:
+                 # If video layout is active, F11 should exit it first
+                 print("  Video layout active. Exiting it first.")
+                 self.exit_video_fullscreen_layout() # Puts app in normal mode
+                 # Optionally trigger decorated fullscreen after exit:
+                 # QTimer.singleShot(100, self._toggle_app_fullscreen_decorated)
             else:
-                 # Video layout not active, just toggle decorated fullscreen
                  self._toggle_app_fullscreen_decorated()
             event.accept()
 
-        elif key == Qt.Key_Escape and self.is_video_fullscreen:
-            # Escape *only* exits the internal video fullscreen layout AND restores decorations
-            print("Escape pressed: Exiting Video Fullscreen Layout")
-            self.toggle_video_fullscreen() # This now handles restoring flags/state
-            event.accept()
+        elif key == Qt.Key_Escape:
+            # Escape *only* exits the internal video fullscreen layout
+            if self.is_video_layout_fullscreen:
+                print("Escape pressed: Exiting Video Fullscreen Layout")
+                self.exit_video_fullscreen_layout() # Puts app in normal mode
+                event.accept()
+            else:
+                 super().keyPressEvent(event)
 
         elif key == Qt.Key_Space:
              current_view = self.stacked_widget.currentWidget()
@@ -328,25 +342,41 @@ class MoviePlayerApp(QMainWindow):
 
     def _toggle_app_fullscreen_decorated(self):
         """Toggles app fullscreen WITH standard decorations."""
-        # Ensure we are using original flags (with decorations)
+        # Ensure standard flags
         if self.windowFlags() != self.original_window_flags:
-            self.setWindowFlags(self.original_window_flags)
+             print("  Restoring standard window flags.")
+             self.setWindowFlags(self.original_window_flags)
 
         if self.isFullScreen():
             self.showNormal()
-            self.is_app_fullscreen = False
-            print("Exiting App Fullscreen (Decorated)")
+            print("  Exiting App Fullscreen (Decorated)")
+            # Restore original geometry if stored and currently fullscreen
+            if self.original_geometry_before_fs:
+                 print(f"  Restoring original geometry: {self.original_geometry_before_fs}")
+                 self.setGeometry(self.original_geometry_before_fs)
+                 self.original_geometry_before_fs = None # Clear stored geometry
         else:
+            # Store geometry before going fullscreen
+            self.original_geometry_before_fs = self.geometry()
             self.showFullScreen()
-            self.is_app_fullscreen = True
-            print("Entering App Fullscreen (Decorated)")
-        self.show() # Ensure visibility after flag/state changes
+            print("  Entering App Fullscreen (Decorated)")
+        self.show()
 
-    # --- Player Methods (Unchanged) ---
+    def show_browser(self):
+        """Switch back to browser view, ensuring exit from video fullscreen."""
+        if self.is_video_layout_fullscreen:
+             print("show_browser: Exiting video layout first.")
+             self.exit_video_fullscreen_layout() # Exit video fullscreen layout
+
+        self.stop()
+        self.stacked_widget.setCurrentWidget(self.browser_widget)
+        self.setWindowTitle("Raspberry Pi Movie Player")
+
     def play_file(self, filepath):
         """Play a media file and switch to the player view"""
-        if self.is_video_fullscreen:
-             self.toggle_video_fullscreen() # Exit video fullscreen if playing a new file
+        if self.is_video_layout_fullscreen:
+             print("play_file: Exiting video layout first.")
+             self.exit_video_fullscreen_layout() # Exit video fullscreen first
 
         if filepath and os.path.isfile(filepath):
             try:
@@ -467,14 +497,21 @@ class MoviePlayerApp(QMainWindow):
         if self.mediaplayer.get_media():
             self.mediaplayer.set_position(position / 1000.0)
 
-    def show_browser(self):
-        """Switch back to browser view, ensuring exit from video fullscreen."""
-        if self.is_video_fullscreen:
-             self.toggle_video_fullscreen() # Exit video fullscreen first
-
-        self.stop() # Stop playback when going back
-        self.stacked_widget.setCurrentWidget(self.browser_widget) # Index 1
-        self.setWindowTitle("Raspberry Pi Movie Player")
+    # def changeEvent(self, event):
+    #     """Handle window state changes."""
+    #     if event.type() == QEvent.WindowStateChange:
+    #         old_state = event.oldState()
+    #         new_state = self.windowState()
+    #
+    #         # Check if we were externally forced out of fullscreen
+    #         if (old_state & Qt.WindowFullScreen) and not (new_state & Qt.WindowFullScreen):
+    #             print("Detected external exit from App Fullscreen.")
+    #             # If we were in video layout fullscreen, exit that too
+    #             if self.is_video_layout_fullscreen:
+    #                 print("  Also exiting video layout.")
+    #                 self.exit_video_fullscreen_layout() # Call our exit logic
+    #
+    #     super().changeEvent(event)
 
 
     # --- Subtitle Handling Slots ---
