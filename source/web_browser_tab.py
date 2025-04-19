@@ -62,14 +62,17 @@ class WebBrowserTab(QWidget):
         nav_bar = QHBoxLayout()
         nav_bar.setContentsMargins(2, 2, 2, 2)
 
-        self.back_button = QPushButton("< Back")
-        self.forward_button = QPushButton("Forward >")
-        self.reload_button = QPushButton("Reload")
-        self.home_button = QPushButton("Home")
+        # Use tr() for button text
+        self.back_button = QPushButton(self.tr("< Back"))
+        self.forward_button = QPushButton(self.tr("Forward >"))
+        self.reload_button = QPushButton(self.tr("Reload"))
+        self.home_button = QPushButton(self.tr("Home"))
         self.url_bar = QLineEdit()
-        self.url_bar.setPlaceholderText("Enter URL...")
-        self.search_title_button = QPushButton("Search Title") # Changed label slightly
-        self.search_title_button.setToolTip("Search for the displayed movie title (original or primary) in Downloads")
+        # Use tr() for placeholder text
+        self.url_bar.setPlaceholderText(self.tr("Enter URL..."))
+        # Use tr() for button text and tooltip
+        self.search_title_button = QPushButton(self.tr("Search Title"))
+        self.search_title_button.setToolTip(self.tr("Search for the displayed movie title (original or primary) in Downloads"))
 
         nav_bar.addWidget(self.back_button)
         nav_bar.addWidget(self.forward_button)
@@ -129,7 +132,13 @@ class WebBrowserTab(QWidget):
         if not url_text.startswith(('http://', 'https://')): url_text = 'https://' + url_text
         qurl = QUrl(url_text)
         if qurl.isValid(): self.browser.setUrl(qurl)
-        else: QMessageBox.warning(self, "Invalid URL", f"Invalid URL:\n{url_text}"); print(f"Invalid URL: {url_text}")
+        else:
+             # Use tr() for message box
+             QMessageBox.warning(self,
+                 self.tr("Invalid URL"),
+                 self.tr("The entered URL is not valid:\n{0}").format(url_text)
+             )
+             print(f"Invalid URL: {url_text}")
 
     @pyqtSlot(QUrl)
     def update_url_bar(self, qurl):
@@ -155,54 +164,34 @@ class WebBrowserTab(QWidget):
         page = self.browser.page()
         if page:
             print(f"Attempting to extract title using selectors: '{ORIGINAL_TITLE_SELECTOR}' or '{PRIMARY_TITLE_SELECTOR}'")
-
-            # --- Modified JavaScript Code ---
-            # Tries the original title first, falls back to primary title.
             js_code = f"""
             (function() {{
-                var title = null;
-                var titleElement = null;
-
-                // 1. Try original title selector
+                var title = null; var titleElement = null;
                 titleElement = document.querySelector('{ORIGINAL_TITLE_SELECTOR}');
                 if (titleElement) {{
                     var clone = titleElement.cloneNode(true);
                     var yearElement = clone.querySelector('.filmCoverSection__year');
-                    if (yearElement) {{
-                        clone.removeChild(yearElement);
-                    }}
-                    title = clone.textContent.trim();
-                    // Return immediately if found and not empty
-                    if (title) {{ return title; }}
+                    if (yearElement) {{ clone.removeChild(yearElement); }}
+                    title = clone.textContent.trim(); if (title) {{ return title; }}
                 }}
-
-                // 2. If original title not found or was empty, try primary title selector
                 titleElement = document.querySelector('{PRIMARY_TITLE_SELECTOR}');
                 if (titleElement) {{
-                    // Primary title usually doesn't have the year div inside,
-                    // but we can clone and trim just in case of extra whitespace.
-                    var clone = titleElement.cloneNode(true);
-                    title = clone.textContent.trim();
-                    // Return if found and not empty
+                    var clone = titleElement.cloneNode(true); title = clone.textContent.trim();
                     if (title) {{ return title; }}
                 }}
-
-                // 3. If neither found, return null
                 return null;
             }})();
             """
-            # --- End JavaScript Code ---
-
             page.runJavaScript(js_code, self.handle_javascript_result)
         else:
-            QMessageBox.warning(self, "Error", "Web engine page not available to extract title.")
+            # Use tr() for message box
+            QMessageBox.warning(self, self.tr("Error"), self.tr("Web engine page not available."))
             print("Cannot run JavaScript: Browser page not available.")
 
 
     def handle_javascript_result(self, result):
         """ Callback function to process the result of the JavaScript execution """
         print(f"JavaScript result received: '{result}' (Type: {type(result)})")
-
         if result and isinstance(result, str):
             extracted_title = result.strip()
             if extracted_title:
@@ -210,11 +199,17 @@ class WebBrowserTab(QWidget):
                 self.search_requested.emit(extracted_title)
             else:
                 print("JavaScript returned an empty string after trimming.")
-                QMessageBox.information(self, "Title Not Found",
-                                        "Could not automatically extract title (result was empty). Please copy/paste manually.")
+                # Use tr() for message box
+                QMessageBox.information(self,
+                    self.tr("Title Not Found"),
+                    self.tr("Could not extract title (result was empty). Please copy/paste.")
+                )
         else:
             print("Title element not found or JS failed.")
-            QMessageBox.information(self, "Title Not Found",
-                                    f"Could not automatically find title elements ('{ORIGINAL_TITLE_SELECTOR}' or '{PRIMARY_TITLE_SELECTOR}') on this page. Please copy/paste manually.")
+             # Use tr() for message box
+            QMessageBox.information(self,
+                self.tr("Title Not Found"),
+                self.tr("Could not automatically find title elements ('{0}' or '{1}') on this page. Please copy/paste.").format(ORIGINAL_TITLE_SELECTOR, PRIMARY_TITLE_SELECTOR)
+            )
 
 # --- END OF FILE source/web_browser_tab.py ---

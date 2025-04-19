@@ -9,7 +9,6 @@ from PyQt5.QtWidgets import QWidget, QSizePolicy, QApplication
 from PyQt5.QtGui import QPalette, QColor, QCursor
 from PyQt5.QtCore import Qt, pyqtSignal
 
-
 class VideoFrame(QWidget):
     """Widget for displaying video content"""
 
@@ -47,3 +46,5 @@ class VideoFrame(QWidget):
         # Call super just in case event propagation matters for other things
         super().mouseMoveEvent(event)
         # event.accept() # Usually don't accept here if calling super
+
+# --- END OF FILE source/video_frame.py ---

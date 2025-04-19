@@ -18,7 +18,8 @@ class SubtitleResultsDialog(QDialog):
 
     def __init__(self, results, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Subtitle Search Results")
+        # Use tr() for window title
+        self.setWindowTitle(self.tr("Subtitle Search Results"))
         self.setMinimumSize(600, 400) # Set a reasonable minimum size
 
         self.results_data = results # Store the raw results
@@ -26,7 +27,8 @@ class SubtitleResultsDialog(QDialog):
         # --- Layout ---
         layout = QVBoxLayout()
 
-        self.info_label = QLabel(f"Found {len(results)} subtitles. Select one to download.")
+        # Use tr() for label text - uses format for number
+        self.info_label = QLabel(self.tr("Found {0} subtitles. Select one to download.").format(len(results)))
         layout.addWidget(self.info_label)
 
         self.results_list = QListWidget()
@@ -34,9 +36,11 @@ class SubtitleResultsDialog(QDialog):
         layout.addWidget(self.results_list)
 
         button_layout = QHBoxLayout()
-        self.download_button = QPushButton("Download Selected")
+        # Use tr() for button text
+        self.download_button = QPushButton(self.tr("Download Selected"))
         self.download_button.clicked.connect(self.download_selected_subtitle)
-        self.cancel_button = QPushButton("Cancel")
+        # Use tr() for button text (though Qt base translation might handle this one)
+        self.cancel_button = QPushButton(self.tr("Cancel"))
         self.cancel_button.clicked.connect(self.reject) # Close dialog without action
 
         button_layout.addStretch()
@@ -53,7 +57,8 @@ class SubtitleResultsDialog(QDialog):
         """Fills the list widget with formatted subtitle results."""
         self.results_list.clear()
         if not self.results_data:
-            item = QListWidgetItem("No subtitles found matching your criteria.")
+            # Use tr() for message
+            item = QListWidgetItem(self.tr("No subtitles found matching your criteria."))
             item.setFlags(item.flags() & ~Qt.ItemIsSelectable) # Make it unselectable
             self.results_list.addItem(item)
             self.download_button.setEnabled(False)
@@ -62,37 +67,37 @@ class SubtitleResultsDialog(QDialog):
         self.download_button.setEnabled(True)
         for res in self.results_data:
             # Format the display string for the list item
-            lang = res.get('language', 'N/A').upper()
-            release = res.get('release', 'Unknown Release')
+            lang = res.get('language', self.tr('N/A')).upper() # Use tr() for fallback N/A
+            release = res.get('release', self.tr('Unknown Release')) # Use tr() for fallback
             filename = res.get('file_name', '')
             rating = res.get('ratings', 0)
             votes = res.get('votes', 0)
             hd = "[HD]" if res.get('hd') else ""
-            hi = "[HI]" if res.get('hearing_impaired') else "" # Hearing Impaired
-            trusted = "[T]" if res.get('from_trusted') else "" # Trusted source
+            hi = self.tr("[HI]") if res.get('hearing_impaired') else "" # Use tr() for marker
+            trusted = self.tr("[T]") if res.get('from_trusted') else "" # Use tr() for marker
 
             # Prioritize showing release name, fallback to filename
-            display_name = release if release != 'Unknown Release' else filename
-            if not display_name: display_name = "Unnamed Subtitle" # Further fallback
+            display_name = release if release != self.tr('Unknown Release') else filename
+            if not display_name: display_name = self.tr("Unnamed Subtitle") # Use tr() for fallback
 
-            display_text = f"[{lang}] {display_name} {hd}{hi}{trusted} (Rating: {rating:.1f}, Votes: {votes})"
+            # Use tr() for the label parts of the string template
+            display_text = f"[{lang}] {display_name} {hd}{hi}{trusted} ({self.tr('Rating')}: {rating:.1f}, {self.tr('Votes')}: {votes})"
 
             item = QListWidgetItem(display_text)
-            # Store the full result dictionary with the item
-            item.setData(Qt.UserRole, res)
-            # Add tooltip for more details?
-            tooltip_text = f"Filename: {filename}\n" \
-                           f"Language: {lang}\n" \
-                           f"Release: {release}\n" \
-                           f"Rating: {rating:.1f} ({votes} votes)\n" \
-                           f"HD: {res.get('hd', False)}, HI: {res.get('hearing_impaired', False)}\n" \
-                           f"Uploader: {res.get('uploader', 'N/A')}\n" \
-                           f"File ID: {res.get('file_id')}"
+            item.setData(Qt.UserRole, res) # Store the full result dictionary
+
+            # Tooltip (Use tr() for labels)
+            tooltip_text = f"{self.tr('Filename')}: {filename}\n" \
+                           f"{self.tr('Language')}: {lang}\n" \
+                           f"{self.tr('Release')}: {release}\n" \
+                           f"{self.tr('Rating')}: {rating:.1f} ({votes} {self.tr('votes')})\n" \
+                           f"{self.tr('HD')}: {res.get('hd', False)}, {self.tr('HI')}: {res.get('hearing_impaired', False)}\n" \
+                           f"{self.tr('Uploader')}: {res.get('uploader', self.tr('N/A'))}\n" \
+                           f"{self.tr('File ID')}: {res.get('file_id')}"
             item.setToolTip(tooltip_text)
 
             self.results_list.addItem(item)
 
-        # Select the first item by default
         if self.results_list.count() > 0:
             self.results_list.setCurrentRow(0)
 
@@ -101,15 +106,24 @@ class SubtitleResultsDialog(QDialog):
         """Gets the selected subtitle and emits the signal."""
         selected_items = self.results_list.selectedItems()
         if not selected_items:
-            QMessageBox.warning(self, "No Selection", "Please select a subtitle from the list.")
+            # Use tr() for message box
+            QMessageBox.warning(self,
+                self.tr("No Selection"),
+                self.tr("Please select a subtitle from the list.")
+            )
             return
 
         selected_result_dict = selected_items[0].data(Qt.UserRole)
 
         if not selected_result_dict or 'file_id' not in selected_result_dict:
-             QMessageBox.critical(self, "Error", "Selected item has invalid data. Cannot download.")
+             # Use tr() for message box
+             QMessageBox.critical(self,
+                 self.tr("Error"),
+                 self.tr("Selected item has invalid data. Cannot download.")
+             )
              return
 
-        # Emit the signal with the data
         self.subtitle_selected_for_download.emit(selected_result_dict)
         self.accept() # Close the dialog successfully
+
+# --- END OF FILE source/subtitle_dialog.py ---
