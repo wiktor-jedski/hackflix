@@ -446,17 +446,65 @@ class MoviePlayerApp(QMainWindow):
     # --- Slot for Web Browser Search Request ---
     @pyqtSlot(str)
     def on_web_search_requested(self, title):
+        """ Slot to handle search requests originating from the web browser tab """
         if title:
             print(f"Web Browser requested search for: '{title}'")
-            downloads_tab_index = -1;
+
+            # --- Find Downloads Tab ---
+            downloads_tab_widget = None
+            downloads_tab_index = -1
             for i in range(self.tab_widget.count()):
-                if self.tab_widget.widget(i) == self.downloads_tab: downloads_tab_index = i; break
-            if downloads_tab_index != -1:
-                self.tab_widget.setCurrentIndex(downloads_tab_index); self.downloads_tab.search_input.setText(title)
-                self.downloads_tab.results_table.setRowCount(0); self.downloads_tab.status_label.setText(self.tr("Searching for '{0}'...").format(title)) # Use tr()
-                self.downloads_tab.search_torrents(); self.downloads_tab.search_button.setFocus()
-            else: print("Error: Could not find Downloads tab.")
-        else: print("Web Browser requested search with empty title."); QMessageBox.warning(self, self.tr("Web Search"), self.tr("Could not get title to search.")) # Use tr()
+                widget = self.tab_widget.widget(i)
+                # Ensure we are checking the correct instance type
+                if isinstance(widget, DownloadsTab):
+                    downloads_tab_widget = widget
+                    downloads_tab_index = i
+                    break
+            # --- End Find Downloads Tab ---
+
+            if downloads_tab_widget and downloads_tab_index != -1:
+                # 1. Switch the MAIN tab widget to the Downloads tab
+                self.tab_widget.setCurrentIndex(downloads_tab_index)
+
+                # 2. Switch the INNER tab widget (within DownloadsTab) to the Search sub-tab
+                # We need to find the index of the "Search" sub-tab within downloads_tab
+                search_sub_tab_index = -1
+                if hasattr(downloads_tab_widget, 'tab_widget') and hasattr(downloads_tab_widget, 'search_tab'):
+                    for i in range(downloads_tab_widget.tab_widget.count()):
+                        # Check if the widget at index 'i' is the search_tab instance
+                        if downloads_tab_widget.tab_widget.widget(i) == downloads_tab_widget.search_tab:
+                            search_sub_tab_index = i
+                            break
+                    # Alternatively, if tabs were added in known order (Search then Downloads):
+                    # search_sub_tab_index = 0 # Assuming Search is always the first sub-tab
+
+                if search_sub_tab_index != -1:
+                    print(f"  Switching Downloads sub-tab to index: {search_sub_tab_index} (Search)")
+                    downloads_tab_widget.tab_widget.setCurrentIndex(search_sub_tab_index)
+                else:
+                    print("  Warning: Could not find 'Search' sub-tab within DownloadsTab.")
+
+                # 3. Populate search input in DownloadsTab
+                downloads_tab_widget.search_input.setText(title)
+
+                # 4. Clear previous results and update status label in DownloadsTab
+                downloads_tab_widget.results_table.setRowCount(0)
+                downloads_tab_widget.status_label.setText(self.tr("Searching for '{0}'...").format(title))  # Use tr()
+
+                # 5. Trigger the search automatically in DownloadsTab
+                downloads_tab_widget.search_torrents()
+
+                # 6. Set focus away from input field (optional, good UX)
+                downloads_tab_widget.search_button.setFocus()
+
+            else:
+                print("Error: Could not find DownloadsTab instance.")
+                QMessageBox.warning(self, self.tr("Error"),
+                                    self.tr("Could not switch to the Downloads tab."))  # Use tr()
+
+        else:
+            print("Web Browser requested search with empty title.")
+            QMessageBox.warning(self, self.tr("Web Search"), self.tr("Could not get title to search."))  # Use tr()
 
     # --- Close Event ---
     def closeEvent(self, event):
