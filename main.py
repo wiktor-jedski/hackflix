@@ -32,7 +32,8 @@ def main():
     # --- Setup Translation ---
     translator = QTranslator()
     # Determine locale (e.g., 'pl_PL') - use system default
-    locale = QLocale.system().name() # e.g., "pl_PL", "en_US"
+    # locale = QLocale.system().name() # e.g., "pl_PL", "en_US"
+    locale = "pl_PL"
     print(f"System locale detected: {locale}")
 
     # Construct filename (assuming .qm files are in a 'translations' subdir)
