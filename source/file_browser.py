@@ -8,7 +8,7 @@ Provides functionality for browsing and managing video files recursively.
 import os
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                            QPushButton, QListWidget, QListWidgetItem, QLabel,
-                           QFileDialog, QMessageBox)
+                           QFileDialog, QMessageBox, QApplication)
 from PyQt5.QtCore import Qt, pyqtSignal
 import traceback
 
@@ -26,6 +26,7 @@ class FileBrowser(QWidget):
         super().__init__(parent)
 
         # --- Determine Default Directory ---
+        # (Code remains the same)
         self.current_directory = os.path.expanduser("~")
         common_media_paths = [ os.path.expanduser("~/Videos"), os.path.expanduser("~/Downloads/HackFlix"), os.path.expanduser("~/Movies"), "/media",]
         for path in common_media_paths:
@@ -42,10 +43,9 @@ class FileBrowser(QWidget):
                           if not found_specific: self.current_directory = user_mounts[0]
                           break
                  except PermissionError: pass
-        # --- End Default Directory ---
 
         self.video_extensions = ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm']
-        self.subtitle_extensions = ['.srt'] # Define subtitle extensions we care about for translation
+        self.subtitle_extensions = ['.srt']
 
         # --- UI Layout ---
         self.layout = QVBoxLayout()
@@ -64,8 +64,15 @@ class FileBrowser(QWidget):
         self.refresh_button = QPushButton(self.tr("Refresh"))
         self.play_button = QPushButton(self.tr("Play Selected"))
         self.find_subs_button = QPushButton(self.tr("Find Subtitles"))
-        self.translate_subs_button = QPushButton(self.tr("Translate Subtitle")); self.translate_subs_button.setEnabled(False)
+        self.translate_subs_button = QPushButton(self.tr("Translate Subtitle"));
         self.delete_button = QPushButton(self.tr("Delete Selected"))
+
+        # --- Initially disable buttons that require selection ---
+        self.play_button.setEnabled(False)
+        self.find_subs_button.setEnabled(False)
+        self.translate_subs_button.setEnabled(False)
+        self.delete_button.setEnabled(False)
+        # --- End Initial Disable ---
 
         button_layout.addWidget(self.refresh_button); button_layout.addWidget(self.play_button)
         button_layout.addWidget(self.find_subs_button); button_layout.addWidget(self.translate_subs_button)
@@ -82,7 +89,12 @@ class FileBrowser(QWidget):
         self.translate_subs_button.clicked.connect(self.translate_selected_subtitle)
         self.delete_button.clicked.connect(self.delete_selected)
 
+        # Initial population and button state update
         self.refresh_files()
+        # --- Explicitly update button state after initial load ---
+        # self.on_selection_changed() # Call this AFTER refresh_files completes
+        # --- End Explicit Update ---
+
 
     def _shorten_path(self, path, max_len=60):
         if len(path) <= max_len: return path; parts = path.split(os.sep);
@@ -99,6 +111,7 @@ class FileBrowser(QWidget):
 
     def refresh_files(self):
         def find_associated_srt(video_full_path, lang_code=None):
+            # ... (find_associated_srt remains the same) ...
             base, _ = os.path.splitext(video_full_path)
             potential_srt_paths = []
             if lang_code: potential_srt_paths.append(f"{base}.{lang_code}.srt")
@@ -107,14 +120,24 @@ class FileBrowser(QWidget):
                 if os.path.exists(srt_path): return srt_path
             return None
 
-        current_selection_path = self.get_selected_file_path() # Remember selection
+        current_selection_path = self.get_selected_file_path() # Remember selection path if any
         self.file_list.clear()
+        # --- Disable buttons during refresh ---
+        self.play_button.setEnabled(False)
+        self.find_subs_button.setEnabled(False)
+        self.translate_subs_button.setEnabled(False)
+        self.delete_button.setEnabled(False)
+        QApplication.processEvents() # Allow UI to update
+        # --- End Disable ---
         print(f"Refreshing file list for: {self.current_directory}")
         if not os.path.isdir(self.current_directory): QMessageBox.warning(self, self.tr("Directory Not Found"), self.tr("Base directory not found.")); return
 
         found_files = []
         try:
+            # ... (os.walk logic remains the same) ...
             for dirpath, dirnames, filenames in os.walk(self.current_directory, topdown=True):
+                # Optional: Skip hidden directories
+                # dirnames[:] = [d for d in dirnames if not d.startswith('.')]
                 for filename in filenames:
                     if self.is_video_file(filename):
                         full_path = os.path.join(dirpath, filename)
@@ -135,15 +158,30 @@ class FileBrowser(QWidget):
         except Exception as e: print(f"Scan Error: {e}\n{traceback.format_exc()}"); QMessageBox.critical(self, self.tr("Scan Error"), self.tr("Scan failed: {0}").format(e)); return
 
         found_files.sort()
+        restored_selection_item = None # Store the item to select
         if not found_files:
              item = QListWidgetItem(self.tr("No video files found.")); item.setFlags(item.flags() & ~Qt.ItemIsSelectable); self.file_list.addItem(item)
         else:
-             restored_selection = False
              for display_text, file_data in found_files:
                   item = QListWidgetItem(display_text); item.setData(Qt.UserRole, file_data); item.setToolTip(file_data['video_path']); self.file_list.addItem(item)
-                  if not restored_selection and file_data['video_path'] == current_selection_path: self.file_list.setCurrentItem(item); restored_selection = True
+                  # Check if this is the item we want to re-select
+                  if file_data['video_path'] == current_selection_path:
+                       restored_selection_item = item
+
         print(f"Found {len(found_files)} video files.")
+
+        # --- Select Item and Update Buttons AFTER populating ---
+        if restored_selection_item:
+             self.file_list.setCurrentItem(restored_selection_item)
+             print(f"Restored selection to: {restored_selection_item.text()}")
+        elif self.file_list.count() > 0:
+             self.file_list.setCurrentRow(0) # Select first item if nothing else restored
+             print("Selected first item.")
+        # Ensure on_selection_changed runs even if selection didn't technically "change"
+        # but the list content did. Calling it directly is safest here.
         self.on_selection_changed()
+        # --- End Update ---
+
 
     def is_video_file(self, filename):
         name, ext = os.path.splitext(filename);
@@ -157,34 +195,36 @@ class FileBrowser(QWidget):
         else: print(f"Invalid data for double-click: {item.text()}")
 
     def get_selected_file_data(self):
-        """Gets the data dictionary of the currently selected item."""
         selected_items = self.file_list.selectedItems()
-        file_data = None # <<< Initialize to None here
-        if selected_items:
-            file_data = selected_items[0].data(Qt.UserRole)
-        # Check if data is valid before returning
-        if file_data and isinstance(file_data, dict):
-            return file_data
-        return None # Return None if no selection or data is invalid
-
-    def get_selected_file_path(self):
-        """Gets the video file path of the currently selected item."""
-        file_data = self.get_selected_file_data()
-        # Check if file_data is not None before accessing .get()
-        if file_data and os.path.isfile(file_data.get('video_path')):
-            return file_data.get('video_path')
+        file_data = None
+        if selected_items: file_data = selected_items[0].data(Qt.UserRole)
+        if file_data and isinstance(file_data, dict): return file_data
         return None
 
-    def on_selection_changed(self):
+    def get_selected_file_path(self):
         file_data = self.get_selected_file_data()
+        if file_data and os.path.isfile(file_data.get('video_path')): return file_data.get('video_path')
+        return None
+
+    # This slot is connected to currentItemChanged
+    def on_selection_changed(self, current=None, previous=None): # Accept arguments even if unused
+        """Update button states based on current selection."""
+        # Use get_selected_file_data which handles no selection case
+        file_data = self.get_selected_file_data()
+        print(f"Selection Changed. Data: {file_data is not None}") # Debug print
+
         can_play = file_data is not None
         can_find_subs = file_data is not None
+        # Enable translate only if source_srt path exists AND translated_srt path does NOT exist
         can_translate = file_data is not None and file_data.get('source_srt') is not None and file_data.get('translated_srt') is None
         can_delete = file_data is not None
+
         self.play_button.setEnabled(can_play)
         self.find_subs_button.setEnabled(can_find_subs)
         self.translate_subs_button.setEnabled(can_translate)
         self.delete_button.setEnabled(can_delete)
+        print(f" Buttons updated: Play={can_play}, Find={can_find_subs}, Translate={can_translate}, Delete={can_delete}") # Debug Print
+
 
     def play_selected(self):
         file_path = self.get_selected_file_path()
