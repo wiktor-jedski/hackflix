@@ -32,18 +32,22 @@ from source.translation_manager import SubtitleTranslator
 # Constants
 CURSOR_HIDE_TIMEOUT_MS = 3000
 
-# --- Regex for Season/Episode Extraction ---
-# Covers SxxExx, sXXeXX, Season X Episode Y, XxY (e.g., 1x01, 10x12), XofY (e.g., 1of12)
-# More complex patterns might exist. This covers many common ones.
-# It captures Season (group 1) and Episode (group 2) numbers.
+# Regex for Season/Episode Extraction
 SEASON_EPISODE_REGEX = re.compile(
-    r'[._ \-](?:s|season)?(\d{1,3})[._ \-]?(?:e|ep|episode|x)?(\d{1,3})[._ \-]|' # SxxExx, Season X Episode Y, XxY
-    r'[._ \-](\d{1,3})x(\d{1,3})[._ \-]|' # XxY separated by 'x'
-    r'of(\d{1,3})[._ \-]|' # XofY (only captures episode Y here, less reliable for season)
-    r'[._ \-](?:part|pt)?(\d{1,3})[._ \-]', # Part X (treat as episode if no SxxExx found)
+    r'[._ \-](?:s|season)?(\d{1,3})[._ \-]?(?:e|ep|episode|x)(\d{1,3})[._ \-]|' # SxxExx, Season X Episode Y (explicit E marker)
+    r'[._ \-](\d{1,3})x(\d{1,3})[._ \-]', # XxY separated by 'x'
+    # Removed the ambiguous 'XofY' and 'Part X' patterns as they don't reliably give both S & E
     re.IGNORECASE
 )
-# --- End Regex ---
+# Regex to clean up movie/series name before query (removes year, resolution etc.)
+CLEAN_QUERY_REGEX = re.compile(
+    r'(\b(?:19|20)\d{2}\b)|'  # Year like 19xx or 20xx
+    r'(\b(?:720p|1080p|2160p|4k)\b)|' # Resolution
+    r'(\b(?:bluray|web.?dl|hdtv|dvd.?rip)\b)|' # Source
+    r'(\[.*?\])|' # Content in square brackets
+    r'(\(.*?\))', # Content in parentheses (might remove too much sometimes)
+    re.IGNORECASE
+)
 
 
 class MoviePlayerApp(QMainWindow):
@@ -270,70 +274,80 @@ class MoviePlayerApp(QMainWindow):
 
         self.current_search_video_path = video_path
         filename = os.path.basename(video_path)
-        base_query = os.path.splitext(filename)[0] # Use filename without ext first
+        base_query = os.path.splitext(filename)[0]
 
         season = None
         episode = None
-        cleaned_query = base_query # Query for API search
+        search_type = 'movie' # Default search type
 
         # --- Try to extract Season/Episode ---
-        # Replace common separators with spaces for easier regex matching potentially
-        test_name = filename.replace('.', ' ').replace('_', ' ')
+        test_name = filename.replace('.', ' ').replace('_', ' ') # Use filename for regex
         match = SEASON_EPISODE_REGEX.search(test_name)
         if match:
             groups = match.groups()
-            print(f"Regex Match Groups: {groups}") # Debug
-            # Logic to find the non-None pairs from the regex groups
+            print(f"Regex Match Groups for S/E: {groups}") # Debug
+            # Find first non-None pair (handles different regex groups)
             if groups[0] is not None and groups[1] is not None: # SxxExx pattern group
                 season = int(groups[0])
                 episode = int(groups[1])
+                search_type = 'episode' # Found season and episode
             elif groups[2] is not None and groups[3] is not None: # XxY pattern group
                 season = int(groups[2])
                 episode = int(groups[3])
-            elif groups[4] is not None: # XofY (only episode found)
-                episode = int(groups[4])
-            elif groups[5] is not None: # Part X (only episode found)
-                 episode = int(groups[5])
+                search_type = 'episode' # Found season and episode
 
-            # Optional: Try to clean up the query string by removing the found S/E pattern
-            # This is complex and might remove too much or too little.
-            # Let's keep the original base_query for now, API might handle it.
-            # cleaned_query = re.sub(SEASON_EPISODE_REGEX, '', base_query).strip()
-            # print(f"Cleaned query attempt: {cleaned_query}") # Debug
+            # If found S/E, try to clean the query more aggressively
+            if season is not None and episode is not None:
+                 # Attempt to remove the found S/E pattern and common separators around it
+                 # This is heuristic and might need refinement
+                 pattern_str = match.group(0).strip('._ -') # Get the matched part like 's01e01' or '1x01'
+                 # Remove the pattern and potentially surrounding separators/year for query
+                 cleaned_query = base_query.replace(pattern_str, '', 1).strip('._ -')
+                 # Additionally remove year/quality etc. for series title query
+                 cleaned_query = CLEAN_QUERY_REGEX.sub('', cleaned_query).strip('._ -')
+                 # Replace common separators with spaces for better query parsing by API
+                 cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip()
+                 print(f"  Detected Series. Cleaned Query: '{cleaned_query}', S={season}, E={episode}")
+            else:
+                # If only episode or uncertain match, stick with movie search type
+                # Clean query less aggressively for movies (mainly year/quality)
+                cleaned_query = CLEAN_QUERY_REGEX.sub('', base_query).strip('._ -')
+                cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip()
+                print(f"  Detected Movie (or uncertain S/E). Cleaned Query: '{cleaned_query}'")
+
+        else:
+            # No S/E pattern found, treat as movie
+            cleaned_query = CLEAN_QUERY_REGEX.sub('', base_query).strip('._ -')
+            cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip()
+            print(f"  Detected Movie. Cleaned Query: '{cleaned_query}'")
+
 
         # --- End Season/Episode Extraction ---
 
-        # Define desired languages
-        languages = "en,pl" # Prioritize English source, allow Polish results too
+        languages = "en,pl"
 
-        print(f"Searching subtitles for: Query='{cleaned_query}', S={season}, E={episode}, Lang={languages}") # Use cleaned_query here
+        print(f"Searching subtitles API: Type='{search_type}', Query='{cleaned_query}', S={season}, E={episode}, Lang={languages}")
         QApplication.setOverrideCursor(Qt.WaitCursor)
 
-        # Call the manager's search function with all parameters
+        # Call the manager's search function
         self.subtitle_manager.search_subtitles(
-            query=cleaned_query, # Send potentially cleaned query
-            imdb_id=None, # TODO: Future - find IMDB ID
+            query=cleaned_query,
             languages=languages,
-            season=season,
-            episode=episode
+            season=season,      # Pass extracted season (or None)
+            episode=episode,    # Pass extracted episode (or None)
+            type=search_type    # Pass 'movie' or 'episode'
+            # imdb_id=None,     # Future addition
+            # tmdb_id=None,     # Future addition
+            # moviehash=None    # Future addition (requires calculating hash)
         )
 
     @pyqtSlot(list)
     def on_subtitle_search_results(self, results):
         QApplication.restoreOverrideCursor(); print(f"Received {len(results)} sub results.")
         if not self.current_search_video_path: print("Warn: Sub results w/o context."); QMessageBox.warning(self, self.tr("Subtitle Search"), self.tr("Results received, context lost.")); return
-        # Sort results: Polish first, then by rating/downloads?
-        # Simple sort: Polish first, then default API order
         try:
-             results.sort(key=lambda x: (
-                 x.get('language') != 'pl', # False (0) for Polish, True (1) for others
-                 # Add secondary sort criteria if needed, e.g., highest rating first
-                 # -float(x.get('ratings', 0)) # Negative for descending rating
-                 # -int(x.get('download_count', 0)) # Negative for descending downloads
-             ))
-        except Exception as sort_e:
-             print(f"Warning: Could not sort subtitle results: {sort_e}")
-
+             results.sort(key=lambda x: (x.get('language') != 'pl',))
+        except Exception as sort_e: print(f"Warn: Sort results failed: {sort_e}")
         if not results: QMessageBox.information(self, self.tr("Subtitle Search"), self.tr("No subtitles found for '{0}'.").format(os.path.basename(self.current_search_video_path))); self.current_search_video_path = None; return
         dialog = SubtitleResultsDialog(results, self); dialog.subtitle_selected_for_download.connect(self.on_subtitle_selected); dialog.exec_()
 
@@ -403,11 +417,9 @@ class MoviePlayerApp(QMainWindow):
     def on_translation_complete(self, original_srt_path, translated_srt_path):
         print(f"Translation complete: {translated_srt_path}"); self.is_translating = False
         if self.translation_progress_dialog: self.translation_progress_dialog.setValue(self.translation_progress_dialog.maximum()); self.translation_progress_dialog = None
-        # --- Automatically Delete Original Source Subtitle ---
         if os.path.exists(original_srt_path):
             try: print(f"Deleting original subtitle: {original_srt_path}"); os.remove(original_srt_path)
             except OSError as e: QMessageBox.warning(self, self.tr("File Error"), self.tr("Could not delete original subtitle:\n{0}").format(e))
-        # --- End Auto Deletion ---
         self.library_tab.refresh_files(); QMessageBox.information(self, self.tr("Translation Complete"), self.tr("Translation saved to:\n{0}").format(os.path.basename(translated_srt_path)))
     @pyqtSlot(str, str)
     def on_translation_error(self, original_srt_path, error_message):
