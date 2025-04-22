@@ -8,7 +8,7 @@ Provides functionality for browsing and managing video files recursively.
 import os
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                            QPushButton, QListWidget, QListWidgetItem, QLabel,
-                           QFileDialog, QMessageBox, QApplication)
+                           QFileDialog, QMessageBox)
 from PyQt5.QtCore import Qt, pyqtSignal
 import traceback
 
@@ -24,7 +24,7 @@ class FileBrowser(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # ... (Default directory finding logic remains the same) ...
+        # --- Determine Default Directory ---
         self.current_directory = os.path.expanduser("~")
         common_media_paths = [ os.path.expanduser("~/Videos"), os.path.expanduser("~/Downloads/HackFlix"), os.path.expanduser("~/Movies"), "/media",]
         for path in common_media_paths:
@@ -41,6 +41,7 @@ class FileBrowser(QWidget):
                           if not found_specific: self.current_directory = user_mounts[0]
                           break
                  except PermissionError: pass
+        # --- End Default Directory ---
 
         self.video_extensions = ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm']
         self.subtitle_extensions = ['.srt']
@@ -62,7 +63,7 @@ class FileBrowser(QWidget):
         self.refresh_button = QPushButton(self.tr("Refresh"))
         self.play_button = QPushButton(self.tr("Play Selected"))
         self.find_subs_button = QPushButton(self.tr("Find Subtitles"))
-        self.translate_subs_button = QPushButton(self.tr("Translate Subtitle")); self.translate_subs_button.setEnabled(False)
+        self.translate_subs_button = QPushButton(self.tr("Translate Subtitle"));
         self.delete_button = QPushButton(self.tr("Delete Selected"))
 
         self.play_button.setEnabled(False); self.find_subs_button.setEnabled(False)
@@ -74,6 +75,7 @@ class FileBrowser(QWidget):
 
         self.layout.addLayout(dir_layout); self.layout.addWidget(self.file_list); self.layout.addLayout(button_layout)
         self.setLayout(self.layout)
+        # --- End UI Layout ---
 
         # Connect button clicks
         self.refresh_button.clicked.connect(self.refresh_files)
@@ -103,35 +105,35 @@ class FileBrowser(QWidget):
         # --- Corrected find_associated_srt ---
         def find_associated_srt(video_full_path, lang_codes=None):
             """
-            Finds an associated SRT file.
-            If lang_codes (list or tuple) is provided, searches for those first in order.
-            If not found or lang_codes is None, searches for common English patterns, then plain .srt.
+            Finds an associated SRT file based on language codes or defaults.
+            If lang_codes (list/tuple) is provided, ONLY searches for those exact codes.
+            If lang_codes is None, searches for common English patterns, then plain .srt.
             Returns the path of the first match found, or None.
             """
             base, _ = os.path.splitext(video_full_path)
             search_patterns = []
 
-            # 1. Add specific language codes if provided
             if lang_codes:
+                # If specific languages are requested, ONLY search for those
                 if isinstance(lang_codes, str): # Handle single string case
                     lang_codes = [lang_codes]
                 for code in lang_codes:
+                    # Check both exact code and potentially 3-letter code if 2-letter given?
+                    # For now, just check exact code provided.
                     search_patterns.append(f"{base}.{code}.srt")
-
-            # 2. Add common English patterns (if not already searched)
-            if 'en' not in (lang_codes or []): search_patterns.append(f"{base}.en.srt")
-            if 'eng' not in (lang_codes or []): search_patterns.append(f"{base}.eng.srt")
-
-            # 3. Add plain .srt as the last fallback
-            search_patterns.append(f"{base}.srt")
+            else:
+                # If no specific language requested, use fallback logic
+                search_patterns.extend([
+                    f"{base}.en.srt",  # Prioritize English
+                    f"{base}.eng.srt",
+                    f"{base}.srt"     # Plain .srt as last resort
+                ])
 
             # Search for the patterns in order
             for srt_path in search_patterns:
                 if os.path.exists(srt_path):
-                    # print(f"Found subtitle: {srt_path} for {video_full_path}") # Debug
                     return srt_path # Return the first one found
 
-            # print(f"No subtitle found for patterns: {search_patterns}") # Debug
             return None # No matching subtitle found
         # --- End Corrected find_associated_srt ---
 
@@ -152,21 +154,18 @@ class FileBrowser(QWidget):
                         try:
                             if os.path.isfile(full_path):
                                 display_path = os.path.relpath(full_path, self.current_directory)
-                                # Find primary source subtitle (English or plain)
-                                source_srt_path = find_associated_srt(full_path, ['en', 'eng']) # Look for en/eng first
-                                if not source_srt_path: source_srt_path = find_associated_srt(full_path) # Fallback to plain .srt
 
-                                # Check specifically for the translated Polish subtitle
-                                translated_srt_path = find_associated_srt(full_path, ['pl'])
+                                # Find source subtitle (passing None uses default fallback)
+                                source_srt_path = find_associated_srt(full_path, lang_codes=None)
 
-                                # --- Display Text Logic ---
+                                # Find translated subtitle (passing 'pl' looks *only* for pl)
+                                translated_srt_path = find_associated_srt(full_path, lang_codes=['pl']) # Pass 'pl' in a list
+
                                 sub_marker = ""
                                 if translated_srt_path: sub_marker = self.tr(" [Translated Sub]")
                                 elif source_srt_path: sub_marker = self.tr(" [Sub]")
-                                # --- End Display Text Logic ---
 
                                 display_text = f"{display_path}{sub_marker}"
-                                # Store video path, identified source path, and identified translated path
                                 file_data = {'video_path': full_path, 'source_srt': source_srt_path, 'translated_srt': translated_srt_path}
                                 found_files.append((display_text, file_data))
                         except OSError as os_err: print(f"Skipping file OS error: {full_path} - {os_err}"); continue
@@ -212,10 +211,9 @@ class FileBrowser(QWidget):
         if file_data and os.path.isfile(file_data.get('video_path')): return file_data.get('video_path')
         return None
 
-    # This slot is connected to currentItemChanged
-    def on_selection_changed(self, current=None, previous=None): # Accept arguments even if unused
+    def on_selection_changed(self, current=None, previous=None):
         file_data = self.get_selected_file_data()
-        print(f"Selection Changed. Data: {file_data is not None}") # Debug print
+        print(f"Selection Changed. Data: {file_data is not None}")
 
         can_play = file_data is not None
         can_find_subs = file_data is not None
@@ -243,10 +241,10 @@ class FileBrowser(QWidget):
     def translate_selected_subtitle(self):
         file_data = self.get_selected_file_data()
         if file_data:
-            source_srt_path = file_data.get('source_srt') # Get the identified source srt path
+            source_srt_path = file_data.get('source_srt')
             if source_srt_path and os.path.exists(source_srt_path):
                 print(f"Requesting translation for: {source_srt_path}")
-                self.translate_subtitle_requested.emit(source_srt_path) # Emit identified SRT path
+                self.translate_subtitle_requested.emit(source_srt_path)
             else: QMessageBox.warning(self, self.tr("Subtitle Not Found"), self.tr("Cannot find source subtitle file for translation."))
         else: QMessageBox.information(self, self.tr("No Selection"), self.tr("Please select a video file first."))
 
