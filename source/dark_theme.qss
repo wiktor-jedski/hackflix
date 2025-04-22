@@ -1,0 +1,238 @@
+/* --- START OF FILE dark_theme.qss (Black Base) --- */
+
+/* Global Reset & Black Background */
+QWidget {
+    background-color: black;
+    color: #E0E0E0;           /* Light grey text for contrast */
+    border: none;             /* Remove most default borders */
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 10pt;
+    /* Remove padding/margin globally - apply specifically where needed */
+    padding: 0px;
+    margin: 0px;
+}
+
+/* Ensure Main Window is black */
+QMainWindow {
+    background-color: black;
+}
+
+/* Specific Widgets */
+
+/* Input Fields */
+QLineEdit, QTextEdit {
+    background-color: #1A1A1A; /* Very dark grey */
+    color: #E0E0E0;
+    border: 1px solid #333333; /* Subtle border */
+    padding: 4px;
+    border-radius: 3px;
+}
+QLineEdit:focus, QTextEdit:focus {
+    border: 1px solid #0078D7; /* Blue border when focused */
+}
+
+/* Buttons */
+QPushButton {
+    background-color: #252525; /* Dark grey */
+    color: #E0E0E0;
+    border: 1px solid #444444;
+    padding: 5px 10px;
+    min-height: 20px;
+    border-radius: 3px;
+}
+QPushButton:hover {
+    background-color: #383838;
+    border-color: #555555;
+}
+QPushButton:pressed {
+    background-color: #1E1E1E;
+    border-color: #333333;
+}
+QPushButton:disabled {
+    background-color: #1F1F1F;
+    color: #555555;
+    border-color: #333333;
+}
+
+/* Tab Widget */
+QTabWidget::pane {
+    background-color: black; /* Match main background */
+    border: 1px solid #333333;
+    border-top: none;
+}
+QTabBar::tab {
+    background-color: #1A1A1A; /* Dark grey inactive tabs */
+    color: #AAAAAA;
+    border: 1px solid #333333;
+    border-bottom: none;
+    padding: 6px 10px;
+    margin-right: 2px;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+}
+QTabBar::tab:selected {
+    background-color: black; /* Match pane background */
+    color: #FFFFFF;         /* White text */
+    border-color: #333333;
+    border-bottom: 1px solid black; /* Blend bottom border */
+    margin-bottom: -1px;
+}
+QTabBar::tab:hover {
+    background-color: #282828;
+    color: #FFFFFF;
+}
+
+/* List & Table Widgets */
+QListWidget, QTableWidget {
+    background-color: #101010; /* Slightly off-black */
+    color: #E0E0E0;
+    border: 1px solid #333333;
+    alternate-background-color: #181818; /* Subtle alternating rows */
+    gridline-color: #2A2A2A; /* Table grid */
+    outline: 0;
+}
+QListWidget::item, QTableWidget::item {
+    padding: 4px;
+    border: none; /* Remove default item borders */
+}
+QListWidget::item:selected, QTableWidget::item:selected {
+    background-color: #005A9E; /* Darker blue selection */
+    color: #FFFFFF;
+}
+QListWidget::item:hover, QTableWidget::item:hover {
+    background-color: #282828; /* Subtle hover */
+}
+
+/* Table Headers */
+QHeaderView::section {
+    background-color: #1F1F1F;
+    color: #E0E0E0;
+    padding: 4px;
+    border-top: none;
+    border-left: none;
+    border-right: 1px solid #333333;
+    border-bottom: 1px solid #333333;
+    font-weight: bold;
+}
+QHeaderView {
+    background-color: #1F1F1F;
+}
+QTableCornerButton::section {
+    background-color: #1F1F1F;
+    border: 1px solid #333333;
+}
+
+/* Slider */
+QSlider::groove:horizontal {
+    border: 1px solid #333333;
+    height: 6px;
+    background: #1A1A1A;
+    margin: 2px 0;
+    border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    background: #CCCCCC; /* Light grey handle */
+    border: 1px solid #444444;
+    width: 14px;
+    margin: -4px 0;
+    border-radius: 7px;
+}
+QSlider::handle:horizontal:hover {
+    background: #E0E0E0;
+    border: 1px solid #555555;
+}
+QSlider::sub-page:horizontal {
+    background: #0078D7; /* Blue fill */
+    border: 1px solid #333333;
+    height: 6px;
+    border-radius: 3px;
+}
+QSlider::add-page:horizontal {
+    background: #1A1A1A; /* Match groove */
+    border: 1px solid #333333;
+    height: 6px;
+    border-radius: 3px;
+}
+
+/* Progress Bar */
+QProgressBar {
+    border: 1px solid #333333;
+    border-radius: 3px;
+    background-color: #1A1A1A;
+    text-align: center;
+    color: #E0E0E0;
+    height: 18px;
+}
+QProgressBar::chunk {
+    background-color: #0078D7;
+    border-radius: 3px;
+}
+
+/* Labels */
+QLabel {
+    background-color: transparent; /* Keep labels transparent */
+    color: #E0E0E0;
+    padding: 2px; /* Add minimal padding back if needed */
+}
+
+/* Scroll Bars */
+QScrollBar:vertical {
+    border: none;
+    background: #1A1A1A;
+    width: 10px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background: #444444;
+    min-height: 20px;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical:hover { background: #555555; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
+
+QScrollBar:horizontal {
+    border: none;
+    background: #1A1A1A;
+    height: 10px;
+    margin: 0;
+}
+QScrollBar::handle:horizontal {
+    background: #444444;
+    min-width: 20px;
+    border-radius: 5px;
+}
+QScrollBar::handle:horizontal:hover { background: #555555; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }
+
+
+/* Message Box */
+QMessageBox {
+    background-color: #1A1A1A;
+    border: 1px solid #444444;
+}
+QMessageBox QLabel {
+     background-color: transparent;
+     color: #E0E0E0;
+     padding: 10px;
+}
+
+/* Explicitly ensure VideoFrame remains pure black */
+VideoFrame {
+     background-color: black;
+     border: none;
+     padding: 0px;
+     margin: 0px;
+}
+
+/* Make fullscreen container black too */
+QWidget#VideoFullscreenContainer {
+    background-color: black;
+    border: none;
+    padding: 0px;
+    margin: 0px;
+}
+
+
+/* --- END OF FILE dark_theme.qss (Black Base) --- */
