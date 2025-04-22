@@ -34,54 +34,39 @@ CURSOR_HIDE_TIMEOUT_MS = 3000
 
 # Regex for Season/Episode Extraction
 SEASON_EPISODE_REGEX = re.compile(
-    r'[._ \-](?:s|season)?(\d{1,3})[._ \-]?(?:e|ep|episode|x)(\d{1,3})[._ \-]|' # SxxExx, Season X Episode Y (explicit E marker)
-    r'[._ \-](\d{1,3})x(\d{1,3})[._ \-]', # XxY separated by 'x'
-    # Removed the ambiguous 'XofY' and 'Part X' patterns as they don't reliably give both S & E
+    r'[._ \-](?:s|season)?(\d{1,3})[._ \-]?(?:e|ep|episode|x)(\d{1,3})[._ \-]|'
+    r'[._ \-](\d{1,3})x(\d{1,3})[._ \-]',
     re.IGNORECASE
 )
-# Regex to clean up movie/series name before query (removes year, resolution etc.)
+# Regex to clean up movie/series name before query
 CLEAN_QUERY_REGEX = re.compile(
-    r'(\b(?:19|20)\d{2}\b)|'  # Year like 19xx or 20xx
-    r'(\b(?:720p|1080p|2160p|4k)\b)|' # Resolution
-    r'(\b(?:bluray|web.?dl|hdtv|dvd.?rip)\b)|' # Source
-    r'(\[.*?\])|' # Content in square brackets
-    r'(\(.*?\))', # Content in parentheses (might remove too much sometimes)
+    r'(\b(?:19|20)\d{2}\b)|' r'(\b(?:720p|1080p|2160p|4k)\b)|'
+    r'(\b(?:bluray|web.?dl|hdtv|dvd.?rip)\b)|' r'(\[.*?\])|' r'(\(.*?\))',
     re.IGNORECASE
 )
 
 
 class MoviePlayerApp(QMainWindow):
-    """
-    Main application window for the Raspberry Pi Movie Player App.
-    """
-    # ... ( __init__ and other setup methods remain the same) ...
+    """ Main application window """
+    # ... ( __init__, _setup_ui_views_and_layouts, _connect_signals remain the same) ...
     def __init__(self):
         super().__init__()
-        # ... (Internal State setup) ...
         self.current_search_video_path = None; self.current_subtitle_to_download = None; self.pending_download_retry_info = None
         self.is_video_layout_fullscreen = False; self.original_window_flags = self.windowFlags()
         self.mouse_pos_before_hide = None; self.original_geometry_before_fs = None
         self.screen_geometry = QApplication.desktop().screenGeometry(); self.is_cursor_hidden = False
         self.is_translating = False; self.translation_progress_dialog = None
-        # --- Window Properties, VLC, Screen Geometry ---
-        self.setWindowTitle(self.tr("Raspberry Pi Movie Player"))
-        self.setGeometry(100, 100, 1024, 768); self.setFocusPolicy(Qt.StrongFocus)
+        self.setWindowTitle(self.tr("Raspberry Pi Movie Player")); self.setGeometry(100, 100, 1024, 768); self.setFocusPolicy(Qt.StrongFocus)
         self.instance = vlc.Instance(); self.mediaplayer = self.instance.media_player_new()
-        # --- Managers & Timers ---
         self.subtitle_manager = SubtitleManager(); self.translator = SubtitleTranslator()
         if self.subtitle_manager.username and self.subtitle_manager.password: print("Attempting OpenSubtitles login..."); self.subtitle_manager.login()
         self.cursor_hide_timer = QTimer(self); self.cursor_hide_timer.setInterval(CURSOR_HIDE_TIMEOUT_MS); self.cursor_hide_timer.setSingleShot(True); self.cursor_hide_timer.timeout.connect(self.hide_cursor_on_inactivity)
         self.timer = QTimer(self); self.timer.setInterval(100); self.timer.timeout.connect(self.update_ui)
-        # --- Widgets and Layouts ---
         self.central_widget = QWidget(self); self.setCentralWidget(self.central_widget); self.main_layout = QVBoxLayout(self.central_widget)
         self.stacked_widget = QStackedWidget(); self._setup_ui_views_and_layouts(); self.main_layout.addWidget(self.stacked_widget); self.stacked_widget.setCurrentIndex(1)
-        # --- Playback State ---
         self.is_playing = False; self.media = None
-        # --- Connect Signals ---
         self._connect_signals()
-
     def _setup_ui_views_and_layouts(self):
-        # ... (UI setup code remains the same) ...
         self.player_widget = QWidget(); self.player_layout = QVBoxLayout(self.player_widget); self.player_layout.setContentsMargins(0,0,0,0); self.player_layout.setSpacing(0)
         self.video_frame = VideoFrame(); self.control_widget = QWidget(); self.control_layout = QHBoxLayout(self.control_widget); self.control_layout.setContentsMargins(5,5,5,5)
         self.play_button = QPushButton(); self.play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay)); self.stop_button = QPushButton(); self.stop_button.setIcon(self.style().standardIcon(QStyle.SP_MediaStop))
@@ -92,15 +77,41 @@ class MoviePlayerApp(QMainWindow):
         self.tab_widget.addTab(self.library_tab, self.tr("Library")); self.tab_widget.addTab(self.downloads_tab, self.tr("Downloads")); self.tab_widget.addTab(self.filmweb_tab, self.tr("Filmweb")); self.browser_layout.addWidget(self.tab_widget)
         self.video_fullscreen_widget = QWidget(); self.video_fullscreen_widget.setObjectName("VideoFullscreenContainer"); self.video_fullscreen_layout = QVBoxLayout(self.video_fullscreen_widget); self.video_fullscreen_layout.setContentsMargins(0,0,0,0); self.video_fullscreen_layout.setSpacing(0)
         self.stacked_widget.addWidget(self.player_widget); self.stacked_widget.addWidget(self.browser_widget); self.stacked_widget.addWidget(self.video_fullscreen_widget)
-
     def _connect_signals(self):
-        # ... (Signal connections remain the same) ...
         self.library_tab.file_selected.connect(self.play_file); self.library_tab.find_subtitles_requested.connect(self.on_find_subtitles_requested); self.library_tab.translate_subtitle_requested.connect(self.on_translate_subtitle_requested)
         self.video_frame.doubleClicked.connect(self.toggle_video_fullscreen); self.video_frame.mouseMoved.connect(self.on_mouse_moved_over_video)
         self.play_button.clicked.connect(self.play_pause); self.stop_button.clicked.connect(self.stop); self.position_slider.sliderMoved.connect(self.set_position); self.back_button.clicked.connect(self.show_browser)
         self.filmweb_tab.search_requested.connect(self.on_web_search_requested)
         self.subtitle_manager.search_results.connect(self.on_subtitle_search_results); self.subtitle_manager.search_error.connect(self.on_subtitle_search_error); self.subtitle_manager.download_ready.connect(self.on_subtitle_download_ready); self.subtitle_manager.download_error.connect(self.on_subtitle_download_error); self.subtitle_manager.login_status.connect(self.on_subtitle_login_status); self.subtitle_manager.quota_info.connect(self.on_subtitle_quota_info)
         self.translator.translation_progress.connect(self.on_translation_progress); self.translator.translation_complete.connect(self.on_translation_complete); self.translator.translation_error.connect(self.on_translation_error)
+
+    # --- Helper to remove other SRTs ---
+    def _remove_other_srt_files(self, video_filepath, keep_srt_filepath):
+        """ Removes all .srt files matching the video base name except the keep_srt_filepath """
+        if not video_filepath or not keep_srt_filepath: return
+        try:
+            video_dir = os.path.dirname(video_filepath)
+            video_base = os.path.splitext(os.path.basename(video_filepath))[0]
+            keep_filename_lower = os.path.basename(keep_srt_filepath).lower()
+            print(f"Checking for other SRTs for base '{video_base}' in '{video_dir}', keeping '{keep_filename_lower}'") # Debug
+            for item in os.listdir(video_dir):
+                item_lower = item.lower()
+                # Check if it starts with video base name and ends with .srt
+                if item_lower.startswith(video_base.lower()) and item_lower.endswith('.srt'):
+                    # Check if it's NOT the file we want to keep
+                    if item_lower != keep_filename_lower:
+                        other_srt_path = os.path.join(video_dir, item)
+                        try:
+                            print(f"  Deleting other subtitle file: {other_srt_path}") # Debug
+                            os.remove(other_srt_path)
+                        except OSError as del_e:
+                             print(f"  Warning: Could not delete other srt file {other_srt_path}: {del_e}")
+                             # Optionally show warning to user? Maybe too noisy.
+                             # QMessageBox.warning(self, self.tr("File Warning"), self.tr("Could not remove file:\n{0}\nError: {1}").format(item, del_e))
+        except Exception as e:
+            print(f"Error during removal of other SRT files for {video_filepath}: {e}")
+            traceback.print_exc()
+    # --- End Helper ---
 
     # --- Cursor Handling Methods ---
     # ... (hide_cursor_on_inactivity, show_cursor, on_mouse_moved_over_video unchanged) ...
@@ -122,9 +133,13 @@ class MoviePlayerApp(QMainWindow):
     # --- Fullscreen Toggling Methods ---
     # ... (enter_video_fullscreen_layout, _adjust_fullscreen_geometry, exit_video_fullscreen_layout, toggle_video_fullscreen, _set_vlc_window unchanged) ...
     def enter_video_fullscreen_layout(self):
-        if self.stacked_widget.currentWidget() is not self.player_widget: current_state=self.mediaplayer.get_state();
-        if current_state in [vlc.State.Playing,vlc.State.Paused]: print("Switching view..."); self.stacked_widget.setCurrentWidget(self.player_widget); QTimer.singleShot(50,self.enter_video_fullscreen_layout); return
-        else: print("Cannot enter FS: Not playing."); return
+        try: current_state = self.mediaplayer.get_state()
+        except Exception as e: print(f"Err getting state: {e}"); current_state = None
+        if self.stacked_widget.currentWidget() is not self.player_widget:
+            if current_state in [vlc.State.Playing, vlc.State.Paused]: print("Switching view..."); self.stacked_widget.setCurrentWidget(self.player_widget); QTimer.singleShot(50, self.enter_video_fullscreen_layout); return
+            else: print("Cannot enter FS: Not playing/paused."); return
+        can_toggle = current_state in [vlc.State.Playing, vlc.State.Paused, vlc.State.Opening, vlc.State.Buffering]
+        if not can_toggle: print("Cannot enter video FS: Media not active."); return
         print("Entering FS Layout"); self.original_geometry_before_fs=self.geometry(); self.mouse_pos_before_hide=QCursor.pos(); self.cursor_hide_timer.stop()
         if not self.is_cursor_hidden: QApplication.setOverrideCursor(Qt.BlankCursor); self.is_cursor_hidden=True
         print(" Making App FS."); self.showFullScreen(); QTimer.singleShot(50,self._adjust_fullscreen_geometry)
@@ -183,7 +198,7 @@ class MoviePlayerApp(QMainWindow):
         self.show()
 
     # --- Playback Methods ---
-    # ... (show_browser, _play_file_continue, _set_vlc_window_and_play, _post_play_start_actions, _update_play_button_icon, play_pause, stop, update_ui, set_position unchanged) ...
+    # ... (show_browser, play_file, _play_file_continue, _set_vlc_window_and_play, _post_play_start_actions, _update_play_button_icon, play_pause, stop, update_ui, set_position unchanged) ...
     def show_browser(self):
         if self.is_video_layout_fullscreen: print("show_browser: Exiting video layout."); self.exit_video_fullscreen_layout()
         self.stop(); self.stacked_widget.setCurrentWidget(self.browser_widget); self.setWindowTitle(self.tr("Raspberry Pi Movie Player"))
@@ -265,95 +280,37 @@ class MoviePlayerApp(QMainWindow):
         if self.mediaplayer.is_seekable(): self.mediaplayer.set_position(position / 1000.0); self.show_cursor()
         else: print("Media not seekable.")
 
-
     # --- Subtitle Handling Slots ---
+    # ... (on_find_subtitles_requested - MODIFIED, on_subtitle_search_results - MODIFIED) ...
+    # ... (on_subtitle_search_error, on_subtitle_selected, on_subtitle_download_ready, _download_subtitle_worker) ...
     @pyqtSlot(str)
     def on_find_subtitles_requested(self, video_path):
-        """ Improved subtitle search using filename parsing """
         if not video_path: return
-
-        self.current_search_video_path = video_path
-        filename = os.path.basename(video_path)
-        base_query = os.path.splitext(filename)[0]
-
-        season = None
-        episode = None
-        search_type = 'movie' # Default search type
-
-        # --- Try to extract Season/Episode ---
-        test_name = filename.replace('.', ' ').replace('_', ' ') # Use filename for regex
+        self.current_search_video_path = video_path; filename = os.path.basename(video_path); base_query = os.path.splitext(filename)[0]
+        season = None; episode = None; search_type = 'movie'; cleaned_query = base_query
+        test_name = filename.replace('.', ' ').replace('_', ' ')
         match = SEASON_EPISODE_REGEX.search(test_name)
         if match:
-            groups = match.groups()
-            print(f"Regex Match Groups for S/E: {groups}") # Debug
-            # Find first non-None pair (handles different regex groups)
-            if groups[0] is not None and groups[1] is not None: # SxxExx pattern group
-                season = int(groups[0])
-                episode = int(groups[1])
-                search_type = 'episode' # Found season and episode
-            elif groups[2] is not None and groups[3] is not None: # XxY pattern group
-                season = int(groups[2])
-                episode = int(groups[3])
-                search_type = 'episode' # Found season and episode
-
-            # If found S/E, try to clean the query more aggressively
+            groups = match.groups(); print(f"Regex S/E Groups: {groups}")
+            if groups[0] is not None and groups[1] is not None: season = int(groups[0]); episode = int(groups[1]); search_type = 'episode'
+            elif groups[2] is not None and groups[3] is not None: season = int(groups[2]); episode = int(groups[3]); search_type = 'episode'
             if season is not None and episode is not None:
-                 # Attempt to remove the found S/E pattern and common separators around it
-                 # This is heuristic and might need refinement
-                 pattern_str = match.group(0).strip('._ -') # Get the matched part like 's01e01' or '1x01'
-                 # Remove the pattern and potentially surrounding separators/year for query
-                 cleaned_query = base_query.replace(pattern_str, '', 1).strip('._ -')
-                 # Additionally remove year/quality etc. for series title query
-                 cleaned_query = CLEAN_QUERY_REGEX.sub('', cleaned_query).strip('._ -')
-                 # Replace common separators with spaces for better query parsing by API
-                 cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip()
-                 print(f"  Detected Series. Cleaned Query: '{cleaned_query}', S={season}, E={episode}")
-            else:
-                # If only episode or uncertain match, stick with movie search type
-                # Clean query less aggressively for movies (mainly year/quality)
-                cleaned_query = CLEAN_QUERY_REGEX.sub('', base_query).strip('._ -')
-                cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip()
-                print(f"  Detected Movie (or uncertain S/E). Cleaned Query: '{cleaned_query}'")
-
-        else:
-            # No S/E pattern found, treat as movie
-            cleaned_query = CLEAN_QUERY_REGEX.sub('', base_query).strip('._ -')
-            cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip()
-            print(f"  Detected Movie. Cleaned Query: '{cleaned_query}'")
-
-
-        # --- End Season/Episode Extraction ---
-
-        languages = "en,pl"
-
-        print(f"Searching subtitles API: Type='{search_type}', Query='{cleaned_query}', S={season}, E={episode}, Lang={languages}")
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-
-        # Call the manager's search function
-        self.subtitle_manager.search_subtitles(
-            query=cleaned_query,
-            languages=languages,
-            season=season,      # Pass extracted season (or None)
-            episode=episode,    # Pass extracted episode (or None)
-            type=search_type    # Pass 'movie' or 'episode'
-            # imdb_id=None,     # Future addition
-            # tmdb_id=None,     # Future addition
-            # moviehash=None    # Future addition (requires calculating hash)
-        )
-
+                 pattern_str = match.group(0).strip('._ -'); cleaned_query = base_query.replace(pattern_str, '', 1).strip('._ -')
+                 cleaned_query = CLEAN_QUERY_REGEX.sub('', cleaned_query).strip('._ -'); cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip(); print(f" Series Detected. Query: '{cleaned_query}', S={season}, E={episode}")
+            else: cleaned_query = CLEAN_QUERY_REGEX.sub('', base_query).strip('._ -'); cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip(); print(f" Movie/Uncertain Detected. Query: '{cleaned_query}'")
+        else: cleaned_query = CLEAN_QUERY_REGEX.sub('', base_query).strip('._ -'); cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip(); print(f" Movie Detected. Query: '{cleaned_query}'")
+        languages = "en,pl"; print(f"Searching API: Type='{search_type}', Query='{cleaned_query}', S={season}, E={episode}, Lang={languages}"); QApplication.setOverrideCursor(Qt.WaitCursor)
+        self.subtitle_manager.search_subtitles(query=cleaned_query, languages=languages, season=season, episode=episode, type=search_type)
     @pyqtSlot(list)
     def on_subtitle_search_results(self, results):
         QApplication.restoreOverrideCursor(); print(f"Received {len(results)} sub results.")
         if not self.current_search_video_path: print("Warn: Sub results w/o context."); QMessageBox.warning(self, self.tr("Subtitle Search"), self.tr("Results received, context lost.")); return
-        try:
-             results.sort(key=lambda x: (x.get('language') != 'pl',))
+        try: results.sort(key=lambda x: (x.get('language') != 'pl',))
         except Exception as sort_e: print(f"Warn: Sort results failed: {sort_e}")
         if not results: QMessageBox.information(self, self.tr("Subtitle Search"), self.tr("No subtitles found for '{0}'.").format(os.path.basename(self.current_search_video_path))); self.current_search_video_path = None; return
         dialog = SubtitleResultsDialog(results, self); dialog.subtitle_selected_for_download.connect(self.on_subtitle_selected); dialog.exec_()
-
     @pyqtSlot(str)
-    def on_subtitle_search_error(self, error_message):
-        QApplication.restoreOverrideCursor(); QMessageBox.critical(self, self.tr("Subtitle Search Error"), self.tr("Failed search:\n{0}").format(error_message)); self.current_search_video_path = None
+    def on_subtitle_search_error(self, error_message): QApplication.restoreOverrideCursor(); QMessageBox.critical(self, self.tr("Subtitle Search Error"), self.tr("Failed search:\n{0}").format(error_message)); self.current_search_video_path = None
     @pyqtSlot(dict)
     def on_subtitle_selected(self, subtitle_dict):
         if not self.current_search_video_path: print("Warn: Sub selected w/o context."); QMessageBox.warning(self, self.tr("Subtitle Download"), self.tr("Context lost.")); return
@@ -363,20 +320,26 @@ class MoviePlayerApp(QMainWindow):
     @pyqtSlot(str, str)
     def on_subtitle_download_ready(self, download_link, suggested_filename):
         QApplication.restoreOverrideCursor(); print("Sub download link received.")
-        if not self.current_search_video_path or not self.current_subtitle_to_download: print("Warn: Download ready but context missing."); QMessageBox.warning(self, self.tr("Subtitle Download"), self.tr("Context lost, cannot save.")); self.current_search_video_path = None; self.current_subtitle_to_download = None; return
-        try:
-            video_dir = os.path.dirname(self.current_search_video_path); video_base = os.path.splitext(os.path.basename(self.current_search_video_path))[0]
-            language_code = self.current_subtitle_to_download.get('language', 'und'); srt_filename = f"{video_base}.{language_code}.srt"; save_path = os.path.join(video_dir, srt_filename)
-            print(f"Attempting download sub to: {save_path}"); threading.Thread(target=self._download_subtitle_worker, args=(download_link, save_path), daemon=True).start()
+        if not self.current_search_video_path or not self.current_subtitle_to_download: print("Warn: Download ready context missing."); QMessageBox.warning(self, self.tr("Subtitle Download"), self.tr("Context lost, cannot save.")); self.current_search_video_path = None; self.current_subtitle_to_download = None; return
+        try: video_dir = os.path.dirname(self.current_search_video_path); video_base = os.path.splitext(os.path.basename(self.current_search_video_path))[0]; language_code = self.current_subtitle_to_download.get('language', 'und'); srt_filename = f"{video_base}.{language_code}.srt"; save_path = os.path.join(video_dir, srt_filename); print(f"Attempting download sub to: {save_path}"); threading.Thread(target=self._download_subtitle_worker, args=(download_link, save_path), daemon=True).start()
         except Exception as e: QMessageBox.critical(self, self.tr("Subtitle Download Error"), self.tr("Error determining path:\n{0}").format(e)); traceback.print_exc(); self.current_search_video_path = None; self.current_subtitle_to_download = None
-    def _download_subtitle_worker(self, link, path):
-        success, error = self.subtitle_manager.download_subtitle_file(link, path)
-        QMetaObject.invokeMethod(self, "on_actual_download_finished", Qt.QueuedConnection, Q_ARG(bool, success), Q_ARG(str, path if success else ""), Q_ARG(str, error or ""))
+    def _download_subtitle_worker(self, link, path): success, error = self.subtitle_manager.download_subtitle_file(link, path); QMetaObject.invokeMethod(self, "on_actual_download_finished", Qt.QueuedConnection, Q_ARG(bool, success), Q_ARG(str, path if success else ""), Q_ARG(str, error or ""))
     @pyqtSlot(bool, str, str)
     def on_actual_download_finished(self, success, save_path, error_message):
+        """ Slot called after subtitle download attempt finishes. Removes other SRTs. """
         QApplication.restoreOverrideCursor()
-        if success: QMessageBox.information(self, self.tr("Subtitle Downloaded"), self.tr("Subtitle saved:\n{0}").format(save_path)); self.library_tab.refresh_files()
-        else: QMessageBox.warning(self, self.tr("Subtitle Download Failed"), self.tr("Failed download:\n{0}").format(error_message))
+        if success:
+            QMessageBox.information(self, self.tr("Subtitle Downloaded"), self.tr("Subtitle saved:\n{0}").format(save_path))
+            # --- Remove other SRTs ---
+            if self.current_search_video_path: # Need original video path context
+                self._remove_other_srt_files(self.current_search_video_path, save_path)
+            else:
+                 print("Warning: Cannot remove other SRTs, video path context was lost.")
+            # --- End Remove ---
+            self.library_tab.refresh_files()
+        else:
+            QMessageBox.warning(self, self.tr("Subtitle Download Failed"), self.tr("Failed download:\n{0}").format(error_message))
+        # Clear context AFTER handling success/failure
         self.current_search_video_path = None; self.current_subtitle_to_download = None
     @pyqtSlot(dict)
     def on_subtitle_download_error(self, error_details):
@@ -415,12 +378,40 @@ class MoviePlayerApp(QMainWindow):
             self.translation_progress_dialog.setLabelText(self.tr("Translating: Batch {0} of {1}").format(current_batch, total_batches)); QApplication.processEvents()
     @pyqtSlot(str, str)
     def on_translation_complete(self, original_srt_path, translated_srt_path):
+        """ Handle successful translation: Show message, remove other SRTs, refresh list """
         print(f"Translation complete: {translated_srt_path}"); self.is_translating = False
         if self.translation_progress_dialog: self.translation_progress_dialog.setValue(self.translation_progress_dialog.maximum()); self.translation_progress_dialog = None
-        if os.path.exists(original_srt_path):
-            try: print(f"Deleting original subtitle: {original_srt_path}"); os.remove(original_srt_path)
-            except OSError as e: QMessageBox.warning(self, self.tr("File Error"), self.tr("Could not delete original subtitle:\n{0}").format(e))
-        self.library_tab.refresh_files(); QMessageBox.information(self, self.tr("Translation Complete"), self.tr("Translation saved to:\n{0}").format(os.path.basename(translated_srt_path)))
+
+        # --- Remove ALL other SRTs (including original source) ---
+        video_path_for_subs = None
+        # Try to find video path associated with the original srt (less reliable)
+        # A better approach might be to pass the video path along the translation request chain
+        original_base = os.path.splitext(os.path.basename(original_srt_path))[0]
+        # Clean potential language code from original base
+        lang_pattern = r'\.([a-zA-Z]{2,3})$'
+        match = re.search(lang_pattern, original_base)
+        video_base_name = original_base
+        if match: video_base_name = original_base[:-len(match.group(0))]
+
+        # Guess video extension (less reliable) - Look for common video files with same base name
+        potential_video_paths = [os.path.join(os.path.dirname(original_srt_path), f"{video_base_name}{ext}") for ext in ['.mkv', '.mp4', '.avi', '.mov']]
+        for p in potential_video_paths:
+            if os.path.exists(p):
+                video_path_for_subs = p
+                break
+
+        if video_path_for_subs:
+            self._remove_other_srt_files(video_path_for_subs, translated_srt_path)
+        else:
+            # Fallback: only delete the original source if video path couldn't be guessed
+            print(f"Warning: Could not determine video path for '{original_srt_path}'. Only deleting original source.")
+            if os.path.exists(original_srt_path) and os.path.normpath(original_srt_path) != os.path.normpath(translated_srt_path):
+                try: print(f"Deleting original subtitle: {original_srt_path}"); os.remove(original_srt_path)
+                except OSError as e: QMessageBox.warning(self, self.tr("File Error"), self.tr("Could not delete original subtitle:\n{0}").format(e))
+        # --- End Remove ---
+
+        self.library_tab.refresh_files() # Refresh list
+        QMessageBox.information(self, self.tr("Translation Complete"), self.tr("Translation saved to:\n{0}").format(os.path.basename(translated_srt_path))) # Notify user
     @pyqtSlot(str, str)
     def on_translation_error(self, original_srt_path, error_message):
         print(f"Translation failed for {original_srt_path}: {error_message}"); self.is_translating = False
@@ -431,6 +422,7 @@ class MoviePlayerApp(QMainWindow):
         print("Translation cancelled by user."); self.is_translating = False; self.translation_progress_dialog = None
 
     # --- Slot for Web Browser Search Request ---
+    # ... (on_web_search_requested unchanged) ...
     @pyqtSlot(str)
     def on_web_search_requested(self, title):
         if title:
@@ -450,6 +442,7 @@ class MoviePlayerApp(QMainWindow):
         else: print("Web Browser search empty."); QMessageBox.warning(self, self.tr("Web Search"), self.tr("Could not get title."))
 
     # --- Close Event ---
+    # ... (closeEvent unchanged) ...
     def closeEvent(self, event):
         print("Closing application..."); self.stop()
         if hasattr(self.downloads_tab, 'downloader') and hasattr(self.downloads_tab.downloader, 'shutdown'): print("Shutting down torrent manager..."); self.downloads_tab.downloader.shutdown()
