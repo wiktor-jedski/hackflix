@@ -27,6 +27,7 @@ def load_stylesheet(app, filename="source/dark_theme.qss"):
 
 def main():
     """Initialize and run the application"""
+    os.environ["QT_SCALE_FACTOR"] = "1.5"
     app = QApplication(sys.argv)
 
     # --- Setup Translation ---

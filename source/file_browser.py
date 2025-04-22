@@ -8,7 +8,7 @@ Provides functionality for browsing and managing video files recursively.
 import os
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                            QPushButton, QListWidget, QListWidgetItem, QLabel,
-                           QFileDialog, QMessageBox)
+                           QFileDialog, QMessageBox, QApplication)
 from PyQt5.QtCore import Qt, pyqtSignal
 import traceback
 

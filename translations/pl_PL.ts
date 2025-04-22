@@ -106,7 +106,7 @@
     <message>
         <location filename="../source/downloads_tab.py" line="158"/>
         <source>Searching for &apos;{0}&apos;...</source>
-        <translation>Szukam &apos;{0}&apos;...</translation>
+        <translation>Szukam '{0}'...</translation>
     </message>
     <message>
         <location filename="../source/downloads_tab.py" line="171"/>
@@ -132,7 +132,7 @@
         <location filename="../source/downloads_tab.py" line="233"/>
         <source>Started downloading &apos;{0}&apos;
 Files will be saved to {1}</source>
-        <translation>Rozpoczęto pobieranie &apos;{0}&apos;. Pliki będą zapisane do &apos;{1}&apos;</translation>
+        <translation>Rozpoczęto pobieranie '{0}'. Pliki będą zapisane do '{1}'</translation>
     </message>
     <message>
         <location filename="../source/downloads_tab.py" line="242"/>
@@ -142,7 +142,7 @@ Files will be saved to {1}</source>
     <message>
         <location filename="../source/downloads_tab.py" line="242"/>
         <source>Failed to start downloading &apos;{0}&apos;</source>
-        <translation>Nie udało się rozpocząć pobierania &apos;{0}&apos;</translation>
+        <translation>Nie udało się rozpocząć pobierania '{0}'</translation>
     </message>
     <message>
         <location filename="../source/downloads_tab.py" line="340"/>
@@ -168,7 +168,7 @@ Files will be saved to {1}</source>
         <location filename="../source/downloads_tab.py" line="348"/>
         <source>&apos;{0}&apos; has finished downloading.
 File is available in {1}</source>
-        <translation>Film &apos;{0}&apos; został pobrany. Plik jest dostępny w {1}</translation>
+        <translation>Film '{0}' został pobrany. Plik jest dostępny w {1}</translation>
     </message>
     <message>
         <location filename="../source/downloads_tab.py" line="367"/>
@@ -209,47 +209,47 @@ File is available in {1}</source>
 <context>
     <name>FileBrowser</name>
     <message>
-        <location filename="../source/file_browser.py" line="53"/>
+        <location filename="../source/file_browser.py" line="51"/>
         <source>Select Base Directory</source>
         <translation>Wybierz lokalizację</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="64"/>
+        <location filename="../source/file_browser.py" line="62"/>
         <source>Refresh</source>
         <translation>Odśwież</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="65"/>
+        <location filename="../source/file_browser.py" line="63"/>
         <source>Play Selected</source>
         <translation>Włącz</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="66"/>
+        <location filename="../source/file_browser.py" line="64"/>
         <source>Find Subtitles</source>
         <translation>Znajdź napisy</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="68"/>
+        <location filename="../source/file_browser.py" line="66"/>
         <source>Delete Selected</source>
         <translation>Usuń</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="105"/>
+        <location filename="../source/file_browser.py" line="93"/>
         <source>Select Base Directory to Scan</source>
         <translation>Wybierz lokalizację do skanowania</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="133"/>
+        <location filename="../source/file_browser.py" line="144"/>
         <source>Directory Not Found</source>
         <translation>Nie znaleziono lokalizacji</translation>
     </message>
     <message>
         <location filename="../source/file_browser.py" line="131"/>
         <source>The base directory &apos;{0}&apos; does not exist or is not accessible.</source>
-        <translation type="obsolete">Lokalizacja &apos;{0}&apos; nie istnieje lub nie można jej odczytać.</translation>
+        <translation type="obsolete">Lokalizacja '{0}' nie istnieje lub nie można jej odczytać.</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="157"/>
+        <location filename="../source/file_browser.py" line="173"/>
         <source>Partial Scan Error</source>
         <translation>Błąd skanowania</translation>
     </message>
@@ -257,10 +257,10 @@ File is available in {1}</source>
         <location filename="../source/file_browser.py" line="160"/>
         <source>Could not fully scan &apos;{0}&apos; due to permission issues.
 Some files may be missing.</source>
-        <translation type="obsolete">Nie można całkowicie przeskanować lokalizacji &apos;{0}&apos;. Niektóre pliki mogą być niewidoczne.</translation>
+        <translation type="obsolete">Nie można całkowicie przeskanować lokalizacji '{0}'. Niektóre pliki mogą być niewidoczne.</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="158"/>
+        <location filename="../source/file_browser.py" line="174"/>
         <source>Scan Error</source>
         <translation>Błąd skanowania</translation>
     </message>
@@ -276,7 +276,7 @@ Some files may be missing.</source>
         <translation type="obsolete">Brak plików video w lokalizacji.</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="251"/>
+        <location filename="../source/file_browser.py" line="255"/>
         <source>No Selection</source>
         <translation>Brak wyboru</translation>
     </message>
@@ -296,12 +296,12 @@ Some files may be missing.</source>
         <translation type="obsolete">Proszę wybrać plik video do usunięcia.</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="255"/>
+        <location filename="../source/file_browser.py" line="259"/>
         <source> [Sub]</source>
         <translation> [Napisy]</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="256"/>
+        <location filename="../source/file_browser.py" line="260"/>
         <source>Confirm Deletion</source>
         <translation>Potwierdź usunięcie</translation>
     </message>
@@ -310,10 +310,10 @@ Some files may be missing.</source>
         <source>Are you sure you want to delete:
 &apos;{0}&apos;
 (and associated subtitle files)?</source>
-        <translation type="obsolete">Czy jesteś pewien, że chcesz usunąć: &apos;{0}&apos; i powiązane napisy?</translation>
+        <translation type="obsolete">Czy jesteś pewien, że chcesz usunąć: '{0}' i powiązane napisy?</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="265"/>
+        <location filename="../source/file_browser.py" line="269"/>
         <source>Subtitle Deletion Error</source>
         <translation>Błąd usuwania napisów</translation>
     </message>
@@ -325,9 +325,9 @@ Error: {1}</source>
         <translation type="obsolete">Nie można usunąć napisów: {0}. Błąd: {1}</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="266"/>
+        <location filename="../source/file_browser.py" line="270"/>
         <source>&apos;{0}&apos; deleted.</source>
-        <translation>Usunięto &apos;{0}&apos;.</translation>
+        <translation>Usunięto '{0}'.</translation>
     </message>
     <message>
         <location filename="../source/file_browser.py" line="288"/>
@@ -337,12 +337,12 @@ Also deleted subtitles: {0}</source>
 Usunięto napisy: {0}</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="268"/>
+        <location filename="../source/file_browser.py" line="272"/>
         <source>Success</source>
         <translation>Sukces</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="269"/>
+        <location filename="../source/file_browser.py" line="273"/>
         <source>Permission Error</source>
         <translation>Błąd uprawnień</translation>
     </message>
@@ -352,7 +352,7 @@ Usunięto napisy: {0}</translation>
         <translation type="obsolete">Nie można usunąć pliku z powodu brakujących uprawnień.</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="270"/>
+        <location filename="../source/file_browser.py" line="274"/>
         <source>Error Deleting File</source>
         <translation>Błąd usuwania pliku</translation>
     </message>
@@ -364,84 +364,84 @@ Usunięto napisy: {0}</translation>
 {0}</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="67"/>
+        <location filename="../source/file_browser.py" line="65"/>
         <source>Translate Subtitle</source>
         <translation>Tłumacz napisy</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="133"/>
+        <location filename="../source/file_browser.py" line="144"/>
         <source>Base directory not found.</source>
         <translation>Bazowa lokalizacja nie znaleziona.</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="255"/>
+        <location filename="../source/file_browser.py" line="259"/>
         <source> [Translated Sub]</source>
         <translation> [Napisy PL]</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="157"/>
+        <location filename="../source/file_browser.py" line="173"/>
         <source>Permission error during scan.</source>
         <translation>Błąd uprawnień podczas skanowania.</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="158"/>
+        <location filename="../source/file_browser.py" line="174"/>
         <source>Scan failed: {0}</source>
         <translation>Błąd skanowania: {0}</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="163"/>
+        <location filename="../source/file_browser.py" line="179"/>
         <source>No video files found.</source>
         <translation>Nie odnaleziono plików video.</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="232"/>
+        <location filename="../source/file_browser.py" line="236"/>
         <source>Please select video to play.</source>
         <translation>Proszę wybrać video do odtworzenia.</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="237"/>
+        <location filename="../source/file_browser.py" line="241"/>
         <source>Please select video to find subtitles for.</source>
         <translation>Proszę wybrać video, aby odnaleźć napisy.</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="246"/>
+        <location filename="../source/file_browser.py" line="250"/>
         <source>Subtitle Not Found</source>
         <translation>Nie znaleziono napisów</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="246"/>
+        <location filename="../source/file_browser.py" line="250"/>
         <source>Cannot find source subtitle file for translation.</source>
         <translation>Nie można odnaleźć pliku do tłumaczenia.</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="247"/>
+        <location filename="../source/file_browser.py" line="251"/>
         <source>Please select a video file first.</source>
         <translation>Proszę najpierw wybrać plik video.</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="251"/>
+        <location filename="../source/file_browser.py" line="255"/>
         <source>Select video to delete.</source>
         <translation>Wybierz video do usunięcia.</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="253"/>
+        <location filename="../source/file_browser.py" line="257"/>
         <source>Error</source>
         <translation>Błąd</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="253"/>
+        <location filename="../source/file_browser.py" line="257"/>
         <source>Selected video file path is invalid.</source>
         <translation>Wybrana lokalizacja jest nieprawidłowa.</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="256"/>
+        <location filename="../source/file_browser.py" line="260"/>
         <source>Delete &apos;{0}&apos;
 (and ALL .srt files with the same name)?</source>
-        <translation>Usunąć &apos;{0}&apos;
+        <translation>Usunąć '{0}'
 (oraz wszystkie napisy z tą nazwą)?</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="265"/>
+        <location filename="../source/file_browser.py" line="269"/>
         <source>Could not delete:
 {0}
 Error: {1}</source>
@@ -450,19 +450,19 @@ Error: {1}</source>
 Błąd: {1}</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="267"/>
+        <location filename="../source/file_browser.py" line="271"/>
         <source>
 Also deleted: {0}</source>
         <translation>
 Również usunięto: {0}</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="269"/>
+        <location filename="../source/file_browser.py" line="273"/>
         <source>Cannot delete due to permissions.</source>
         <translation>Nie można usunąć z powodu braku uprawnień.</translation>
     </message>
     <message>
-        <location filename="../source/file_browser.py" line="270"/>
+        <location filename="../source/file_browser.py" line="274"/>
         <source>Deletion error:
 {0}</source>
         <translation>Błąd usuwania:
@@ -529,7 +529,7 @@ Sprawdź ustawienia VLC/Qt.</translation>
         <location filename="../source/movie_player.py" line="279"/>
         <source>Failed init playback for &apos;{0}&apos;:
 {1}</source>
-        <translation type="obsolete">Błąd odtwarzania dla &apos;{0}&apos;:
+        <translation type="obsolete">Błąd odtwarzania dla '{0}':
 {1}</translation>
     </message>
     <message>
@@ -548,14 +548,14 @@ Sprawdź ustawienia VLC/Qt.</translation>
         <location filename="../source/movie_player.py" line="262"/>
         <source>Failed load media &apos;{0}&apos;:
 {1}</source>
-        <translation>Błąd ładowania &apos;{0}&apos;:
+        <translation>Błąd ładowania '{0}':
 {1}</translation>
     </message>
     <message>
         <location filename="../source/movie_player.py" line="312"/>
         <source>Failed start playback for &apos;{0}&apos;:
 {1}</source>
-        <translation type="obsolete">Błąd startu odtwarzania dla &apos;{0}&apos;:
+        <translation type="obsolete">Błąd startu odtwarzania dla '{0}':
 {1}</translation>
     </message>
     <message>
@@ -581,7 +581,7 @@ Sprawdź ustawienia VLC/Qt.</translation>
     <message>
         <location filename="../source/movie_player.py" line="330"/>
         <source>No subtitles found for &apos;{0}&apos;.</source>
-        <translation>Nie znaleziono napisów dla &apos;{0}&apos;.</translation>
+        <translation>Nie znaleziono napisów dla '{0}'.</translation>
     </message>
     <message>
         <location filename="../source/movie_player.py" line="334"/>
@@ -697,7 +697,7 @@ Nie można pobierać.</translation>
     <message>
         <location filename="../source/movie_player.py" line="428"/>
         <source>Searching for &apos;{0}&apos;...</source>
-        <translation>Szukanie &apos;{0}&apos;...</translation>
+        <translation>Szukanie '{0}'...</translation>
     </message>
     <message>
         <location filename="../source/movie_player.py" line="431"/>
@@ -923,7 +923,7 @@ Nie można pobierać.</translation>
     <message>
         <location filename="../source/translation_manager.py" line="191"/>
         <source>Invalid Gemini response: &apos;parts&apos; missing.</source>
-        <translation>Nieprawidłowa odpowiedź Gemini: brakuje &apos;parts&apos;.</translation>
+        <translation>Nieprawidłowa odpowiedź Gemini: brakuje 'parts'.</translation>
     </message>
     <message>
         <location filename="../source/translation_manager.py" line="194"/>
@@ -933,7 +933,7 @@ Nie można pobierać.</translation>
     <message>
         <location filename="../source/translation_manager.py" line="195"/>
         <source>Invalid Gemini response: &apos;candidates&apos; missing.</source>
-        <translation>Nieprawidłowa odpowiedź Gemini: brakuje &apos;candidates&apos;.</translation>
+        <translation>Nieprawidłowa odpowiedź Gemini: brakuje 'candidates'.</translation>
     </message>
     <message>
         <location filename="../source/translation_manager.py" line="189"/>
@@ -948,7 +948,7 @@ Nie można pobierać.</translation>
     <message>
         <location filename="../source/translation_manager.py" line="250"/>
         <source>Failed write translated file &apos;{0}&apos;: {1}</source>
-        <translation>Błąd zapisania tlumaczenia &apos;{0}&apos;: {1}</translation>
+        <translation>Błąd zapisania tlumaczenia '{0}': {1}</translation>
     </message>
 </context>
 <context>
@@ -1119,7 +1119,7 @@ Nie można pobierać.</translation>
     <message>
         <location filename="../source/web_browser_tab.py" line="210"/>
         <source>Could not automatically find title elements (&apos;{0}&apos; or &apos;{1}&apos;) on this page. Please copy/paste.</source>
-        <translation>Nie można automatycznie znaleźć elementów (&apos;{0}&apos; lub &apos;{1}&apos;) na tej stronie. Wpisz ręcznie.</translation>
+        <translation>Nie można automatycznie znaleźć elementów ('{0}' lub '{1}') na tej stronie. Wpisz ręcznie.</translation>
     </message>
 </context>
 </TS>
