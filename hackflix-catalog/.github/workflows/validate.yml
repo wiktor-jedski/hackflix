@@ -1,0 +1,70 @@
+name: Validate Catalog
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'catalog.json'
+      - 'scripts/validate_catalog.py'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'catalog.json'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Display Python version
+      run: python --version
+
+    - name: Validate catalog.json syntax
+      run: |
+        python -c "import json; json.load(open('catalog.json'))"
+        echo "✅ JSON syntax is valid"
+
+    - name: Run validation script
+      run: |
+        python scripts/validate_catalog.py catalog.json
+
+    - name: Check catalog file size
+      run: |
+        FILE_SIZE=$(stat -f%z catalog.json 2>/dev/null || stat -c%s catalog.json)
+        MAX_SIZE=$((10 * 1024 * 1024))  # 10 MB
+        if [ $FILE_SIZE -gt $MAX_SIZE ]; then
+          echo "❌ Catalog file is too large: $FILE_SIZE bytes (max: $MAX_SIZE bytes)"
+          exit 1
+        else
+          echo "✅ Catalog file size OK: $FILE_SIZE bytes"
+        fi
+
+    - name: Extract catalog stats
+      run: |
+        echo "📊 Catalog Statistics:"
+        python -c "
+import json
+with open('catalog.json') as f:
+    catalog = json.load(f)
+    print(f\"  Version: {catalog.get('version', 'unknown')}\")
+    print(f\"  Last Updated: {catalog.get('last_updated', 'unknown')}\")
+    print(f\"  Movies: {len(catalog.get('movies', []))}\")
+    print(f\"  Series: {len(catalog.get('series', []))}\")
+    total_seasons = sum(len(s.get('seasons', [])) for s in catalog.get('series', []))
+    print(f\"  Total Seasons: {total_seasons}\")
+    print(f\"  Genres: {len(catalog.get('genres', []))}\")
+        "
+
+    - name: Validation Summary
+      if: success()
+      run: |
+        echo "✅ All validation checks passed!"
+        echo "Catalog is ready for deployment."
