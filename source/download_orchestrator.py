@@ -224,6 +224,14 @@ class DownloadOrchestrator(QObject):
         if self.torrent_downloader is None:
             self.torrent_downloader = TorrentDownloader(save_path=self.download_dir)
 
+        # Extract subtitle metadata from catalog
+        subtitle_info = (metadata or {}).get('subtitle', {})
+        subtitle_file_id = subtitle_info.get('file_id')
+        subtitle_language = subtitle_info.get('language', 'en')
+        needs_translation = subtitle_info.get('needs_translation', True)
+
+        print(f"[{item_id}] Subtitle config: file_id={subtitle_file_id}, lang={subtitle_language}, needs_translation={needs_translation}")
+
         # Store download info
         self.active_downloads[item_id] = {
             'item_id': item_id,
@@ -237,7 +245,10 @@ class DownloadOrchestrator(QObject):
             'translated_subtitle_path': None,
             'torrent_handle': None,
             'subtitle_search_context': None,
-            'translation_source_path': None
+            'translation_source_path': None,
+            'subtitle_file_id': subtitle_file_id,
+            'subtitle_language': subtitle_language,
+            'needs_translation': needs_translation
         }
 
         # Start torrent download
@@ -517,65 +528,91 @@ class DownloadOrchestrator(QObject):
             self.state_manager.set_phase(item_id, 'subtitles')
             self.phase_changed.emit(item_id, 'subtitles')
 
-            # Extract filename and metadata
-            filename = os.path.basename(video_path)
-            base_query = os.path.splitext(filename)[0]
-
-            # Detect season/episode
-            season = None
-            episode = None
-            search_type = 'movie'
-            cleaned_query = base_query
-
-            test_name = filename.replace('.', ' ').replace('_', ' ')
-            match = SEASON_EPISODE_REGEX.search(test_name)
-
-            if match:
-                groups = match.groups()
-                if groups[0] is not None and groups[1] is not None:
-                    season = int(groups[0])
-                    episode = int(groups[1])
-                    search_type = 'episode'
-                elif groups[2] is not None and groups[3] is not None:
-                    season = int(groups[2])
-                    episode = int(groups[3])
-                    search_type = 'episode'
-
-                if season is not None and episode is not None:
-                    pattern_str = match.group(0).strip('._ -')
-                    cleaned_query = base_query.replace(pattern_str, '', 1).strip('._ -')
-                    cleaned_query = CLEAN_QUERY_REGEX.sub('', cleaned_query).strip('._ -')
-                    cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip()
-                else:
-                    cleaned_query = CLEAN_QUERY_REGEX.sub('', base_query).strip('._ -')
-                    cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip()
-            else:
-                cleaned_query = CLEAN_QUERY_REGEX.sub('', base_query).strip('._ -')
-                cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip()
+            download_info = self.active_downloads[item_id]
+            subtitle_file_id = download_info.get('subtitle_file_id')
 
             # Store context for subtitle download
             self.active_downloads[item_id]['subtitle_search_context'] = {
-                'video_path': video_path,
-                'query': cleaned_query,
-                'season': season,
-                'episode': episode,
-                'type': search_type
+                'video_path': video_path
             }
 
-            # Search for subtitles (prefer English for translation)
-            languages = "en,pl"
-            print(f"[{item_id}] Searching subtitles: type={search_type}, query='{cleaned_query}', season={season}, episode={episode}")
-
-            self.subtitle_manager.search_subtitles(
-                query=cleaned_query,
-                languages=languages,
-                season=season,
-                episode=episode,
-                type=search_type
-            )
+            # Check if we have a direct subtitle file_id from catalog
+            if subtitle_file_id:
+                print(f"[{item_id}] Using direct subtitle download: file_id={subtitle_file_id}")
+                # Direct download using file_id (no search needed)
+                self.subtitle_manager.request_download(subtitle_file_id)
+            else:
+                # Fall back to search (legacy behavior)
+                print(f"[{item_id}] No subtitle file_id provided, falling back to search")
+                self._start_subtitle_search(item_id, video_path)
 
         except Exception as e:
             self._handle_subtitle_download_error(item_id, f"Error starting subtitle download: {e}")
+
+    def _start_subtitle_search(self, item_id: str, video_path: str):
+        """
+        Start subtitle search (fallback when no file_id provided).
+
+        Args:
+            item_id: Item identifier
+            video_path: Path to downloaded video file
+        """
+        # Extract filename and metadata
+        filename = os.path.basename(video_path)
+        base_query = os.path.splitext(filename)[0]
+
+        # Detect season/episode
+        season = None
+        episode = None
+        search_type = 'movie'
+        cleaned_query = base_query
+
+        test_name = filename.replace('.', ' ').replace('_', ' ')
+        match = SEASON_EPISODE_REGEX.search(test_name)
+
+        if match:
+            groups = match.groups()
+            if groups[0] is not None and groups[1] is not None:
+                season = int(groups[0])
+                episode = int(groups[1])
+                search_type = 'episode'
+            elif groups[2] is not None and groups[3] is not None:
+                season = int(groups[2])
+                episode = int(groups[3])
+                search_type = 'episode'
+
+            if season is not None and episode is not None:
+                pattern_str = match.group(0).strip('._ -')
+                cleaned_query = base_query.replace(pattern_str, '', 1).strip('._ -')
+                cleaned_query = CLEAN_QUERY_REGEX.sub('', cleaned_query).strip('._ -')
+                cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip()
+            else:
+                cleaned_query = CLEAN_QUERY_REGEX.sub('', base_query).strip('._ -')
+                cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip()
+        else:
+            cleaned_query = CLEAN_QUERY_REGEX.sub('', base_query).strip('._ -')
+            cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip()
+
+        # Store search context
+        self.active_downloads[item_id]['subtitle_search_context'] = {
+            'video_path': video_path,
+            'query': cleaned_query,
+            'season': season,
+            'episode': episode,
+            'type': search_type
+        }
+
+        # Search for subtitles (prefer English for translation)
+        languages = "en,pl"
+        print(f"[{item_id}] Searching subtitles: type={search_type}, query='{cleaned_query}', season={season}, episode={episode}")
+
+        self.subtitle_manager.search_subtitles(
+            query=cleaned_query,
+            languages=languages,
+            season=season,
+            episode=episode,
+            type=search_type
+        )
 
     @pyqtSlot(list)
     def _on_subtitle_search_results(self, results: list):
@@ -659,10 +696,20 @@ class DownloadOrchestrator(QObject):
             context = self.active_downloads[item_id]['subtitle_search_context']
             video_path = context['video_path']
 
-            # Determine save path
+            download_info = self.active_downloads[item_id]
+            subtitle_language = download_info.get('subtitle_language', 'en')
+            needs_translation = download_info.get('needs_translation', True)
+
+            # Determine save path based on language
             video_dir = os.path.dirname(video_path)
             video_base = os.path.splitext(os.path.basename(video_path))[0]
-            subtitle_filename = f"{video_base}.en.srt"
+
+            # If Polish subtitle (no translation needed), use -pl suffix
+            if not needs_translation and subtitle_language == 'pl':
+                subtitle_filename = f"{video_base}-pl.srt"
+            else:
+                subtitle_filename = f"{video_base}.{subtitle_language}.srt"
+
             save_path = os.path.join(video_dir, subtitle_filename)
 
             # Download subtitle in background thread
@@ -678,11 +725,6 @@ class DownloadOrchestrator(QObject):
 
                     print(f"  Subtitle file validated successfully: {os.path.basename(save_path)}")
 
-                    # Update progress (100% of subtitle phase)
-                    self.state_manager.update_progress(item_id, 'subtitles', 100.0)
-                    overall_progress = self.state_manager._calculate_overall_progress('subtitles', 100.0)
-                    self.progress_updated.emit(item_id, 'subtitles', overall_progress, 100.0)
-
                     # Store subtitle path
                     self.active_downloads[item_id]['subtitle_path'] = save_path
                     self.state_manager.set_subtitle_path(item_id, save_path)
@@ -690,8 +732,28 @@ class DownloadOrchestrator(QObject):
                     # Reset retry counter on successful phase completion
                     self.retry_strategy.reset_retry(item_id)
 
-                    # Move to translation phase
-                    self._start_translation(item_id, save_path)
+                    # Check if translation is needed
+                    if needs_translation:
+                        # Update progress (100% of subtitle phase)
+                        self.state_manager.update_progress(item_id, 'subtitles', 100.0)
+                        overall_progress = self.state_manager._calculate_overall_progress('subtitles', 100.0)
+                        self.progress_updated.emit(item_id, 'subtitles', overall_progress, 100.0)
+
+                        # Move to translation phase
+                        self._start_translation(item_id, save_path)
+                    else:
+                        # Skip translation - mark as complete
+                        print(f"[{item_id}] Skipping translation (Polish subtitle)")
+                        # Set translated subtitle path to the same file
+                        self.active_downloads[item_id]['translated_subtitle_path'] = save_path
+                        self.state_manager.set_translated_subtitle_path(item_id, save_path)
+
+                        # Mark as 100% complete
+                        self.state_manager.update_progress(item_id, 'subtitles', 100.0)
+                        self.progress_updated.emit(item_id, 'subtitles', 100.0, 100.0)
+
+                        # Complete download
+                        self._complete_download(item_id)
                 else:
                     self._handle_subtitle_download_error(item_id, f"Subtitle download failed: {error}")
 

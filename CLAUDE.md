@@ -183,7 +183,27 @@ All components communicate via PyQt signals:
       "description": "Short description",
       "magnet_link": "magnet:?xt=...",
       "file_size": 2147483648,
-      "subtitle_languages": ["en"]
+      "poster_url": "https://image.tmdb.org/t/p/w500/...",
+      "subtitle": {
+        "file_id": "12345678",
+        "language": "en",
+        "needs_translation": true
+      }
+    },
+    {
+      "id": "movie_002",
+      "title": "Polish Movie",
+      "year": 2024,
+      "genre": ["Drama"],
+      "description": "Movie with Polish subtitles",
+      "magnet_link": "magnet:?xt=...",
+      "file_size": 2147483648,
+      "poster_url": "https://image.tmdb.org/t/p/w500/...",
+      "subtitle": {
+        "file_id": "87654321",
+        "language": "pl",
+        "needs_translation": false
+      }
     }
   ],
   "series": [
@@ -193,18 +213,31 @@ All components communicate via PyQt signals:
       "year": 2024,
       "genre": ["Drama"],
       "description": "Short description",
+      "poster_url": "https://image.tmdb.org/t/p/w500/...",
       "seasons": [
         {
           "season_number": 1,
           "magnet_link": "magnet:?xt=...",
           "file_size": 5368709120,
-          "episode_count": 8
+          "episode_count": 8,
+          "subtitle": {
+            "file_id": "98765432",
+            "language": "en",
+            "needs_translation": true
+          }
         }
       ]
     }
   ]
 }
 ```
+
+**Subtitle Specification**:
+- `file_id`: OpenSubtitles file ID for direct download (no search needed)
+- `language`: Subtitle language code (e.g., "en", "pl")
+- `needs_translation`: Boolean flag indicating if translation is required
+  - `true`: Download English subtitle, translate to Polish (2 phases)
+  - `false`: Download Polish subtitle directly (1 phase, faster)
 
 ### New UI Design (Phase 2)
 
@@ -243,7 +276,7 @@ All components communicate via PyQt signals:
 - Click season → show episodes (list with episode number + title)
 - Track last watched episode (auto-resume at timestamp)
 
-### Download Pipeline (Phase 1-3)
+### Download Pipeline (Phase 3)
 
 **3-Click Workflow**:
 1. User selects movie/series from catalog
@@ -251,12 +284,24 @@ All components communicate via PyQt signals:
 3. When ready, user clicks "Play" button
 
 **Download Process**:
-1. Start torrent download (libtorrent, 2-3 concurrent allowed)
-2. When video file detected, search OpenSubtitles for matching .srt
-3. Download best match subtitle file
-4. Start Gemini translation (JSON array format, 10 entries per batch)
-5. Cache translated subtitle as `{filename}-pl.srt`
-6. Mark as "Ready" (all phases complete)
+1. **Video Download (0-33% or 0-50% if no translation)**
+   - Start torrent download (libtorrent, 2-3 concurrent allowed)
+   - Monitor progress and detect video file completion
+
+2. **Subtitle Download (34-66% or 50-100% if no translation)**
+   - **Direct Download Mode** (catalog specifies `subtitle.file_id`):
+     - Download subtitle directly using OpenSubtitles file_id (no search needed)
+     - Faster and more predictable than search
+   - **Fallback Search Mode** (if no file_id provided):
+     - Search OpenSubtitles API for matching subtitle
+     - Download best match
+
+3. **Translation (67-100%, skipped if `needs_translation: false`)**
+   - If `needs_translation: true`: Translate subtitle to Polish via Gemini API
+   - If `needs_translation: false`: Skip translation (Polish subtitle already downloaded)
+   - Cache translated subtitle as `{filename}-pl.srt`
+
+4. **Mark as "Ready"** - All phases complete, video ready to play
 
 **Error Handling**:
 - Network failures: auto-retry silently with exponential backoff
