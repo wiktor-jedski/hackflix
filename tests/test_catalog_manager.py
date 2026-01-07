@@ -148,7 +148,7 @@ class TestCatalogManager:
 
         self.assert_true(manager.catalog_url == "https://test.com/catalog.json", "Catalog URL set")
         self.assert_true(manager.db_path == db_path, "Database path set")
-        self.assert_true(manager.db is not None, "Database connection created")
+        self.assert_true(manager._get_db() is not None, "Database connection can be created")
 
         manager.close()
 

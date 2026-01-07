@@ -41,12 +41,19 @@ class CatalogManager(QObject):
         super().__init__()
         self.catalog_url = catalog_url or str(CATALOG_URL)
         self.db_path = db_path or str(DATABASE_FILE)
-        self.db = DatabaseConnection(self.db_path)
 
     def close(self):
-        """Close database connection"""
-        if self.db:
-            self.db.close()
+        """Close method for compatibility (no-op since connections are per-operation)"""
+        pass
+
+    def _get_db(self) -> DatabaseConnection:
+        """
+        Get a database connection for this thread
+
+        Returns:
+            DatabaseConnection instance (thread-safe)
+        """
+        return DatabaseConnection(self.db_path)
 
     def fetch_catalog(self) -> Dict:
         """
@@ -74,8 +81,12 @@ class CatalogManager(QObject):
         Returns:
             ISO timestamp string (default: 1970-01-01T00:00:00Z)
         """
-        timestamp = get_metadata(self.db, "last_catalog_sync")
-        return timestamp if timestamp else "1970-01-01T00:00:00Z"
+        db = self._get_db()
+        try:
+            timestamp = get_metadata(db, "last_catalog_sync")
+            return timestamp if timestamp else "1970-01-01T00:00:00Z"
+        finally:
+            db.close()
 
     def set_last_sync_timestamp(self, timestamp: str):
         """
@@ -84,7 +95,11 @@ class CatalogManager(QObject):
         Args:
             timestamp: ISO timestamp string
         """
-        set_metadata(self.db, "last_catalog_sync", timestamp)
+        db = self._get_db()
+        try:
+            set_metadata(db, "last_catalog_sync", timestamp)
+        finally:
+            db.close()
 
     def sync_catalog(self):
         """
@@ -108,8 +123,12 @@ class CatalogManager(QObject):
                 self.sync_progress.emit("Catalog is up to date", 100)
 
                 # Get current counts
-                movie_count = self.db.fetch_one("SELECT COUNT(*) as count FROM movies")["count"]
-                series_count = self.db.fetch_one("SELECT COUNT(*) as count FROM series")["count"]
+                db = self._get_db()
+                try:
+                    movie_count = db.fetch_one("SELECT COUNT(*) as count FROM movies")["count"]
+                    series_count = db.fetch_one("SELECT COUNT(*) as count FROM series")["count"]
+                finally:
+                    db.close()
 
                 self.sync_completed.emit(movie_count, series_count)
                 return
@@ -146,11 +165,13 @@ class CatalogManager(QObject):
         """
         count = 0
 
-        with self.db.transaction() as conn:
-            for movie in movies:
-                try:
-                    # Insert or update movie
-                    conn.execute("""
+        db = self._get_db()
+        try:
+            with db.transaction() as conn:
+                for movie in movies:
+                    try:
+                        # Insert or update movie
+                        conn.execute("""
                         INSERT OR REPLACE INTO movies
                         (id, title, year, description, magnet_link, file_size,
                          poster_url, imdb_id, tmdb_id, runtime, video_quality,
@@ -170,39 +191,41 @@ class CatalogManager(QObject):
                         movie.get("video_quality"),
                         movie.get("video_codec"),
                         movie.get("audio_codec")
-                    ))
+                        ))
 
-                    # Clear existing genres
-                    conn.execute("DELETE FROM movie_genres WHERE movie_id = ?", (movie["id"],))
+                        # Clear existing genres
+                        conn.execute("DELETE FROM movie_genres WHERE movie_id = ?", (movie["id"],))
 
-                    # Insert genres
-                    for genre in movie.get("genre", []):
-                        conn.execute(
-                            "INSERT INTO movie_genres (movie_id, genre) VALUES (?, ?)",
-                            (movie["id"], genre)
-                        )
+                        # Insert genres
+                        for genre in movie.get("genre", []):
+                            conn.execute(
+                                "INSERT INTO movie_genres (movie_id, genre) VALUES (?, ?)",
+                                (movie["id"], genre)
+                            )
 
-                    # Clear existing subtitle languages
-                    conn.execute("DELETE FROM movie_subtitle_languages WHERE movie_id = ?", (movie["id"],))
+                        # Clear existing subtitle languages
+                        conn.execute("DELETE FROM movie_subtitle_languages WHERE movie_id = ?", (movie["id"],))
 
-                    # Insert subtitle languages
-                    for lang in movie.get("subtitle_languages", []):
-                        conn.execute(
-                            "INSERT INTO movie_subtitle_languages (movie_id, language_code) VALUES (?, ?)",
-                            (movie["id"], lang)
-                        )
+                        # Insert subtitle languages
+                        for lang in movie.get("subtitle_languages", []):
+                            conn.execute(
+                                "INSERT INTO movie_subtitle_languages (movie_id, language_code) VALUES (?, ?)",
+                                (movie["id"], lang)
+                            )
 
-                    # Initialize download state if not exists
-                    conn.execute("""
-                        INSERT OR IGNORE INTO download_state
-                        (id, type, status, progress)
-                        VALUES (?, 'movie', 'available', 0.0)
-                    """, (movie["id"],))
+                        # Initialize download state if not exists
+                        conn.execute("""
+                            INSERT OR IGNORE INTO download_state
+                            (id, type, status, progress)
+                            VALUES (?, 'movie', 'available', 0.0)
+                        """, (movie["id"],))
 
-                    count += 1
-                except Exception as e:
-                    print(f"Error syncing movie {movie.get('id', 'unknown')}: {e}")
-                    traceback.print_exc()
+                        count += 1
+                    except Exception as e:
+                        print(f"Error syncing movie {movie.get('id', 'unknown')}: {e}")
+                        traceback.print_exc()
+        finally:
+            db.close()
 
         return count
 
@@ -218,11 +241,13 @@ class CatalogManager(QObject):
         """
         count = 0
 
-        with self.db.transaction() as conn:
-            for series in series_list:
-                try:
-                    # Insert or update series
-                    conn.execute("""
+        db = self._get_db()
+        try:
+            with db.transaction() as conn:
+                for series in series_list:
+                    try:
+                        # Insert or update series
+                        conn.execute("""
                         INSERT OR REPLACE INTO series
                         (id, title, year, description, poster_url, imdb_id, tmdb_id, updated_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -234,47 +259,49 @@ class CatalogManager(QObject):
                         series.get("poster_url"),
                         series.get("imdb_id"),
                         series.get("tmdb_id")
-                    ))
-
-                    # Clear existing genres
-                    conn.execute("DELETE FROM series_genres WHERE series_id = ?", (series["id"],))
-
-                    # Insert genres
-                    for genre in series.get("genre", []):
-                        conn.execute(
-                            "INSERT INTO series_genres (series_id, genre) VALUES (?, ?)",
-                            (series["id"], genre)
-                        )
-
-                    # Sync seasons
-                    for season in series.get("seasons", []):
-                        conn.execute("""
-                            INSERT OR REPLACE INTO seasons
-                            (series_id, season_number, magnet_link, file_size,
-                             episode_count, year, video_quality)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            series["id"],
-                            season["season_number"],
-                            season["magnet_link"],
-                            season["file_size"],
-                            season["episode_count"],
-                            season.get("year"),
-                            season.get("video_quality")
                         ))
 
-                        # Initialize download state for season
-                        season_id = f"{series['id']}_s{season['season_number']}"
-                        conn.execute("""
-                            INSERT OR IGNORE INTO download_state
-                            (id, type, status, progress)
-                            VALUES (?, 'season', 'available', 0.0)
-                        """, (season_id,))
+                        # Clear existing genres
+                        conn.execute("DELETE FROM series_genres WHERE series_id = ?", (series["id"],))
 
-                    count += 1
-                except Exception as e:
-                    print(f"Error syncing series {series.get('id', 'unknown')}: {e}")
-                    traceback.print_exc()
+                        # Insert genres
+                        for genre in series.get("genre", []):
+                            conn.execute(
+                                "INSERT INTO series_genres (series_id, genre) VALUES (?, ?)",
+                                (series["id"], genre)
+                            )
+
+                        # Sync seasons
+                        for season in series.get("seasons", []):
+                            conn.execute("""
+                                INSERT OR REPLACE INTO seasons
+                                (series_id, season_number, magnet_link, file_size,
+                                 episode_count, year, video_quality)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                series["id"],
+                                season["season_number"],
+                                season["magnet_link"],
+                                season["file_size"],
+                                season["episode_count"],
+                                season.get("year"),
+                                season.get("video_quality")
+                            ))
+
+                            # Initialize download state for season
+                            season_id = f"{series['id']}_s{season['season_number']}"
+                            conn.execute("""
+                                INSERT OR IGNORE INTO download_state
+                                (id, type, status, progress)
+                                VALUES (?, 'season', 'available', 0.0)
+                            """, (season_id,))
+
+                        count += 1
+                    except Exception as e:
+                        print(f"Error syncing series {series.get('id', 'unknown')}: {e}")
+                        traceback.print_exc()
+        finally:
+            db.close()
 
         return count
 
@@ -285,19 +312,22 @@ class CatalogManager(QObject):
         Returns:
             Dictionary with catalog statistics
         """
-        movie_count = self.db.fetch_one("SELECT COUNT(*) as count FROM movies")["count"]
-        series_count = self.db.fetch_one("SELECT COUNT(*) as count FROM series")["count"]
-        season_count = self.db.fetch_one("SELECT COUNT(*) as count FROM seasons")["count"]
+        db = self._get_db()
+        try:
+            movie_count = db.fetch_one("SELECT COUNT(*) as count FROM movies")["count"]
+            series_count = db.fetch_one("SELECT COUNT(*) as count FROM series")["count"]
+            season_count = db.fetch_one("SELECT COUNT(*) as count FROM seasons")["count"]
+            last_sync = get_metadata(db, "last_catalog_sync")
 
-        last_sync = get_metadata(self.db, "last_catalog_sync")
-
-        return {
-            "movies": movie_count,
-            "series": series_count,
-            "seasons": season_count,
-            "last_sync": last_sync,
-            "catalog_url": self.catalog_url
-        }
+            return {
+                "movies": movie_count,
+                "series": series_count,
+                "seasons": season_count,
+                "last_sync": last_sync,
+                "catalog_url": self.catalog_url
+            }
+        finally:
+            db.close()
 
 
 def main():
