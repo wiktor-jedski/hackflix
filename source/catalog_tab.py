@@ -429,16 +429,20 @@ class MediaListWidget(QListWidget):
         if self.media_type == 'series':
             from source.series_navigation import SeasonSelectionDialog
 
-            # Get catalog_manager from parent if available
+            # Get catalog_manager and download_state_manager from parent if available
             catalog_manager = None
+            download_state_manager = None
             parent = self.parent()
             while parent:
                 if hasattr(parent, 'catalog_manager'):
                     catalog_manager = parent.catalog_manager
+                if hasattr(parent, 'download_orchestrator') and parent.download_orchestrator:
+                    download_state_manager = parent.download_orchestrator.state_manager
+                if catalog_manager:
                     break
                 parent = parent.parent()
 
-            dialog = SeasonSelectionDialog(item_data, catalog_manager, self)
+            dialog = SeasonSelectionDialog(item_data, catalog_manager, download_state_manager, self)
 
             # Connect dialog signals
             dialog.download_requested.connect(
@@ -492,19 +496,24 @@ class CatalogTab(QWidget):
     retry_requested = pyqtSignal(str, str)  # (type, id)
     sync_requested = pyqtSignal()  # Request catalog sync
 
-    def __init__(self, catalog_manager, parent=None):
+    def __init__(self, catalog_manager, download_orchestrator=None, parent=None):
         """
         Initialize catalog tab
 
         Args:
             catalog_manager: CatalogManager instance
+            download_orchestrator: DownloadOrchestrator instance (optional)
             parent: Parent widget
         """
         super().__init__(parent)
         self.catalog_manager = catalog_manager
+        self.download_orchestrator = download_orchestrator
 
         # Create poster cache for Phase 2c
         self.poster_cache = PosterCache()
+
+        # Track download progress for UI updates
+        self.download_progress = {}  # item_id -> {phase, overall_progress, phase_progress}
 
         self._setup_ui()
         self._connect_signals()
@@ -616,6 +625,11 @@ class CatalogTab(QWidget):
         """Refresh movies list with current genre filter"""
         try:
             movies = self.catalog_manager.get_movies_by_genre(self.selected_movie_genre)
+
+            # Merge download state if orchestrator available
+            if self.download_orchestrator:
+                movies = self._merge_download_state(movies, 'movie')
+
             self.movies_list.set_items(movies)
         except Exception as e:
             print(f"Error refreshing movies: {e}")
@@ -626,11 +640,61 @@ class CatalogTab(QWidget):
         """Refresh series list with current genre filter"""
         try:
             series_list = self.catalog_manager.get_series_by_genre(self.selected_series_genre)
+
+            # Merge download state if orchestrator available
+            if self.download_orchestrator:
+                series_list = self._merge_download_state(series_list, 'series')
+
             self.series_list.set_items(series_list)
         except Exception as e:
             print(f"Error refreshing series: {e}")
             import traceback
             traceback.print_exc()
+
+    def _merge_download_state(self, items, item_type):
+        """
+        Merge download state from database with catalog items.
+
+        Args:
+            items: List of catalog items (movies or series)
+            item_type: 'movie' or 'series'
+
+        Returns:
+            List of items with download state merged in
+        """
+        if not self.download_orchestrator:
+            return items
+
+        state_manager = self.download_orchestrator.state_manager
+
+        for item in items:
+            item_id = item.get('id')
+            if not item_id:
+                continue
+
+            # Get download state from database
+            download_state = state_manager.get_download_state(item_id)
+
+            if download_state:
+                # Merge download state into item
+                item['status'] = download_state.get('status', 'available')
+                item['progress'] = download_state.get('progress', 0.0)
+                item['phase'] = download_state.get('phase')
+                item['download_path'] = download_state.get('download_path')
+                item['subtitle_path'] = download_state.get('subtitle_path')
+                item['translated_subtitle_path'] = download_state.get('translated_subtitle_path')
+
+                # Use live progress if available (more up-to-date than database)
+                if item_id in self.download_progress:
+                    live_progress = self.download_progress[item_id]
+                    item['progress'] = live_progress['overall_progress']
+                    item['phase'] = live_progress['phase']
+            else:
+                # No download state - item is available
+                item['status'] = 'available'
+                item['progress'] = 0.0
+
+        return items
 
     @pyqtSlot()
     def refresh(self):
@@ -702,6 +766,47 @@ class CatalogTab(QWidget):
             self.movies_genre_bar.setFocus()
         elif current_tab_index == 1:  # Series tab
             self.series_genre_bar.setFocus()
+
+    # --- Download Progress Handlers ---
+    def on_download_progress_updated(self, item_id, phase, overall_progress, phase_progress):
+        """
+        Handle download progress update from orchestrator.
+
+        Args:
+            item_id: Item identifier
+            phase: Current phase ('video', 'subtitles', 'translation')
+            overall_progress: Overall progress (0-100)
+            phase_progress: Progress within current phase (0-100)
+        """
+        # Store progress for UI updates
+        self.download_progress[item_id] = {
+            'phase': phase,
+            'overall_progress': overall_progress,
+            'phase_progress': phase_progress
+        }
+
+        # Trigger UI refresh to update progress display
+        # Note: This will be optimized in future to avoid full refresh
+        self._refresh_movies()
+        self._refresh_series()
+
+    def on_download_phase_changed(self, item_id, phase_name):
+        """
+        Handle download phase change from orchestrator.
+
+        Args:
+            item_id: Item identifier
+            phase_name: New phase name
+        """
+        print(f"[UI] Download phase changed: {item_id} -> {phase_name}")
+
+        # Update progress tracking
+        if item_id in self.download_progress:
+            self.download_progress[item_id]['phase'] = phase_name
+
+        # Refresh UI to show phase change
+        self._refresh_movies()
+        self._refresh_series()
 
 
 def main():

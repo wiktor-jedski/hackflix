@@ -28,6 +28,8 @@ from source.subtitle_dialog import SubtitleResultsDialog
 from source.translation_manager import SubtitleTranslator
 from source.catalog_manager import CatalogManager
 from source.catalog_tab import CatalogTab
+from source.download_state_manager import DownloadStateManager
+from source.download_orchestrator import DownloadOrchestrator
 
 # Constants
 CURSOR_HIDE_TIMEOUT_MS = 3000
@@ -60,12 +62,25 @@ class MoviePlayerApp(QMainWindow):
         self.instance = vlc.Instance(); self.mediaplayer = self.instance.media_player_new()
         self.subtitle_manager = SubtitleManager(); self.translator = SubtitleTranslator()
         self.catalog_manager = CatalogManager()
+        self.download_state_manager = DownloadStateManager()
+        self.download_orchestrator = DownloadOrchestrator(
+            state_manager=self.download_state_manager,
+            subtitle_manager=self.subtitle_manager,
+            translator=self.translator
+        )
         if self.subtitle_manager.username and self.subtitle_manager.password: print("Attempting OpenSubtitles login..."); self.subtitle_manager.login()
         self.cursor_hide_timer = QTimer(self); self.cursor_hide_timer.setInterval(CURSOR_HIDE_TIMEOUT_MS); self.cursor_hide_timer.setSingleShot(True); self.cursor_hide_timer.timeout.connect(self.hide_cursor_on_inactivity)
         self.timer = QTimer(self); self.timer.setInterval(100); self.timer.timeout.connect(self.update_ui)
         self.central_widget = QWidget(self); self.setCentralWidget(self.central_widget); self.main_layout = QVBoxLayout(self.central_widget)
         self.stacked_widget = QStackedWidget(); self._setup_ui_views_and_layouts(); self._setup_menu_bar(); self._setup_keyboard_shortcuts(); self.main_layout.addWidget(self.stacked_widget); self.stacked_widget.setCurrentIndex(1)
         self.is_playing = False; self.media = None
+        # Watch history tracking
+        self.current_item_id = None
+        self.pending_subtitle_path = None
+        self.pending_resume_position = None
+        self.watch_history_timer = QTimer(self)
+        self.watch_history_timer.setInterval(10000)  # Update every 10 seconds
+        self.watch_history_timer.timeout.connect(self._update_watch_history)
         self._connect_signals()
     def _setup_ui_views_and_layouts(self):
         self.player_widget = QWidget(); self.player_layout = QVBoxLayout(self.player_widget); self.player_layout.setContentsMargins(0,0,0,0); self.player_layout.setSpacing(0)
@@ -74,7 +89,7 @@ class MoviePlayerApp(QMainWindow):
         self.position_slider = QSlider(Qt.Horizontal); self.position_slider.setMaximum(1000); self.time_label = QLabel("00:00 / 00:00"); self.time_label.setStyleSheet("margin-left: 5px; margin-right: 5px;"); self.back_button = QPushButton(self.tr("Back to Catalog"))
         self.control_layout.addWidget(self.play_button); self.control_layout.addWidget(self.stop_button); self.control_layout.addWidget(self.position_slider); self.control_layout.addWidget(self.time_label); self.control_layout.addStretch(); self.control_layout.addWidget(self.back_button)
         self.player_layout.addWidget(self.video_frame, 1); self.player_layout.addWidget(self.control_widget)
-        self.browser_widget = QWidget(); self.browser_layout = QVBoxLayout(self.browser_widget); self.catalog_tab = CatalogTab(self.catalog_manager)
+        self.browser_widget = QWidget(); self.browser_layout = QVBoxLayout(self.browser_widget); self.catalog_tab = CatalogTab(self.catalog_manager, self.download_orchestrator)
         self.browser_layout.addWidget(self.catalog_tab)
         self.video_fullscreen_widget = QWidget(); self.video_fullscreen_widget.setObjectName("VideoFullscreenContainer"); self.video_fullscreen_layout = QVBoxLayout(self.video_fullscreen_widget); self.video_fullscreen_layout.setContentsMargins(0,0,0,0); self.video_fullscreen_layout.setSpacing(0)
         self.stacked_widget.addWidget(self.player_widget); self.stacked_widget.addWidget(self.browser_widget); self.stacked_widget.addWidget(self.video_fullscreen_widget)
@@ -107,6 +122,7 @@ class MoviePlayerApp(QMainWindow):
         self.subtitle_manager.search_results.connect(self.on_subtitle_search_results); self.subtitle_manager.search_error.connect(self.on_subtitle_search_error); self.subtitle_manager.download_ready.connect(self.on_subtitle_download_ready); self.subtitle_manager.download_error.connect(self.on_subtitle_download_error); self.subtitle_manager.login_status.connect(self.on_subtitle_login_status); self.subtitle_manager.quota_info.connect(self.on_subtitle_quota_info)
         self.translator.translation_progress.connect(self.on_translation_progress); self.translator.translation_complete.connect(self.on_translation_complete); self.translator.translation_error.connect(self.on_translation_error)
         self.catalog_manager.catalog_updated.connect(self.on_catalog_updated); self.catalog_tab.sync_requested.connect(self.show_sync_dialog); self.catalog_tab.download_requested.connect(self.on_download_requested); self.catalog_tab.play_requested.connect(self.on_catalog_play_requested); self.catalog_tab.retry_requested.connect(self.on_retry_requested)
+        self.download_orchestrator.progress_updated.connect(self.on_download_progress_updated); self.download_orchestrator.phase_changed.connect(self.on_download_phase_changed); self.download_orchestrator.download_complete.connect(self.on_download_complete); self.download_orchestrator.download_failed.connect(self.on_download_failed)
 
     # --- Helper to remove other SRTs ---
     def _remove_other_srt_files(self, video_filepath, keep_srt_filepath):
@@ -237,6 +253,42 @@ class MoviePlayerApp(QMainWindow):
             except Exception as e: self.show_cursor(); QMessageBox.critical(self, self.tr("Playback Error"), self.tr("Init playback failed: {0}").format(e)); traceback.print_exc(); self.show_browser()
         elif filepath: QMessageBox.warning(self, self.tr("File Not Found"), self.tr("File not found:\n{0}").format(filepath))
         else: print("Play file called empty.")
+
+    def play_video_file(self, video_path, subtitle_path=None, item_id=None):
+        """
+        Play video from catalog with subtitle auto-loading and watch history tracking.
+
+        Args:
+            video_path: Path to video file
+            subtitle_path: Optional path to translated subtitle file
+            item_id: Optional catalog item ID for watch history tracking
+        """
+        print(f"play_video_file: {video_path}")
+        print(f"  Subtitle: {subtitle_path}")
+        print(f"  Item ID: {item_id}")
+
+        # Store context for post-playback actions
+        self.current_item_id = item_id
+        self.pending_subtitle_path = subtitle_path
+        self.pending_resume_position = None
+
+        # Check for watch history and resume position
+        if item_id:
+            try:
+                watch_state = self.download_state_manager.get_watch_history(item_id)
+                if watch_state:
+                    last_position = watch_state.get('last_position', 0)
+                    completed = watch_state.get('completed', False)
+
+                    # Only resume if not completed and position > 5 seconds
+                    if not completed and last_position > 5000:
+                        self.pending_resume_position = last_position
+                        print(f"  Found resume position: {last_position}ms")
+            except Exception as e:
+                print(f"Error checking watch history: {e}")
+
+        # Start playback using existing infrastructure
+        self.play_file(video_path)
     def _play_file_continue(self, filepath):
          try:
               print(f"_play_file_continue: Loading media: {filepath}")
@@ -256,7 +308,15 @@ class MoviePlayerApp(QMainWindow):
          except Exception as e: self.show_cursor(); filepath = self.media.get_mrl() if self.media else "?"; QMessageBox.critical(self, self.tr("Playback Error"), self.tr("Start playback failed: {0}").format(e)); traceback.print_exc(); self.show_browser()
     def _post_play_start_actions(self):
          current_state = self.mediaplayer.get_state(); print(f"_post_play: State={current_state}"); self._update_play_button_icon();
-         if current_state in [vlc.State.Playing, vlc.State.Paused]: self.is_playing = self.mediaplayer.is_playing();
+         if current_state in [vlc.State.Playing, vlc.State.Paused]:
+             self.is_playing = self.mediaplayer.is_playing()
+             # Handle subtitle loading and resume position after a short delay
+             if self.pending_subtitle_path or self.pending_resume_position:
+                 QTimer.singleShot(500, self._handle_post_play_extras)
+             # Start watch history tracking if item_id is set
+             if self.current_item_id and not self.watch_history_timer.isActive():
+                 print("  Starting watch history tracking")
+                 self.watch_history_timer.start()
          if not self.timer.isActive(): self.timer.start();
          if not self.is_video_layout_fullscreen and self.is_playing: print("  Starting cursor timer."); self.cursor_hide_timer.start()
          elif not self.is_playing: self.show_cursor()
@@ -273,7 +333,13 @@ class MoviePlayerApp(QMainWindow):
             else: print("Play/Pause: No media.");
         self._update_play_button_icon()
     def stop(self):
-        print("Stop called."); media_exists = self.mediaplayer.get_media() is not None;
+        print("Stop called.")
+        # Save final watch history before stopping
+        if self.current_item_id and self.watch_history_timer.isActive():
+            self._update_watch_history()
+            self.watch_history_timer.stop()
+            self.current_item_id = None
+        media_exists = self.mediaplayer.get_media() is not None;
         if media_exists: self.mediaplayer.stop();
         self._update_play_button_icon(); self.is_playing = False;
         if self.timer.isActive(): self.timer.stop();
@@ -302,6 +368,68 @@ class MoviePlayerApp(QMainWindow):
     def set_position(self, position):
         if self.mediaplayer.is_seekable(): self.mediaplayer.set_position(position / 1000.0); self.show_cursor()
         else: print("Media not seekable.")
+
+    def _handle_post_play_extras(self):
+        """Handle subtitle loading and resume position after playback starts"""
+        try:
+            # Load subtitle if available
+            if self.pending_subtitle_path and os.path.exists(self.pending_subtitle_path):
+                print(f"Loading subtitle: {self.pending_subtitle_path}")
+                # Use VLC's add_slave method to load subtitle
+                # Type 0 = subtitle, 1 = audio
+                result = self.mediaplayer.video_set_subtitle_file(self.pending_subtitle_path)
+                if result == 0:
+                    print("  Subtitle loaded successfully")
+                else:
+                    print(f"  Warning: Subtitle load returned {result}")
+                self.pending_subtitle_path = None
+
+            # Set resume position if available
+            if self.pending_resume_position is not None:
+                resume_ms = self.pending_resume_position
+                print(f"Resuming from position: {resume_ms}ms")
+                # Wait for media to be loaded before seeking
+                media_length = self.mediaplayer.get_length()
+                if media_length > 0:
+                    resume_position = resume_ms / media_length
+                    self.mediaplayer.set_position(resume_position)
+                    print(f"  Resumed at position {resume_position}")
+                else:
+                    print("  Warning: Cannot resume - media length not available yet")
+                self.pending_resume_position = None
+
+        except Exception as e:
+            print(f"Error in _handle_post_play_extras: {e}")
+            traceback.print_exc()
+
+    def _update_watch_history(self):
+        """Periodically update watch history with current playback position"""
+        if not self.current_item_id:
+            return
+
+        try:
+            # Get current playback position
+            current_time = self.mediaplayer.get_time()  # milliseconds
+            media_length = self.mediaplayer.get_length()  # milliseconds
+
+            if current_time < 0 or media_length <= 0:
+                return
+
+            # Check if video is completed (>90% watched)
+            progress = current_time / media_length
+            completed = progress > 0.9
+
+            print(f"Updating watch history: {self.current_item_id} @ {current_time}ms ({progress*100:.1f}%)")
+
+            # Update watch history in database
+            self.download_state_manager.update_watch_history(
+                item_id=self.current_item_id,
+                last_position=current_time,
+                completed=completed
+            )
+
+        except Exception as e:
+            print(f"Error updating watch history: {e}")
 
     # --- Subtitle Handling Slots ---
     # ... (on_subtitle_search_results - MODIFIED) ...
@@ -433,31 +561,176 @@ class MoviePlayerApp(QMainWindow):
     def on_download_requested(self, item_type, item_id):
         """Handle download request from catalog"""
         print(f"Download requested: {item_type} {item_id}")
-        # Phase 2a: Show placeholder message
-        QMessageBox.information(
-            self,
-            self.tr("Download"),
-            self.tr("Download functionality coming in Phase 3!\n\n"
-                   f"Would download: {item_type} {item_id}")
-        )
+
+        try:
+            # Get item metadata from catalog
+            if item_type == 'movie':
+                item = self.catalog_manager.get_movie_by_id(item_id)
+            elif item_type == 'season':
+                # item_id format: "series_id_s1"
+                parts = item_id.rsplit('_s', 1)
+                if len(parts) == 2:
+                    series_id, season_num = parts[0], int(parts[1])
+                    item = self.catalog_manager.get_season(series_id, season_num)
+                else:
+                    print(f"Invalid season item_id format: {item_id}")
+                    return
+            else:
+                print(f"Unknown item type: {item_type}")
+                return
+
+            if not item:
+                QMessageBox.warning(
+                    self,
+                    self.tr("Download Error"),
+                    self.tr(f"Could not find {item_type} with ID: {item_id}")
+                )
+                return
+
+            # Get magnet link and title
+            magnet_link = item.get('magnet_link')
+            title = item.get('title', 'Unknown')
+
+            if not magnet_link:
+                QMessageBox.warning(
+                    self,
+                    self.tr("Download Error"),
+                    self.tr("No magnet link available for this item")
+                )
+                return
+
+            # Start download via orchestrator
+            success = self.download_orchestrator.start_download(
+                item_id=item_id,
+                item_type=item_type,
+                magnet_link=magnet_link,
+                title=title,
+                metadata=item
+            )
+
+            if not success:
+                QMessageBox.warning(
+                    self,
+                    self.tr("Download Error"),
+                    self.tr("Could not start download. May already be downloading or concurrent limit reached.")
+                )
+
+        except Exception as e:
+            print(f"Error starting download: {e}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(
+                self,
+                self.tr("Download Error"),
+                self.tr(f"Error starting download:\n{str(e)}")
+            )
 
     @pyqtSlot(str)
     def on_catalog_play_requested(self, item_id):
         """Handle play request from catalog"""
         print(f"Play requested from catalog: {item_id}")
-        # Phase 2a: Show placeholder message
-        QMessageBox.information(
-            self,
-            self.tr("Play"),
-            self.tr("Play functionality coming in Phase 2b!\n\n"
-                   f"Item: {item_id}")
-        )
+
+        try:
+            # Get download state from database
+            download_state = self.download_state_manager.get_download_state(item_id)
+
+            if not download_state:
+                QMessageBox.warning(
+                    self,
+                    self.tr("Cannot Play"),
+                    self.tr("This item has not been downloaded yet.\n\nPlease download it first.")
+                )
+                return
+
+            # Check if ready to play
+            status = download_state.get('status')
+            if status != 'ready':
+                QMessageBox.warning(
+                    self,
+                    self.tr("Cannot Play"),
+                    self.tr(f"This item is not ready to play.\n\nStatus: {status}")
+                )
+                return
+
+            # Get video path
+            video_path = download_state.get('download_path')
+            if not video_path or not os.path.exists(video_path):
+                QMessageBox.warning(
+                    self,
+                    self.tr("Video Not Found"),
+                    self.tr("Video file not found. It may have been moved or deleted.")
+                )
+                return
+
+            # Get translated subtitle path (prefer -pl.srt)
+            translated_subtitle_path = download_state.get('translated_subtitle_path')
+
+            # Play video with subtitle
+            self.play_video_file(video_path, translated_subtitle_path, item_id=item_id)
+
+        except Exception as e:
+            print(f"Error playing catalog item: {e}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(
+                self,
+                self.tr("Playback Error"),
+                self.tr(f"Error starting playback:\n{str(e)}")
+            )
 
     @pyqtSlot(str, str)
     def on_retry_requested(self, item_type, item_id):
         """Handle retry request for failed downloads"""
         print(f"Retry requested: {item_type} {item_id}")
+        # Reset failed download and restart
+        self.download_state_manager.reset_failed_download(item_id)
         self.on_download_requested(item_type, item_id)
+
+    # --- Download Orchestrator Signal Handlers ---
+    @pyqtSlot(str, str, float, float)
+    def on_download_progress_updated(self, item_id, phase, overall_progress, phase_progress):
+        """Handle download progress update from orchestrator"""
+        # Forward to catalog tab
+        self.catalog_tab.on_download_progress_updated(item_id, phase, overall_progress, phase_progress)
+
+    @pyqtSlot(str, str)
+    def on_download_phase_changed(self, item_id, phase_name):
+        """Handle download phase change from orchestrator"""
+        print(f"[{item_id}] Phase changed to: {phase_name}")
+        # Forward to catalog tab
+        self.catalog_tab.on_download_phase_changed(item_id, phase_name)
+
+    @pyqtSlot(str, str, str)
+    def on_download_complete(self, item_id, video_path, subtitle_path):
+        """Handle download completion from orchestrator"""
+        print(f"[{item_id}] Download complete!")
+        print(f"  Video: {video_path}")
+        print(f"  Subtitle: {subtitle_path}")
+
+        # Refresh catalog to show "ready" status
+        self.catalog_tab.refresh()
+
+        # Show notification
+        QMessageBox.information(
+            self,
+            self.tr("Download Complete"),
+            self.tr(f"Download complete!\n\nVideo and subtitles are ready to play.")
+        )
+
+    @pyqtSlot(str, str, str)
+    def on_download_failed(self, item_id, phase, error_message):
+        """Handle download failure from orchestrator"""
+        print(f"[{item_id}] Download failed in {phase} phase: {error_message}")
+
+        # Refresh catalog to show "failed" status
+        self.catalog_tab.refresh()
+
+        # Show error message
+        QMessageBox.critical(
+            self,
+            self.tr("Download Failed"),
+            self.tr(f"Download failed during {phase} phase:\n\n{error_message}\n\nYou can retry from the catalog.")
+        )
 
     # --- Keyboard Shortcut Handlers ---
     def _trigger_catalog_sync(self):
@@ -513,6 +786,7 @@ class MoviePlayerApp(QMainWindow):
     # ... (closeEvent unchanged) ...
     def closeEvent(self, event):
         print("Closing application..."); self.stop()
+        if hasattr(self, 'download_orchestrator'): print("Shutting down download orchestrator..."); self.download_orchestrator.shutdown()
         if hasattr(self, 'subtitle_manager') and self.subtitle_manager.logged_in: print("Logging out from OpenSubtitles..."); self.subtitle_manager.logout(); QTimer.singleShot(500, event.accept); event.ignore()
         else: event.accept()
 

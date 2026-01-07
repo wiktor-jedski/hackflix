@@ -25,21 +25,23 @@ class SeasonSelectionDialog(QDialog):
     """
 
     download_requested = pyqtSignal(str)  # season_id
-    play_requested = pyqtSignal(str)  # episode file path
+    play_requested = pyqtSignal(str)  # episode item_id (e.g., "series_001_s1_e1")
     season_selected = pyqtSignal(str, int)  # (series_id, season_number)
 
-    def __init__(self, series_data, catalog_manager=None, parent=None):
+    def __init__(self, series_data, catalog_manager=None, download_state_manager=None, parent=None):
         """
         Initialize season selection dialog
 
         Args:
             series_data: Series dictionary with seasons
-            catalog_manager: CatalogManager instance (optional, for watch history)
+            catalog_manager: CatalogManager instance (optional)
+            download_state_manager: DownloadStateManager for watch history
             parent: Parent widget
         """
         super().__init__(parent)
         self.series = series_data
         self.catalog_manager = catalog_manager
+        self.download_state_manager = download_state_manager
         self.watch_history = {}  # {season_num: {episode_num: {position, completed}}}
 
         self.setWindowTitle(f"{series_data['title']} ({series_data['year']})")
@@ -140,32 +142,32 @@ class SeasonSelectionDialog(QDialog):
         layout.addLayout(button_layout)
 
     def _load_watch_history(self):
-        """Load watch history from database"""
-        if not self.catalog_manager:
+        """Load watch history from database using DownloadStateManager"""
+        if not self.download_state_manager:
             return
 
         try:
-            from source.db_utils import get_watch_history
+            # Load watch history for all episodes in all seasons
+            seasons = self.series.get('seasons', [])
+            for season in seasons:
+                season_num = season['season_number']
+                episode_count = season.get('episode_count', 0)
 
-            db = self.catalog_manager._get_db()
-            try:
-                history = get_watch_history(db, self.series['id'])
+                for ep_num in range(1, episode_count + 1):
+                    # Construct item_id: "series_001_s1_e1"
+                    item_id = f"{self.series['id']}_s{season_num}_e{ep_num}"
 
-                # Organize by season and episode
-                for entry in history:
-                    season_num = entry['season_number']
-                    episode_num = entry['episode_number']
+                    # Get watch history from database
+                    history = self.download_state_manager.get_watch_history(item_id)
+                    if history:
+                        if season_num not in self.watch_history:
+                            self.watch_history[season_num] = {}
 
-                    if season_num not in self.watch_history:
-                        self.watch_history[season_num] = {}
-
-                    self.watch_history[season_num][episode_num] = {
-                        'position': entry['last_position'],
-                        'duration': entry.get('duration', 0),
-                        'completed': entry.get('completed', False)
-                    }
-            finally:
-                db.close()
+                        self.watch_history[season_num][ep_num] = {
+                            'position': history['last_position'],
+                            'duration': 0,  # Duration not stored in watch_history table
+                            'completed': history.get('completed', False)
+                        }
 
         except Exception as e:
             print(f"Error loading watch history: {e}")
@@ -346,9 +348,9 @@ class SeasonSelectionDialog(QDialog):
         if not ep_data:
             return
 
-        # Phase 2b: Placeholder - actual file path lookup will be in Phase 3
-        episode_path = f"{self.series['id']}_s{ep_data['season']}_e{ep_data['episode']}"
-        self.play_requested.emit(episode_path)
+        # Construct episode item_id: "series_001_s1_e1"
+        item_id = f"{self.series['id']}_s{ep_data['season']}_e{ep_data['episode']}"
+        self.play_requested.emit(item_id)
 
     @pyqtSlot(QListWidgetItem)
     def _on_episode_activated(self, item):
