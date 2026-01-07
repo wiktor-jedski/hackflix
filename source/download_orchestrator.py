@@ -763,13 +763,13 @@ class DownloadOrchestrator(QObject):
         except Exception as e:
             self._handle_subtitle_download_error(item_id, f"Error downloading subtitle: {e}")
 
-    @pyqtSlot(str)
-    def _on_subtitle_download_error(self, error_message: str):
+    @pyqtSlot(dict)
+    def _on_subtitle_download_error(self, error_dict: dict):
         """
         Handle subtitle download error.
 
         Args:
-            error_message: Error message from SubtitleManager
+            error_dict: Error dictionary from SubtitleManager with 'message' and 'status' keys
         """
         item_id = self._find_download_in_subtitle_phase()
 
@@ -777,7 +777,11 @@ class DownloadOrchestrator(QObject):
             print(f"Warning: Received subtitle download error but no download in subtitle phase")
             return
 
-        self._handle_subtitle_download_error(item_id, f"Subtitle download failed: {error_message}")
+        # Extract error message from dict
+        error_message = error_dict.get('message', 'Unknown error')
+        error_status = error_dict.get('status', 0)
+
+        self._handle_subtitle_download_error(item_id, f"Subtitle download failed (HTTP {error_status}): {error_message}")
 
     def _start_translation(self, item_id: str, subtitle_path: str):
         """
