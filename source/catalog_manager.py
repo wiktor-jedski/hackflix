@@ -385,6 +385,106 @@ class CatalogManager(QObject):
         finally:
             db.close()
 
+    def get_movie_genres(self) -> List[str]:
+        """
+        Get all unique movie genres from database
+
+        Returns:
+            Sorted list of unique genre strings
+        """
+        db = self._get_db()
+        try:
+            result = db.fetch_all(
+                "SELECT DISTINCT genre FROM movie_genres ORDER BY genre"
+            )
+            return [row['genre'] for row in result]
+        finally:
+            db.close()
+
+    def get_series_genres(self) -> List[str]:
+        """
+        Get all unique series genres from database
+
+        Returns:
+            Sorted list of unique genre strings
+        """
+        db = self._get_db()
+        try:
+            result = db.fetch_all(
+                "SELECT DISTINCT genre FROM series_genres ORDER BY genre"
+            )
+            return [row['genre'] for row in result]
+        finally:
+            db.close()
+
+    def get_movies_by_genre(self, genre: str) -> List[Dict]:
+        """
+        Get movies filtered by genre
+
+        Args:
+            genre: Genre to filter by (use "All" for all movies)
+
+        Returns:
+            List of movie dictionaries filtered by genre
+        """
+        if genre == "All":
+            return self.get_all_movies()
+
+        from source.db_utils import get_movies_by_genre, get_download_state
+
+        db = self._get_db()
+        try:
+            movies = get_movies_by_genre(db, genre)
+
+            # Add download state to each movie
+            for movie in movies:
+                state = get_download_state(db, movie["id"])
+                if state:
+                    movie["status"] = state["status"]
+                    movie["progress"] = state["progress"]
+                else:
+                    movie["status"] = "available"
+                    movie["progress"] = 0.0
+
+            return movies
+        finally:
+            db.close()
+
+    def get_series_by_genre(self, genre: str) -> List[Dict]:
+        """
+        Get series filtered by genre
+
+        Args:
+            genre: Genre to filter by (use "All" for all series)
+
+        Returns:
+            List of series dictionaries filtered by genre
+        """
+        if genre == "All":
+            return self.get_all_series()
+
+        from source.db_utils import get_series_by_genre, get_download_state
+
+        db = self._get_db()
+        try:
+            series_list = get_series_by_genre(db, genre)
+
+            # Add download state to each season
+            for series in series_list:
+                for season in series.get("seasons", []):
+                    season_id = f"{series['id']}_s{season['season_number']}"
+                    state = get_download_state(db, season_id)
+                    if state:
+                        season["status"] = state["status"]
+                        season["progress"] = state["progress"]
+                    else:
+                        season["status"] = "available"
+                        season["progress"] = 0.0
+
+            return series_list
+        finally:
+            db.close()
+
 
 def main():
     """Command-line interface for testing catalog sync"""

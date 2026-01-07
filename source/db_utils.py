@@ -217,6 +217,101 @@ def get_all_series(db: DatabaseConnection) -> List[Dict[str, Any]]:
     return result
 
 
+def get_movies_by_genre(db: DatabaseConnection, genre: str) -> List[Dict[str, Any]]:
+    """
+    Get movies filtered by genre
+
+    Args:
+        db: Database connection
+        genre: Genre to filter by
+
+    Returns:
+        List of movie dictionaries filtered by genre
+    """
+    movies = db.fetch_all("""
+        SELECT DISTINCT
+            m.id, m.title, m.year, m.description, m.magnet_link, m.file_size,
+            m.poster_url, m.imdb_id, m.tmdb_id, m.runtime,
+            m.video_quality, m.video_codec, m.audio_codec
+        FROM movies m
+        JOIN movie_genres mg ON m.id = mg.movie_id
+        WHERE mg.genre = ?
+        ORDER BY m.year DESC, m.title ASC
+    """, (genre,))
+
+    result = []
+    for movie in movies:
+        movie_dict = dict(movie)
+
+        # Get genres
+        genres = db.fetch_all(
+            "SELECT genre FROM movie_genres WHERE movie_id = ? ORDER BY genre",
+            (movie["id"],)
+        )
+        movie_dict["genres"] = [g["genre"] for g in genres]
+
+        # Get subtitle languages
+        langs = db.fetch_all(
+            "SELECT language_code FROM movie_subtitle_languages WHERE movie_id = ? ORDER BY language_code",
+            (movie["id"],)
+        )
+        movie_dict["subtitle_languages"] = [l["language_code"] for l in langs]
+
+        result.append(movie_dict)
+
+    return result
+
+
+def get_series_by_genre(db: DatabaseConnection, genre: str) -> List[Dict[str, Any]]:
+    """
+    Get series filtered by genre
+
+    Args:
+        db: Database connection
+        genre: Genre to filter by
+
+    Returns:
+        List of series dictionaries filtered by genre
+    """
+    series_list = db.fetch_all("""
+        SELECT DISTINCT
+            s.id, s.title, s.year, s.description, s.poster_url, s.imdb_id, s.tmdb_id
+        FROM series s
+        JOIN series_genres sg ON s.id = sg.series_id
+        WHERE sg.genre = ?
+        ORDER BY s.year DESC, s.title ASC
+    """, (genre,))
+
+    result = []
+    for series in series_list:
+        series_dict = dict(series)
+
+        # Get genres
+        genres = db.fetch_all(
+            "SELECT genre FROM series_genres WHERE series_id = ? ORDER BY genre",
+            (series["id"],)
+        )
+        series_dict["genres"] = [g["genre"] for g in genres]
+
+        # Get seasons
+        seasons = db.fetch_all(
+            """
+            SELECT
+                season_number, magnet_link, file_size, episode_count,
+                year, video_quality
+            FROM seasons
+            WHERE series_id = ?
+            ORDER BY season_number
+            """,
+            (series["id"],)
+        )
+        series_dict["seasons"] = [dict(s) for s in seasons]
+
+        result.append(series_dict)
+
+    return result
+
+
 def get_movie_by_id(db: DatabaseConnection, movie_id: str) -> Optional[Dict[str, Any]]:
     """
     Get single movie by ID

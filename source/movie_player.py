@@ -17,17 +17,17 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                            QHBoxLayout, QPushButton, QLabel,
                            QSlider, QStyle, QStackedWidget,
                            QTabWidget, QMessageBox, QApplication, QDesktopWidget,
-                           QProgressDialog)
+                           QProgressDialog, QAction, QShortcut)
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtCore import Qt, QTimer, pyqtSlot, QMetaObject, Q_ARG, pyqtSignal, QPoint, QEvent
 
 # Import local modules
 from source.video_frame import VideoFrame
-from source.file_browser import FileBrowser
-from source.downloads_tab import DownloadsTab
 from source.subtitle_manager import SubtitleManager
 from source.subtitle_dialog import SubtitleResultsDialog
-from source.web_browser_tab import WebBrowserTab
 from source.translation_manager import SubtitleTranslator
+from source.catalog_manager import CatalogManager
+from source.catalog_tab import CatalogTab
 
 # Constants
 CURSOR_HIDE_TIMEOUT_MS = 3000
@@ -59,31 +59,54 @@ class MoviePlayerApp(QMainWindow):
         self.setWindowTitle(self.tr("Raspberry Pi Movie Player")); self.setGeometry(100, 100, 1024, 768); self.setFocusPolicy(Qt.StrongFocus)
         self.instance = vlc.Instance(); self.mediaplayer = self.instance.media_player_new()
         self.subtitle_manager = SubtitleManager(); self.translator = SubtitleTranslator()
+        self.catalog_manager = CatalogManager()
         if self.subtitle_manager.username and self.subtitle_manager.password: print("Attempting OpenSubtitles login..."); self.subtitle_manager.login()
         self.cursor_hide_timer = QTimer(self); self.cursor_hide_timer.setInterval(CURSOR_HIDE_TIMEOUT_MS); self.cursor_hide_timer.setSingleShot(True); self.cursor_hide_timer.timeout.connect(self.hide_cursor_on_inactivity)
         self.timer = QTimer(self); self.timer.setInterval(100); self.timer.timeout.connect(self.update_ui)
         self.central_widget = QWidget(self); self.setCentralWidget(self.central_widget); self.main_layout = QVBoxLayout(self.central_widget)
-        self.stacked_widget = QStackedWidget(); self._setup_ui_views_and_layouts(); self.main_layout.addWidget(self.stacked_widget); self.stacked_widget.setCurrentIndex(1)
+        self.stacked_widget = QStackedWidget(); self._setup_ui_views_and_layouts(); self._setup_menu_bar(); self._setup_keyboard_shortcuts(); self.main_layout.addWidget(self.stacked_widget); self.stacked_widget.setCurrentIndex(1)
         self.is_playing = False; self.media = None
         self._connect_signals()
     def _setup_ui_views_and_layouts(self):
         self.player_widget = QWidget(); self.player_layout = QVBoxLayout(self.player_widget); self.player_layout.setContentsMargins(0,0,0,0); self.player_layout.setSpacing(0)
         self.video_frame = VideoFrame(); self.control_widget = QWidget(); self.control_layout = QHBoxLayout(self.control_widget); self.control_layout.setContentsMargins(5,5,5,5)
         self.play_button = QPushButton(); self.play_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay)); self.stop_button = QPushButton(); self.stop_button.setIcon(self.style().standardIcon(QStyle.SP_MediaStop))
-        self.position_slider = QSlider(Qt.Horizontal); self.position_slider.setMaximum(1000); self.time_label = QLabel("00:00 / 00:00"); self.time_label.setStyleSheet("margin-left: 5px; margin-right: 5px;"); self.back_button = QPushButton(self.tr("Back to Library"))
+        self.position_slider = QSlider(Qt.Horizontal); self.position_slider.setMaximum(1000); self.time_label = QLabel("00:00 / 00:00"); self.time_label.setStyleSheet("margin-left: 5px; margin-right: 5px;"); self.back_button = QPushButton(self.tr("Back to Catalog"))
         self.control_layout.addWidget(self.play_button); self.control_layout.addWidget(self.stop_button); self.control_layout.addWidget(self.position_slider); self.control_layout.addWidget(self.time_label); self.control_layout.addStretch(); self.control_layout.addWidget(self.back_button)
         self.player_layout.addWidget(self.video_frame, 1); self.player_layout.addWidget(self.control_widget)
-        self.browser_widget = QWidget(); self.browser_layout = QVBoxLayout(self.browser_widget); self.tab_widget = QTabWidget(); self.library_tab = FileBrowser(); self.downloads_tab = DownloadsTab(); self.filmweb_tab = WebBrowserTab()
-        self.tab_widget.addTab(self.library_tab, self.tr("Library")); self.tab_widget.addTab(self.downloads_tab, self.tr("Downloads")); self.tab_widget.addTab(self.filmweb_tab, self.tr("Filmweb")); self.browser_layout.addWidget(self.tab_widget)
+        self.browser_widget = QWidget(); self.browser_layout = QVBoxLayout(self.browser_widget); self.catalog_tab = CatalogTab(self.catalog_manager)
+        self.browser_layout.addWidget(self.catalog_tab)
         self.video_fullscreen_widget = QWidget(); self.video_fullscreen_widget.setObjectName("VideoFullscreenContainer"); self.video_fullscreen_layout = QVBoxLayout(self.video_fullscreen_widget); self.video_fullscreen_layout.setContentsMargins(0,0,0,0); self.video_fullscreen_layout.setSpacing(0)
         self.stacked_widget.addWidget(self.player_widget); self.stacked_widget.addWidget(self.browser_widget); self.stacked_widget.addWidget(self.video_fullscreen_widget)
+    def _setup_menu_bar(self):
+        """Setup application menu bar"""
+        menubar = self.menuBar()
+
+        # Catalog menu
+        catalog_menu = menubar.addMenu(self.tr("&Catalog"))
+
+        # Update Catalog action
+        update_catalog_action = QAction(self.tr("&Update Catalog"), self)
+        update_catalog_action.setShortcut("Ctrl+U")
+        update_catalog_action.setStatusTip(self.tr("Sync catalog from server"))
+        update_catalog_action.triggered.connect(self.show_sync_dialog)
+        catalog_menu.addAction(update_catalog_action)
+    def _setup_keyboard_shortcuts(self):
+        """Setup keyboard shortcuts"""
+        # U key - Update catalog (already in menu, but add standalone too)
+        QShortcut(QKeySequence("U"), self, self._trigger_catalog_sync)
+
+        # D key - Download or Play (context-aware)
+        QShortcut(QKeySequence("D"), self, self._trigger_download_or_play)
+
+        # S key - Focus search/genre filter
+        QShortcut(QKeySequence("S"), self, self._focus_genre_filter)
     def _connect_signals(self):
-        self.library_tab.file_selected.connect(self.play_file); self.library_tab.find_subtitles_requested.connect(self.on_find_subtitles_requested); self.library_tab.translate_subtitle_requested.connect(self.on_translate_subtitle_requested)
         self.video_frame.doubleClicked.connect(self.toggle_video_fullscreen); self.video_frame.mouseMoved.connect(self.on_mouse_moved_over_video)
         self.play_button.clicked.connect(self.play_pause); self.stop_button.clicked.connect(self.stop); self.position_slider.sliderMoved.connect(self.set_position); self.back_button.clicked.connect(self.show_browser)
-        self.filmweb_tab.search_requested.connect(self.on_web_search_requested)
         self.subtitle_manager.search_results.connect(self.on_subtitle_search_results); self.subtitle_manager.search_error.connect(self.on_subtitle_search_error); self.subtitle_manager.download_ready.connect(self.on_subtitle_download_ready); self.subtitle_manager.download_error.connect(self.on_subtitle_download_error); self.subtitle_manager.login_status.connect(self.on_subtitle_login_status); self.subtitle_manager.quota_info.connect(self.on_subtitle_quota_info)
         self.translator.translation_progress.connect(self.on_translation_progress); self.translator.translation_complete.connect(self.on_translation_complete); self.translator.translation_error.connect(self.on_translation_error)
+        self.catalog_manager.catalog_updated.connect(self.on_catalog_updated); self.catalog_tab.sync_requested.connect(self.show_sync_dialog); self.catalog_tab.download_requested.connect(self.on_download_requested); self.catalog_tab.play_requested.connect(self.on_catalog_play_requested); self.catalog_tab.retry_requested.connect(self.on_retry_requested)
 
     # --- Helper to remove other SRTs ---
     def _remove_other_srt_files(self, video_filepath, keep_srt_filepath):
@@ -281,26 +304,8 @@ class MoviePlayerApp(QMainWindow):
         else: print("Media not seekable.")
 
     # --- Subtitle Handling Slots ---
-    # ... (on_find_subtitles_requested - MODIFIED, on_subtitle_search_results - MODIFIED) ...
+    # ... (on_subtitle_search_results - MODIFIED) ...
     # ... (on_subtitle_search_error, on_subtitle_selected, on_subtitle_download_ready, _download_subtitle_worker) ...
-    @pyqtSlot(str)
-    def on_find_subtitles_requested(self, video_path):
-        if not video_path: return
-        self.current_search_video_path = video_path; filename = os.path.basename(video_path); base_query = os.path.splitext(filename)[0]
-        season = None; episode = None; search_type = 'movie'; cleaned_query = base_query
-        test_name = filename.replace('.', ' ').replace('_', ' ')
-        match = SEASON_EPISODE_REGEX.search(test_name)
-        if match:
-            groups = match.groups(); print(f"Regex S/E Groups: {groups}")
-            if groups[0] is not None and groups[1] is not None: season = int(groups[0]); episode = int(groups[1]); search_type = 'episode'
-            elif groups[2] is not None and groups[3] is not None: season = int(groups[2]); episode = int(groups[3]); search_type = 'episode'
-            if season is not None and episode is not None:
-                 pattern_str = match.group(0).strip('._ -'); cleaned_query = base_query.replace(pattern_str, '', 1).strip('._ -')
-                 cleaned_query = CLEAN_QUERY_REGEX.sub('', cleaned_query).strip('._ -'); cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip(); print(f" Series Detected. Query: '{cleaned_query}', S={season}, E={episode}")
-            else: cleaned_query = CLEAN_QUERY_REGEX.sub('', base_query).strip('._ -'); cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip(); print(f" Movie/Uncertain Detected. Query: '{cleaned_query}'")
-        else: cleaned_query = CLEAN_QUERY_REGEX.sub('', base_query).strip('._ -'); cleaned_query = re.sub(r'[._\-]+', ' ', cleaned_query).strip(); print(f" Movie Detected. Query: '{cleaned_query}'")
-        languages = "en,pl"; print(f"Searching API: Type='{search_type}', Query='{cleaned_query}', S={season}, E={episode}, Lang={languages}"); QApplication.setOverrideCursor(Qt.WaitCursor)
-        self.subtitle_manager.search_subtitles(query=cleaned_query, languages=languages, season=season, episode=episode, type=search_type)
     @pyqtSlot(list)
     def on_subtitle_search_results(self, results):
         QApplication.restoreOverrideCursor(); print(f"Received {len(results)} sub results.")
@@ -362,15 +367,6 @@ class MoviePlayerApp(QMainWindow):
     def on_subtitle_quota_info(self, remaining, limit): print(f"Subtitle Quota: {remaining}/{limit} left.")
 
     # --- Translation Handling Slots ---
-    @pyqtSlot(str)
-    def on_translate_subtitle_requested(self, srt_path):
-        if self.is_translating: QMessageBox.warning(self, self.tr("Translation Busy"), self.tr("Translation already in progress.")); return
-        if not os.path.exists(srt_path): QMessageBox.critical(self, self.tr("Translation Error"), self.tr("Subtitle file not found:\n{0}").format(srt_path)); return
-        self.translation_progress_dialog = QProgressDialog(self.tr("Translating subtitle..."), self.tr("Cancel"), 0, 100, self)
-        self.translation_progress_dialog.setWindowTitle(self.tr("Translation Progress")); self.translation_progress_dialog.setWindowModality(Qt.WindowModal)
-        self.translation_progress_dialog.setAutoClose(True); self.translation_progress_dialog.setAutoReset(True)
-        self.translation_progress_dialog.canceled.connect(self.on_translation_cancel); self.translation_progress_dialog.setValue(0); self.translation_progress_dialog.show()
-        self.is_translating = True; print(f"Starting translation for: {srt_path}"); self.translator.translate_srt_file(srt_path)
     @pyqtSlot(int, int)
     def on_translation_progress(self, current_batch, total_batches):
         if self.translation_progress_dialog:
@@ -410,42 +406,113 @@ class MoviePlayerApp(QMainWindow):
                 except OSError as e: QMessageBox.warning(self, self.tr("File Error"), self.tr("Could not delete original subtitle:\n{0}").format(e))
         # --- End Remove ---
 
-        self.library_tab.refresh_files() # Refresh list
         QMessageBox.information(self, self.tr("Translation Complete"), self.tr("Translation saved to:\n{0}").format(os.path.basename(translated_srt_path))) # Notify user
     @pyqtSlot(str, str)
     def on_translation_error(self, original_srt_path, error_message):
         print(f"Translation failed for {original_srt_path}: {error_message}"); self.is_translating = False
         if self.translation_progress_dialog: self.translation_progress_dialog.cancel(); self.translation_progress_dialog = None
         QMessageBox.critical(self, self.tr("Translation Error"), self.tr("Failed translate {0}:\n{1}").format(os.path.basename(original_srt_path), error_message))
-        self.library_tab.refresh_files()
     def on_translation_cancel(self):
         print("Translation cancelled by user."); self.is_translating = False; self.translation_progress_dialog = None
 
-    # --- Slot for Web Browser Search Request ---
-    # ... (on_web_search_requested unchanged) ...
+    # --- Catalog Signal Handlers ---
+    def show_sync_dialog(self):
+        """Show catalog sync dialog"""
+        from source.sync_dialog import SyncDialog
+        dialog = SyncDialog(self.catalog_manager, self)
+        dialog.start_sync()
+        dialog.exec_()
+
+    @pyqtSlot()
+    def on_catalog_updated(self):
+        """Refresh catalog tab when catalog updates"""
+        print("Catalog updated - refreshing catalog tab")
+        self.catalog_tab.refresh()
+
+    @pyqtSlot(str, str)
+    def on_download_requested(self, item_type, item_id):
+        """Handle download request from catalog"""
+        print(f"Download requested: {item_type} {item_id}")
+        # Phase 2a: Show placeholder message
+        QMessageBox.information(
+            self,
+            self.tr("Download"),
+            self.tr("Download functionality coming in Phase 3!\n\n"
+                   f"Would download: {item_type} {item_id}")
+        )
+
     @pyqtSlot(str)
-    def on_web_search_requested(self, title):
-        if title:
-            print(f"Web Browser requested search for: '{title}'"); downloads_tab_index = -1;
-            for i in range(self.tab_widget.count()):
-                if self.tab_widget.widget(i) == self.downloads_tab: downloads_tab_index = i; break
-            if downloads_tab_index != -1:
-                self.tab_widget.setCurrentIndex(downloads_tab_index); search_sub_tab_index = -1
-                if hasattr(self.downloads_tab, 'tab_widget') and hasattr(self.downloads_tab, 'search_tab'):
-                     for i in range(self.downloads_tab.tab_widget.count()):
-                          if self.downloads_tab.tab_widget.widget(i) == self.downloads_tab.search_tab: search_sub_tab_index = i; break
-                if search_sub_tab_index != -1: print(f" Switching Downloads sub-tab to Search"); self.downloads_tab.tab_widget.setCurrentIndex(search_sub_tab_index)
-                else: print(" Warn: Could not find 'Search' sub-tab.");
-                self.downloads_tab.search_input.setText(title); self.downloads_tab.results_table.setRowCount(0); self.downloads_tab.status_label.setText(self.tr("Searching for '{0}'...").format(title))
-                self.downloads_tab.search_torrents(); self.downloads_tab.search_button.setFocus()
-            else: print("Error: Could not find Downloads tab."); QMessageBox.warning(self, self.tr("Error"), self.tr("Could not switch to Downloads tab."))
-        else: print("Web Browser search empty."); QMessageBox.warning(self, self.tr("Web Search"), self.tr("Could not get title."))
+    def on_catalog_play_requested(self, item_id):
+        """Handle play request from catalog"""
+        print(f"Play requested from catalog: {item_id}")
+        # Phase 2a: Show placeholder message
+        QMessageBox.information(
+            self,
+            self.tr("Play"),
+            self.tr("Play functionality coming in Phase 2b!\n\n"
+                   f"Item: {item_id}")
+        )
+
+    @pyqtSlot(str, str)
+    def on_retry_requested(self, item_type, item_id):
+        """Handle retry request for failed downloads"""
+        print(f"Retry requested: {item_type} {item_id}")
+        self.on_download_requested(item_type, item_id)
+
+    # --- Keyboard Shortcut Handlers ---
+    def _trigger_catalog_sync(self):
+        """Keyboard shortcut: U key → update catalog"""
+        print("Keyboard shortcut: U - Update catalog")
+        self.show_sync_dialog()
+
+    def _trigger_download_or_play(self):
+        """Keyboard shortcut: D key → context-aware download or play"""
+        print("Keyboard shortcut: D - Download or Play")
+
+        # Only works when browsing catalog
+        if self.stacked_widget.currentWidget() != self.browser_widget:
+            return
+
+        # Only works in catalog tab
+        if self.tab_widget.currentWidget() != self.catalog_tab:
+            return
+
+        selected = self.catalog_tab.get_selected_item()
+        if not selected:
+            print("No item selected")
+            return
+
+        status = selected.get('status', 'available')
+        item_type = selected.get('type', 'movie')
+        item_id = selected.get('id')
+
+        print(f"Selected: {item_type} {item_id}, status: {status}")
+
+        if status == 'available':
+            self.on_download_requested(item_type, item_id)
+        elif status == 'ready':
+            self.on_catalog_play_requested(item_id)
+        elif status in ('failed', 'translation_failed'):
+            self.on_retry_requested(item_type, item_id)
+
+    def _focus_genre_filter(self):
+        """Keyboard shortcut: S key → focus genre filter"""
+        print("Keyboard shortcut: S - Focus genre filter")
+
+        # Only works when browsing catalog
+        if self.stacked_widget.currentWidget() != self.browser_widget:
+            return
+
+        # Only works in catalog tab
+        if self.tab_widget.currentWidget() != self.catalog_tab:
+            return
+
+        self.catalog_tab.focus_genre_filter()
 
     # --- Close Event ---
     # ... (closeEvent unchanged) ...
     def closeEvent(self, event):
         print("Closing application..."); self.stop()
-        if hasattr(self.downloads_tab, 'downloader') and hasattr(self.downloads_tab.downloader, 'shutdown'): print("Shutting down torrent manager..."); self.downloads_tab.downloader.shutdown()
         if hasattr(self, 'subtitle_manager') and self.subtitle_manager.logged_in: print("Logging out from OpenSubtitles..."); self.subtitle_manager.logout(); QTimer.singleShot(500, event.accept); event.ignore()
         else: event.accept()
 
