@@ -329,6 +329,62 @@ class CatalogManager(QObject):
         finally:
             db.close()
 
+    def get_all_movies(self) -> List[Dict]:
+        """
+        Get all movies with genres, subtitle languages, and download status
+
+        Returns:
+            List of movie dictionaries
+        """
+        from source.db_utils import get_all_movies, get_download_state
+
+        db = self._get_db()
+        try:
+            movies = get_all_movies(db)
+
+            # Add download state to each movie
+            for movie in movies:
+                state = get_download_state(db, movie["id"])
+                if state:
+                    movie["status"] = state["status"]
+                    movie["progress"] = state["progress"]
+                else:
+                    movie["status"] = "available"
+                    movie["progress"] = 0.0
+
+            return movies
+        finally:
+            db.close()
+
+    def get_all_series(self) -> List[Dict]:
+        """
+        Get all series with genres, seasons, and download status
+
+        Returns:
+            List of series dictionaries
+        """
+        from source.db_utils import get_all_series, get_download_state
+
+        db = self._get_db()
+        try:
+            series_list = get_all_series(db)
+
+            # Add download state to each season
+            for series in series_list:
+                for season in series.get("seasons", []):
+                    season_id = f"{series['id']}_s{season['season_number']}"
+                    state = get_download_state(db, season_id)
+                    if state:
+                        season["status"] = state["status"]
+                        season["progress"] = state["progress"]
+                    else:
+                        season["status"] = "available"
+                        season["progress"] = 0.0
+
+            return series_list
+        finally:
+            db.close()
+
 
 def main():
     """Command-line interface for testing catalog sync"""
