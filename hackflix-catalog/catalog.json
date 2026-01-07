@@ -147,46 +147,76 @@
           "episode_count": 7,
           "year": 2008,
           "video_quality": "1080p",
-          "subtitle": {
-            "file_id": "5678901",
-            "language": "en",
-            "needs_translation": true
-          },
           "episodes": [
             {
               "episode_number": 1,
               "title": "Pilot",
-              "runtime": 58
+              "runtime": 58,
+              "subtitle": {
+                "file_id": "5678901",
+                "language": "en",
+                "needs_translation": true
+              }
             },
             {
               "episode_number": 2,
               "title": "Cat's in the Bag...",
-              "runtime": 48
+              "runtime": 48,
+              "subtitle": {
+                "file_id": "5678902",
+                "language": "en",
+                "needs_translation": true
+              }
             },
             {
               "episode_number": 3,
               "title": "...And the Bag's in the River",
-              "runtime": 48
+              "runtime": 48,
+              "subtitle": {
+                "file_id": "5678903",
+                "language": "en",
+                "needs_translation": true
+              }
             },
             {
               "episode_number": 4,
               "title": "Cancer Man",
-              "runtime": 48
+              "runtime": 48,
+              "subtitle": {
+                "file_id": "5678904",
+                "language": "en",
+                "needs_translation": true
+              }
             },
             {
               "episode_number": 5,
               "title": "Gray Matter",
-              "runtime": 48
+              "runtime": 48,
+              "subtitle": {
+                "file_id": "5678905",
+                "language": "en",
+                "needs_translation": true
+              }
             },
             {
               "episode_number": 6,
               "title": "Crazy Handful of Nothin'",
-              "runtime": 48
+              "runtime": 48,
+              "subtitle": {
+                "file_id": "5678906",
+                "language": "en",
+                "needs_translation": true
+              }
             },
             {
               "episode_number": 7,
               "title": "A No-Rough-Stuff-Type Deal",
-              "runtime": 48
+              "runtime": 48,
+              "subtitle": {
+                "file_id": "5678907",
+                "language": "en",
+                "needs_translation": true
+              }
             }
           ]
         },
@@ -196,12 +226,7 @@
           "file_size": 8589934592,
           "episode_count": 13,
           "year": 2009,
-          "video_quality": "1080p",
-          "subtitle": {
-            "file_id": "6789012",
-            "language": "pl",
-            "needs_translation": false
-          }
+          "video_quality": "1080p"
         }
       ]
     },
@@ -226,12 +251,7 @@
           "file_size": 10737418240,
           "episode_count": 10,
           "year": 2011,
-          "video_quality": "1080p",
-          "subtitle": {
-            "file_id": "7890123",
-            "language": "en",
-            "needs_translation": true
-          }
+          "video_quality": "1080p"
         }
       ]
     },
@@ -256,12 +276,7 @@
           "file_size": 6442450944,
           "episode_count": 8,
           "year": 2016,
-          "video_quality": "1080p",
-          "subtitle": {
-            "file_id": "8901234",
-            "language": "en",
-            "needs_translation": true
-          }
+          "video_quality": "1080p"
         }
       ]
     }

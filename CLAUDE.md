@@ -220,11 +220,28 @@ All components communicate via PyQt signals:
           "magnet_link": "magnet:?xt=...",
           "file_size": 5368709120,
           "episode_count": 8,
-          "subtitle": {
-            "file_id": "98765432",
-            "language": "en",
-            "needs_translation": true
-          }
+          "episodes": [
+            {
+              "episode_number": 1,
+              "title": "Pilot",
+              "runtime": 45,
+              "subtitle": {
+                "file_id": "98765432",
+                "language": "en",
+                "needs_translation": true
+              }
+            },
+            {
+              "episode_number": 2,
+              "title": "Second Episode",
+              "runtime": 45,
+              "subtitle": {
+                "file_id": "98765433",
+                "language": "en",
+                "needs_translation": true
+              }
+            }
+          ]
         }
       ]
     }
@@ -233,11 +250,14 @@ All components communicate via PyQt signals:
 ```
 
 **Subtitle Specification**:
+- For **movies**: `subtitle` object at movie level
+- For **series**: `subtitle` object at episode level (within `episodes` array)
 - `file_id`: OpenSubtitles file ID for direct download (no search needed)
 - `language`: Subtitle language code (e.g., "en", "pl")
 - `needs_translation`: Boolean flag indicating if translation is required
   - `true`: Download English subtitle, translate to Polish (2 phases)
   - `false`: Download Polish subtitle directly (1 phase, faster)
+- **Series subtitle handling**: When video file is detected, download orchestrator extracts season/episode from filename, looks up corresponding episode in metadata, and uses that episode's subtitle configuration
 
 ### New UI Design (Phase 2)
 

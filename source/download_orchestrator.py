@@ -529,7 +529,54 @@ class DownloadOrchestrator(QObject):
             self.phase_changed.emit(item_id, 'subtitles')
 
             download_info = self.active_downloads[item_id]
-            subtitle_file_id = download_info.get('subtitle_file_id')
+            metadata = download_info.get('metadata', {})
+            item_type = download_info.get('item_type')
+
+            # For series, extract episode-level subtitle info
+            subtitle_file_id = None
+            subtitle_language = 'en'
+            needs_translation = True
+
+            if item_type == 'season':
+                # Extract season/episode from filename
+                filename = os.path.basename(video_path)
+                test_name = filename.replace('.', ' ').replace('_', ' ')
+                match = SEASON_EPISODE_REGEX.search(test_name)
+
+                if match:
+                    groups = match.groups()
+                    season = None
+                    episode = None
+
+                    if groups[0] is not None and groups[1] is not None:
+                        season = int(groups[0])
+                        episode = int(groups[1])
+                    elif groups[2] is not None and groups[3] is not None:
+                        season = int(groups[2])
+                        episode = int(groups[3])
+
+                    if season is not None and episode is not None:
+                        # Look up episode in metadata
+                        episodes = metadata.get('episodes', [])
+                        for ep in episodes:
+                            if ep.get('episode_number') == episode:
+                                # Found the episode, extract subtitle info
+                                subtitle_info = ep.get('subtitle', {})
+                                subtitle_file_id = subtitle_info.get('file_id')
+                                subtitle_language = subtitle_info.get('language', 'en')
+                                needs_translation = subtitle_info.get('needs_translation', True)
+                                print(f"[{item_id}] Found episode S{season:02d}E{episode:02d} subtitle: file_id={subtitle_file_id}, lang={subtitle_language}, needs_translation={needs_translation}")
+                                break
+            else:
+                # For movies, get subtitle info from top-level metadata (already stored at download start)
+                subtitle_file_id = download_info.get('subtitle_file_id')
+                subtitle_language = download_info.get('subtitle_language', 'en')
+                needs_translation = download_info.get('needs_translation', True)
+
+            # Update download info with episode-specific subtitle config
+            self.active_downloads[item_id]['subtitle_file_id'] = subtitle_file_id
+            self.active_downloads[item_id]['subtitle_language'] = subtitle_language
+            self.active_downloads[item_id]['needs_translation'] = needs_translation
 
             # Store context for subtitle download
             self.active_downloads[item_id]['subtitle_search_context'] = {
