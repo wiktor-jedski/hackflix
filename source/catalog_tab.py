@@ -358,7 +358,8 @@ class MediaListWidget(QListWidget):
             QListWidgetItem configured with display text and colors
         """
         status = item.get('status', 'available')
-        progress = item.get('progress', 0.0)
+        video_progress = item.get('video_progress', 0.0)
+        subtitle_progress = item.get('subtitle_progress', 0.0)
 
         # Format title line
         title_text = f"{item['title']} ({item['year']})"
@@ -368,9 +369,9 @@ class MediaListWidget(QListWidget):
         if genres:
             title_text += f" - {', '.join(genres)}"
 
-        # Add status indicator
+        # Add status indicator (V2 - dual progress)
         if status == 'downloading':
-            title_text += f" [Downloading {progress:.0f}%]"
+            title_text += f" [V:{video_progress:.0f}% S:{subtitle_progress:.0f}%]"
         elif status == 'ready':
             title_text += " [Ready]"
         elif status == 'failed':
@@ -408,6 +409,11 @@ class MediaListWidget(QListWidget):
             f"Genres: {', '.join(item.get('genres', []))}",
             f"Status: {status}",
         ]
+
+        # Add progress info for downloading items
+        if status == 'downloading':
+            tooltip_lines.append(f"Video Progress: {video_progress:.0f}%")
+            tooltip_lines.append(f"Subtitle Progress: {subtitle_progress:.0f}%")
 
         if self.media_type == 'movie':
             tooltip_lines.append(f"Quality: {item.get('video_quality', 'N/A')}")

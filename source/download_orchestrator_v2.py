@@ -262,6 +262,9 @@ class DownloadOrchestratorV2(QObject):
             # Create new download entry
             self.state_manager.create_download(item_id, item_type, magnet_link, self.download_dir)
             state = self.state_manager.get_download_state(item_id)
+        else:
+            # Resume existing download - set status to downloading
+            self.state_manager.set_status(item_id, 'downloading')
 
         # Extract subtitle configuration
         subtitle_info = (metadata or {}).get('subtitle', {})
@@ -603,10 +606,12 @@ class DownloadOrchestratorV2(QObject):
 
                     if needs_translation:
                         # Start translation
+                        self.state_manager.update_subtitle_progress(item_id, 50.0)
                         self.subtitle_progress_updated.emit(item_id, 50.0)  # Subtitle done, translation pending
                         self._start_translation(item_id, save_path)
                     else:
                         # No translation needed - subtitle phase complete
+                        self.state_manager.update_subtitle_progress(item_id, 100.0)
                         self.subtitle_progress_updated.emit(item_id, 100.0)
                         self.state_manager.set_translated_subtitle_path(item_id, save_path)
                         self.active_downloads[item_id]['translated_subtitle_path'] = save_path
@@ -679,6 +684,7 @@ class DownloadOrchestratorV2(QObject):
             self.active_downloads[item_id]['translated_subtitle_path'] = translated_path
             self.state_manager.set_translated_subtitle_path(item_id, translated_path)
             self.state_manager.set_translation_status(item_id, 'completed')
+            self.state_manager.update_subtitle_progress(item_id, 100.0)
             self.subtitle_progress_updated.emit(item_id, 100.0)
 
             # Check completion
