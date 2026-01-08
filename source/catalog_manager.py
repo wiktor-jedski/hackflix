@@ -101,11 +101,14 @@ class CatalogManager(QObject):
         finally:
             db.close()
 
-    def sync_catalog(self):
+    def sync_catalog(self, force=False):
         """
         Fetch and sync catalog with local database.
         Performs incremental sync based on last_updated timestamp.
         Emits signals for progress tracking.
+
+        Args:
+            force: If True, ignore timestamps and force full sync
         """
         try:
             self.sync_started.emit()
@@ -118,8 +121,8 @@ class CatalogManager(QObject):
 
             self.sync_progress.emit("Comparing versions...", 20)
 
-            # Check if update needed
-            if remote_timestamp <= local_timestamp:
+            # Check if update needed (unless force sync)
+            if not force and remote_timestamp <= local_timestamp:
                 self.sync_progress.emit("Catalog is up to date", 100)
 
                 # Get current counts
@@ -132,6 +135,10 @@ class CatalogManager(QObject):
 
                 self.sync_completed.emit(movie_count, series_count)
                 return
+
+            # Show force sync message if applicable
+            if force:
+                self.sync_progress.emit("Force syncing (ignoring timestamps)...", 30)
 
             # Perform sync
             self.sync_progress.emit("Syncing movies...", 40)
@@ -206,12 +213,30 @@ class CatalogManager(QObject):
                         # Clear existing subtitle languages
                         conn.execute("DELETE FROM movie_subtitle_languages WHERE movie_id = ?", (movie["id"],))
 
-                        # Insert subtitle languages
+                        # Insert subtitle languages (legacy, for backwards compatibility)
                         for lang in movie.get("subtitle_languages", []):
                             conn.execute(
                                 "INSERT INTO movie_subtitle_languages (movie_id, language_code) VALUES (?, ?)",
                                 (movie["id"], lang)
                             )
+
+                        # Store subtitle metadata (new schema)
+                        subtitle_info = movie.get("subtitle")
+                        if subtitle_info:
+                            # Clear existing subtitle metadata
+                            conn.execute("DELETE FROM subtitle_metadata WHERE movie_id = ?", (movie["id"],))
+
+                            # Insert new subtitle metadata
+                            conn.execute("""
+                                INSERT INTO subtitle_metadata
+                                (movie_id, episode_id, file_id, language, needs_translation, updated_at)
+                                VALUES (?, NULL, ?, ?, ?, CURRENT_TIMESTAMP)
+                            """, (
+                                movie["id"],
+                                subtitle_info.get("file_id"),
+                                subtitle_info.get("language", "en"),
+                                subtitle_info.get("needs_translation", True)
+                            ))
 
                         # Initialize download state if not exists
                         conn.execute("""
@@ -482,6 +507,78 @@ class CatalogManager(QObject):
                         season["progress"] = 0.0
 
             return series_list
+        finally:
+            db.close()
+
+    def get_movie_by_id(self, movie_id: str) -> Optional[Dict]:
+        """
+        Get single movie by ID
+
+        Args:
+            movie_id: Movie ID
+
+        Returns:
+            Movie dictionary or None if not found
+        """
+        from source.db_utils import get_movie_by_id, get_download_state
+
+        db = self._get_db()
+        try:
+            movie = get_movie_by_id(db, movie_id)
+            if movie:
+                # Add download state
+                state = get_download_state(db, movie["id"])
+                if state:
+                    movie["status"] = state["status"]
+                    movie["progress"] = state["progress"]
+                else:
+                    movie["status"] = "available"
+                    movie["progress"] = 0.0
+            return movie
+        finally:
+            db.close()
+
+    def get_season(self, series_id: str, season_number: int) -> Optional[Dict]:
+        """
+        Get single season from a series
+
+        Args:
+            series_id: Series ID
+            season_number: Season number
+
+        Returns:
+            Season dictionary with series metadata or None if not found
+        """
+        from source.db_utils import get_series_by_id, get_download_state
+
+        db = self._get_db()
+        try:
+            series = get_series_by_id(db, series_id)
+            if not series:
+                return None
+
+            # Find the requested season
+            season = None
+            for s in series.get("seasons", []):
+                if s["season_number"] == season_number:
+                    season = s.copy()
+                    # Add series metadata to season
+                    season["series_title"] = series["title"]
+                    season["title"] = f"{series['title']} - Season {season_number}"
+                    break
+
+            if season:
+                # Add download state
+                season_id = f"{series_id}_s{season_number}"
+                state = get_download_state(db, season_id)
+                if state:
+                    season["status"] = state["status"]
+                    season["progress"] = state["progress"]
+                else:
+                    season["status"] = "available"
+                    season["progress"] = 0.0
+
+            return season
         finally:
             db.close()
 

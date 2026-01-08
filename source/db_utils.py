@@ -158,12 +158,24 @@ def get_all_movies(db: DatabaseConnection) -> List[Dict[str, Any]]:
         )
         movie_dict["genres"] = [g["genre"] for g in genres]
 
-        # Get subtitle languages
+        # Get subtitle languages (legacy)
         langs = db.fetch_all(
             "SELECT language_code FROM movie_subtitle_languages WHERE movie_id = ? ORDER BY language_code",
             (movie["id"],)
         )
         movie_dict["subtitle_languages"] = [l["language_code"] for l in langs]
+
+        # Get subtitle metadata (new schema)
+        subtitle_meta = db.fetch_one(
+            "SELECT file_id, language, needs_translation FROM subtitle_metadata WHERE movie_id = ?",
+            (movie["id"],)
+        )
+        if subtitle_meta:
+            movie_dict["subtitle"] = {
+                "file_id": subtitle_meta["file_id"],
+                "language": subtitle_meta["language"],
+                "needs_translation": bool(subtitle_meta["needs_translation"])
+            }
 
         result.append(movie_dict)
 
@@ -250,12 +262,24 @@ def get_movies_by_genre(db: DatabaseConnection, genre: str) -> List[Dict[str, An
         )
         movie_dict["genres"] = [g["genre"] for g in genres]
 
-        # Get subtitle languages
+        # Get subtitle languages (legacy)
         langs = db.fetch_all(
             "SELECT language_code FROM movie_subtitle_languages WHERE movie_id = ? ORDER BY language_code",
             (movie["id"],)
         )
         movie_dict["subtitle_languages"] = [l["language_code"] for l in langs]
+
+        # Get subtitle metadata (new schema)
+        subtitle_meta = db.fetch_one(
+            "SELECT file_id, language, needs_translation FROM subtitle_metadata WHERE movie_id = ?",
+            (movie["id"],)
+        )
+        if subtitle_meta:
+            movie_dict["subtitle"] = {
+                "file_id": subtitle_meta["file_id"],
+                "language": subtitle_meta["language"],
+                "needs_translation": bool(subtitle_meta["needs_translation"])
+            }
 
         result.append(movie_dict)
 

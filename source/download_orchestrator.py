@@ -222,7 +222,7 @@ class DownloadOrchestrator(QObject):
 
         # Initialize torrent downloader if needed
         if self.torrent_downloader is None:
-            self.torrent_downloader = TorrentDownloader(save_path=self.download_dir)
+            self.torrent_downloader = TorrentDownloader(download_dir=self.download_dir)
 
         # Extract subtitle metadata from catalog
         subtitle_info = (metadata or {}).get('subtitle', {})
@@ -248,7 +248,10 @@ class DownloadOrchestrator(QObject):
             'translation_source_path': None,
             'subtitle_file_id': subtitle_file_id,
             'subtitle_language': subtitle_language,
-            'needs_translation': needs_translation
+            'needs_translation': needs_translation,
+            'video_complete_handled': False,  # Prevent re-entry to completion handlers
+            'subtitle_complete_handled': False,
+            'translation_complete_handled': False
         }
 
         # Start torrent download
@@ -271,16 +274,23 @@ class DownloadOrchestrator(QObject):
         """
         try:
             print(f"[{item_id}] Starting video download phase")
+            print(f"[{item_id}] Magnet link: {magnet_link}")
 
-            # Add torrent
-            success, torrent_handle = self.torrent_downloader.add_torrent(magnet_link)
+            # Get title from download info
+            download_info = self.active_downloads.get(item_id, {})
+            title = download_info.get('title', 'Unknown')
 
-            if not success:
+            # Add torrent - returns torrent_hash or None
+            torrent_hash = self.torrent_downloader.add_torrent(magnet_link, title=title)
+
+            if not torrent_hash:
                 self._handle_video_download_error(item_id, "Failed to add torrent")
                 return
 
-            # Store torrent handle
-            self.active_downloads[item_id]['torrent_handle'] = torrent_handle
+            print(f"[{item_id}] Torrent added successfully: {torrent_hash}")
+
+            # Store torrent hash
+            self.active_downloads[item_id]['torrent_handle'] = torrent_hash
 
             # Update phase
             self.state_manager.set_phase(item_id, 'video')
@@ -288,12 +298,17 @@ class DownloadOrchestrator(QObject):
 
         except Exception as e:
             self._handle_video_download_error(item_id, f"Error starting video download: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _update_all_progress(self):
         """
         Update progress for all active downloads.
         Called periodically by progress timer.
         """
+        if not self.active_downloads:
+            return
+
         for item_id in list(self.active_downloads.keys()):
             download_info = self.active_downloads[item_id]
             phase = download_info['phase']
@@ -311,10 +326,24 @@ class DownloadOrchestrator(QObject):
         """
         try:
             download_info = self.active_downloads[item_id]
-            torrent_handle = download_info['torrent_handle']
+            torrent_hash = download_info['torrent_handle']
 
-            if torrent_handle is None:
+            if torrent_hash is None:
+                print(f"[{item_id}] No torrent hash yet")
                 return
+
+            # Check if torrent downloader exists
+            if self.torrent_downloader is None:
+                print(f"[{item_id}] Torrent downloader is None")
+                return
+
+            # Get torrent info from downloader
+            if torrent_hash not in self.torrent_downloader.torrents:
+                print(f"[{item_id}] Torrent hash {torrent_hash} not found in downloader")
+                return
+
+            torrent_info = self.torrent_downloader.torrents[torrent_hash]
+            torrent_handle = torrent_info['handle']
 
             # Get torrent status
             status = torrent_handle.status()
@@ -325,6 +354,10 @@ class DownloadOrchestrator(QObject):
             else:
                 phase_progress = 0.0
 
+            # Debug: Print progress occasionally
+            if int(phase_progress) % 10 == 0 and phase_progress > 0:
+                print(f"[{item_id}] Video progress: {phase_progress:.1f}% (state: {status.state})")
+
             # Update database
             self.state_manager.update_progress(item_id, 'video', phase_progress)
 
@@ -334,10 +367,15 @@ class DownloadOrchestrator(QObject):
 
             # Check if video download complete
             if status.state == 5:  # seeding state (download complete)
-                self._on_video_download_complete(item_id)
+                # Only trigger completion handler once
+                if not download_info.get('video_complete_handled', False):
+                    print(f"[{item_id}] Video download complete!")
+                    self._on_video_download_complete(item_id)
 
         except Exception as e:
             print(f"Error updating video progress for {item_id}: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _on_video_download_complete(self, item_id: str):
         """
@@ -348,6 +386,10 @@ class DownloadOrchestrator(QObject):
         """
         try:
             print(f"[{item_id}] Video download complete")
+
+            # Mark as handled to prevent re-entry
+            if item_id in self.active_downloads:
+                self.active_downloads[item_id]['video_complete_handled'] = True
 
             # Find video file
             video_path = self._find_video_file(item_id)
@@ -389,10 +431,18 @@ class DownloadOrchestrator(QObject):
         """
         try:
             download_info = self.active_downloads[item_id]
-            torrent_handle = download_info['torrent_handle']
+            torrent_hash = download_info['torrent_handle']
 
-            if torrent_handle is None:
+            if torrent_hash is None:
                 return None
+
+            # Get torrent info from downloader
+            if torrent_hash not in self.torrent_downloader.torrents:
+                print(f"[{item_id}] Torrent hash {torrent_hash} not found in downloader")
+                return None
+
+            torrent_info_dict = self.torrent_downloader.torrents[torrent_hash]
+            torrent_handle = torrent_info_dict['handle']
 
             # Get torrent info
             torrent_info = torrent_handle.torrent_file()
@@ -423,6 +473,8 @@ class DownloadOrchestrator(QObject):
 
         except Exception as e:
             print(f"Error finding video file for {item_id}: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def _validate_video_file(self, video_path: str) -> tuple[bool, Optional[str]]:
@@ -524,8 +576,9 @@ class DownloadOrchestrator(QObject):
         try:
             print(f"[{item_id}] Starting subtitle download phase")
 
-            # Update phase
+            # Update phase in database AND active_downloads
             self.state_manager.set_phase(item_id, 'subtitles')
+            self.active_downloads[item_id]['phase'] = 'subtitles'
             self.phase_changed.emit(item_id, 'subtitles')
 
             download_info = self.active_downloads[item_id]
@@ -841,8 +894,9 @@ class DownloadOrchestrator(QObject):
         try:
             print(f"[{item_id}] Starting translation phase")
 
-            # Update phase
+            # Update phase in database AND active_downloads
             self.state_manager.set_phase(item_id, 'translation')
+            self.active_downloads[item_id]['phase'] = 'translation'
             self.phase_changed.emit(item_id, 'translation')
 
             # Store translation source path

@@ -28,8 +28,8 @@ from source.subtitle_dialog import SubtitleResultsDialog
 from source.translation_manager import SubtitleTranslator
 from source.catalog_manager import CatalogManager
 from source.catalog_tab import CatalogTab
-from source.download_state_manager import DownloadStateManager
-from source.download_orchestrator import DownloadOrchestrator
+from source.download_state_manager_v2 import DownloadStateManagerV2
+from source.download_orchestrator_v2 import DownloadOrchestratorV2
 
 # Constants
 CURSOR_HIDE_TIMEOUT_MS = 3000
@@ -62,8 +62,8 @@ class MoviePlayerApp(QMainWindow):
         self.instance = vlc.Instance(); self.mediaplayer = self.instance.media_player_new()
         self.subtitle_manager = SubtitleManager(); self.translator = SubtitleTranslator()
         self.catalog_manager = CatalogManager()
-        self.download_state_manager = DownloadStateManager()
-        self.download_orchestrator = DownloadOrchestrator(
+        self.download_state_manager = DownloadStateManagerV2()
+        self.download_orchestrator = DownloadOrchestratorV2(
             state_manager=self.download_state_manager,
             subtitle_manager=self.subtitle_manager,
             translator=self.translator
@@ -122,7 +122,14 @@ class MoviePlayerApp(QMainWindow):
         self.subtitle_manager.search_results.connect(self.on_subtitle_search_results); self.subtitle_manager.search_error.connect(self.on_subtitle_search_error); self.subtitle_manager.download_ready.connect(self.on_subtitle_download_ready); self.subtitle_manager.download_error.connect(self.on_subtitle_download_error); self.subtitle_manager.login_status.connect(self.on_subtitle_login_status); self.subtitle_manager.quota_info.connect(self.on_subtitle_quota_info)
         self.translator.translation_progress.connect(self.on_translation_progress); self.translator.translation_complete.connect(self.on_translation_complete); self.translator.translation_error.connect(self.on_translation_error)
         self.catalog_manager.catalog_updated.connect(self.on_catalog_updated); self.catalog_tab.sync_requested.connect(self.show_sync_dialog); self.catalog_tab.download_requested.connect(self.on_download_requested); self.catalog_tab.play_requested.connect(self.on_catalog_play_requested); self.catalog_tab.retry_requested.connect(self.on_retry_requested)
-        self.download_orchestrator.progress_updated.connect(self.on_download_progress_updated); self.download_orchestrator.phase_changed.connect(self.on_download_phase_changed); self.download_orchestrator.download_complete.connect(self.on_download_complete); self.download_orchestrator.download_failed.connect(self.on_download_failed)
+        # V2 orchestrator signals - dual progress bars
+        self.download_orchestrator.video_progress_updated.connect(self.on_video_progress_updated)
+        self.download_orchestrator.subtitle_progress_updated.connect(self.on_subtitle_progress_updated)
+        self.download_orchestrator.video_status_changed.connect(self.on_video_status_changed)
+        self.download_orchestrator.subtitle_status_changed.connect(self.on_subtitle_status_changed)
+        self.download_orchestrator.download_complete.connect(self.on_download_complete)
+        self.download_orchestrator.download_failed.connect(self.on_download_failed)
+        self.download_orchestrator.subtitle_quota_exceeded.connect(self.on_subtitle_quota_exceeded)
 
     # --- Helper to remove other SRTs ---
     def _remove_other_srt_files(self, video_filepath, keep_srt_filepath):
@@ -453,7 +460,8 @@ class MoviePlayerApp(QMainWindow):
     @pyqtSlot(str, str)
     def on_subtitle_download_ready(self, download_link, suggested_filename):
         QApplication.restoreOverrideCursor(); print("Sub download link received.")
-        if not self.current_search_video_path or not self.current_subtitle_to_download: print("Warn: Download ready context missing."); QMessageBox.warning(self, self.tr("Subtitle Download"), self.tr("Context lost, cannot save.")); self.current_search_video_path = None; self.current_subtitle_to_download = None; return
+        # Note: If download orchestrator is handling this, context won't be set - that's OK, just ignore silently
+        if not self.current_search_video_path or not self.current_subtitle_to_download: print("Warn: Download ready context missing (likely handled by orchestrator)."); self.current_search_video_path = None; self.current_subtitle_to_download = None; return
         try: video_dir = os.path.dirname(self.current_search_video_path); video_base = os.path.splitext(os.path.basename(self.current_search_video_path))[0]; language_code = self.current_subtitle_to_download.get('language', 'und'); srt_filename = f"{video_base}.{language_code}.srt"; save_path = os.path.join(video_dir, srt_filename); print(f"Attempting download sub to: {save_path}"); threading.Thread(target=self._download_subtitle_worker, args=(download_link, save_path), daemon=True).start()
         except Exception as e: QMessageBox.critical(self, self.tr("Subtitle Download Error"), self.tr("Error determining path:\n{0}").format(e)); traceback.print_exc(); self.current_search_video_path = None; self.current_subtitle_to_download = None
     def _download_subtitle_worker(self, link, path): success, error = self.subtitle_manager.download_subtitle_file(link, path); QMetaObject.invokeMethod(self, "on_actual_download_finished", Qt.QueuedConnection, Q_ARG(bool, success), Q_ARG(str, path if success else ""), Q_ARG(str, error or ""))
@@ -608,7 +616,11 @@ class MoviePlayerApp(QMainWindow):
                 metadata=item
             )
 
-            if not success:
+            if success:
+                # Immediately refresh catalog UI to show downloading status
+                self.catalog_tab._refresh_movies()
+                self.catalog_tab._refresh_series()
+            else:
                 QMessageBox.warning(
                     self,
                     self.tr("Download Error"),
@@ -653,14 +665,43 @@ class MoviePlayerApp(QMainWindow):
                 return
 
             # Get video path
-            video_path = download_state.get('download_path')
-            if not video_path or not os.path.exists(video_path):
+            download_path = download_state.get('download_path')
+            if not download_path or not os.path.exists(download_path):
                 QMessageBox.warning(
                     self,
                     self.tr("Video Not Found"),
-                    self.tr("Video file not found. It may have been moved or deleted.")
+                    self.tr("Download path not found. It may have been moved or deleted.")
                 )
                 return
+
+            # If download_path is a directory, search for the video file
+            video_path = download_path
+            if os.path.isdir(download_path):
+                # Search for video files in the directory
+                video_extensions = ('.mp4', '.mkv', '.avi', '.mov')
+                video_files = []
+
+                for root, dirs, files in os.walk(download_path):
+                    for file in files:
+                        if file.lower().endswith(video_extensions):
+                            file_path = os.path.join(root, file)
+                            file_size = os.path.getsize(file_path)
+                            # Only consider files > 10MB (filter out samples/extras)
+                            if file_size > 10 * 1024 * 1024:
+                                video_files.append((file_path, file_size))
+
+                if not video_files:
+                    QMessageBox.warning(
+                        self,
+                        self.tr("Video Not Found"),
+                        self.tr("No video file found in download directory.")
+                    )
+                    return
+
+                # Use largest video file
+                video_files.sort(key=lambda x: x[1], reverse=True)
+                video_path = video_files[0][0]
+                print(f"Found video file: {video_path}")
 
             # Get translated subtitle path (prefer -pl.srt)
             translated_subtitle_path = download_state.get('translated_subtitle_path')
@@ -682,23 +723,36 @@ class MoviePlayerApp(QMainWindow):
     def on_retry_requested(self, item_type, item_id):
         """Handle retry request for failed downloads"""
         print(f"Retry requested: {item_type} {item_id}")
-        # Reset failed download and restart
-        self.download_state_manager.reset_failed_download(item_id)
+        # V2 orchestrator handles smart resume automatically
+        # Just call download_requested - it will check what's already done and resume
         self.on_download_requested(item_type, item_id)
 
-    # --- Download Orchestrator Signal Handlers ---
-    @pyqtSlot(str, str, float, float)
-    def on_download_progress_updated(self, item_id, phase, overall_progress, phase_progress):
-        """Handle download progress update from orchestrator"""
+    # --- Download Orchestrator V2 Signal Handlers ---
+    @pyqtSlot(str, float)
+    def on_video_progress_updated(self, item_id, progress):
+        """Handle video download progress update from orchestrator V2"""
         # Forward to catalog tab
-        self.catalog_tab.on_download_progress_updated(item_id, phase, overall_progress, phase_progress)
+        self.catalog_tab.on_video_progress_updated(item_id, progress)
+
+    @pyqtSlot(str, float)
+    def on_subtitle_progress_updated(self, item_id, progress):
+        """Handle subtitle download/translation progress update from orchestrator V2"""
+        # Forward to catalog tab
+        self.catalog_tab.on_subtitle_progress_updated(item_id, progress)
 
     @pyqtSlot(str, str)
-    def on_download_phase_changed(self, item_id, phase_name):
-        """Handle download phase change from orchestrator"""
-        print(f"[{item_id}] Phase changed to: {phase_name}")
+    def on_video_status_changed(self, item_id, status):
+        """Handle video status change from orchestrator V2"""
+        print(f"[{item_id}] Video status changed to: {status}")
         # Forward to catalog tab
-        self.catalog_tab.on_download_phase_changed(item_id, phase_name)
+        self.catalog_tab.on_video_status_changed(item_id, status)
+
+    @pyqtSlot(str, str)
+    def on_subtitle_status_changed(self, item_id, status):
+        """Handle subtitle status change from orchestrator V2"""
+        print(f"[{item_id}] Subtitle status changed to: {status}")
+        # Forward to catalog tab
+        self.catalog_tab.on_subtitle_status_changed(item_id, status)
 
     @pyqtSlot(str, str, str)
     def on_download_complete(self, item_id, video_path, subtitle_path):
@@ -730,6 +784,20 @@ class MoviePlayerApp(QMainWindow):
             self,
             self.tr("Download Failed"),
             self.tr(f"Download failed during {phase} phase:\n\n{error_message}\n\nYou can retry from the catalog.")
+        )
+
+    @pyqtSlot(int)
+    def on_subtitle_quota_exceeded(self, remaining):
+        """Handle subtitle quota exceeded from orchestrator V2"""
+        print(f"Subtitle quota exceeded - {remaining} remaining today")
+
+        # Show info message
+        QMessageBox.information(
+            self,
+            self.tr("Subtitle Download Limit Reached"),
+            self.tr(f"You've reached the daily subtitle download limit (5/day).\n\n"
+                   f"Remaining subtitles will be downloaded tomorrow.\n\n"
+                   f"Quota remaining today: {remaining}")
         )
 
     # --- Keyboard Shortcut Handlers ---

@@ -151,11 +151,17 @@ class MediaItemDelegate(QStyledItemDelegate):
         genre_text = ', '.join(genres) if genres else 'N/A'
 
         status = item_data.get('status', 'available')
-        progress = item_data.get('progress', 0.0)
+        video_progress = item_data.get('video_progress', 0.0)
+        subtitle_progress = item_data.get('subtitle_progress', 0.0)
+        video_status = item_data.get('video_status', 'pending')
+        subtitle_status = item_data.get('subtitle_status', 'pending')
 
-        # Status text and color
+        # Status text and color (V2 - dual progress)
         if status == 'downloading':
-            status_text = f"[Downloading {progress:.0f}%]"
+            # Show dual progress bars for V2
+            video_text = f"V:{video_progress:.0f}%"
+            subtitle_text = f"S:{subtitle_progress:.0f}%"
+            status_text = f"[{video_text} {subtitle_text}]"
             status_color = Qt.cyan
         elif status == 'ready':
             status_text = "[Ready]"
@@ -512,8 +518,8 @@ class CatalogTab(QWidget):
         # Create poster cache for Phase 2c
         self.poster_cache = PosterCache()
 
-        # Track download progress for UI updates
-        self.download_progress = {}  # item_id -> {phase, overall_progress, phase_progress}
+        # Track download progress for UI updates (V2 - dual progress bars)
+        self.download_progress = {}  # item_id -> {video_progress, subtitle_progress, video_status, subtitle_status}
 
         self._setup_ui()
         self._connect_signals()
@@ -676,10 +682,12 @@ class CatalogTab(QWidget):
             download_state = state_manager.get_download_state(item_id)
 
             if download_state:
-                # Merge download state into item
+                # Merge download state into item (V2 - dual progress)
                 item['status'] = download_state.get('status', 'available')
-                item['progress'] = download_state.get('progress', 0.0)
-                item['phase'] = download_state.get('phase')
+                item['video_progress'] = download_state.get('video_progress', 0.0)
+                item['subtitle_progress'] = download_state.get('subtitle_progress', 0.0)
+                item['video_status'] = download_state.get('video_status', 'pending')
+                item['subtitle_status'] = download_state.get('subtitle_status', 'pending')
                 item['download_path'] = download_state.get('download_path')
                 item['subtitle_path'] = download_state.get('subtitle_path')
                 item['translated_subtitle_path'] = download_state.get('translated_subtitle_path')
@@ -687,12 +695,17 @@ class CatalogTab(QWidget):
                 # Use live progress if available (more up-to-date than database)
                 if item_id in self.download_progress:
                     live_progress = self.download_progress[item_id]
-                    item['progress'] = live_progress['overall_progress']
-                    item['phase'] = live_progress['phase']
+                    item['video_progress'] = live_progress.get('video_progress', 0.0)
+                    item['subtitle_progress'] = live_progress.get('subtitle_progress', 0.0)
+                    item['video_status'] = live_progress.get('video_status', 'pending')
+                    item['subtitle_status'] = live_progress.get('subtitle_status', 'pending')
             else:
                 # No download state - item is available
                 item['status'] = 'available'
-                item['progress'] = 0.0
+                item['video_progress'] = 0.0
+                item['subtitle_progress'] = 0.0
+                item['video_status'] = 'pending'
+                item['subtitle_status'] = 'pending'
 
         return items
 
@@ -767,44 +780,100 @@ class CatalogTab(QWidget):
         elif current_tab_index == 1:  # Series tab
             self.series_genre_bar.setFocus()
 
-    # --- Download Progress Handlers ---
-    def on_download_progress_updated(self, item_id, phase, overall_progress, phase_progress):
+    # --- Download Progress Handlers (V2 - Dual Progress Bars) ---
+    def on_video_progress_updated(self, item_id, progress):
         """
-        Handle download progress update from orchestrator.
+        Handle video download progress update from orchestrator V2.
 
         Args:
             item_id: Item identifier
-            phase: Current phase ('video', 'subtitles', 'translation')
-            overall_progress: Overall progress (0-100)
-            phase_progress: Progress within current phase (0-100)
+            progress: Video progress (0-100)
         """
         # Store progress for UI updates
-        self.download_progress[item_id] = {
-            'phase': phase,
-            'overall_progress': overall_progress,
-            'phase_progress': phase_progress
-        }
+        if item_id not in self.download_progress:
+            self.download_progress[item_id] = {
+                'video_progress': 0.0,
+                'subtitle_progress': 0.0,
+                'video_status': 'pending',
+                'subtitle_status': 'pending'
+            }
+
+        self.download_progress[item_id]['video_progress'] = progress
 
         # Trigger UI refresh to update progress display
-        # Note: This will be optimized in future to avoid full refresh
         self._refresh_movies()
         self._refresh_series()
 
-    def on_download_phase_changed(self, item_id, phase_name):
+    def on_subtitle_progress_updated(self, item_id, progress):
         """
-        Handle download phase change from orchestrator.
+        Handle subtitle download/translation progress update from orchestrator V2.
 
         Args:
             item_id: Item identifier
-            phase_name: New phase name
+            progress: Subtitle progress (0-100, includes translation)
         """
-        print(f"[UI] Download phase changed: {item_id} -> {phase_name}")
+        # Store progress for UI updates
+        if item_id not in self.download_progress:
+            self.download_progress[item_id] = {
+                'video_progress': 0.0,
+                'subtitle_progress': 0.0,
+                'video_status': 'pending',
+                'subtitle_status': 'pending'
+            }
 
-        # Update progress tracking
-        if item_id in self.download_progress:
-            self.download_progress[item_id]['phase'] = phase_name
+        self.download_progress[item_id]['subtitle_progress'] = progress
 
-        # Refresh UI to show phase change
+        # Trigger UI refresh to update progress display
+        self._refresh_movies()
+        self._refresh_series()
+
+    def on_video_status_changed(self, item_id, status):
+        """
+        Handle video status change from orchestrator V2.
+
+        Args:
+            item_id: Item identifier
+            status: Video status ('pending', 'downloading', 'completed', 'failed')
+        """
+        print(f"[UI] Video status changed: {item_id} -> {status}")
+
+        # Update status tracking
+        if item_id not in self.download_progress:
+            self.download_progress[item_id] = {
+                'video_progress': 0.0,
+                'subtitle_progress': 0.0,
+                'video_status': status,
+                'subtitle_status': 'pending'
+            }
+        else:
+            self.download_progress[item_id]['video_status'] = status
+
+        # Refresh UI to show status change
+        self._refresh_movies()
+        self._refresh_series()
+
+    def on_subtitle_status_changed(self, item_id, status):
+        """
+        Handle subtitle status change from orchestrator V2.
+
+        Args:
+            item_id: Item identifier
+            status: Subtitle status ('pending', 'downloading', 'completed', 'failed', 'not_needed')
+        """
+        print(f"[UI] Subtitle status changed: {item_id} -> {status}")
+
+        # Update status tracking
+        if item_id not in self.download_progress:
+            self.download_progress[item_id] = {
+                'video_progress': 0.0,
+                'subtitle_progress': 0.0,
+                'video_status': 'pending',
+                'subtitle_status': status
+            }
+        else:
+            self.download_progress[item_id]['subtitle_status'] = status
+
+        # Refresh UI to show status change
         self._refresh_movies()
         self._refresh_series()
 

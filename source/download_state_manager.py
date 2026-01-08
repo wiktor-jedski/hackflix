@@ -57,7 +57,7 @@ class DownloadStateManager:
         download_path: Optional[str] = None
     ) -> bool:
         """
-        Create new download entry.
+        Create new download entry or update existing one.
 
         Args:
             item_id: Unique item identifier (movie_id or 'series_id_sN')
@@ -66,32 +66,57 @@ class DownloadStateManager:
             download_path: Optional download directory path
 
         Returns:
-            True if created successfully, False otherwise
+            True if created/updated successfully, False if already downloading
         """
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
 
-            cursor.execute("""
-                INSERT INTO download_state (
-                    id, type, status, progress, phase,
-                    phase_progress, video_progress, subtitle_progress, translation_progress,
-                    download_path, started_at, updated_at
-                )
-                VALUES (?, ?, 'downloading', 0.0, 'video', 0.0, 0.0, 0.0, 0.0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            """, (item_id, item_type, download_path))
+            # Check if entry exists and its current status
+            cursor.execute("SELECT status FROM download_state WHERE id = ?", (item_id,))
+            row = cursor.fetchone()
+
+            if row:
+                current_status = row['status']
+                # Note: We don't check for 'downloading' status here because the database
+                # is just persistent state. The orchestrator's active_downloads is the
+                # source of truth for what's actually downloading. This allows restarting
+                # downloads that were interrupted (e.g., app crash, restart).
+
+                # Update existing entry to start downloading
+                cursor.execute("""
+                    UPDATE download_state
+                    SET status = 'downloading',
+                        progress = 0.0,
+                        phase = 'video',
+                        phase_progress = 0.0,
+                        video_progress = 0.0,
+                        subtitle_progress = 0.0,
+                        translation_progress = 0.0,
+                        download_path = ?,
+                        started_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (download_path, item_id))
+                print(f"Updated download entry: {item_id}")
+            else:
+                # Create new entry
+                cursor.execute("""
+                    INSERT INTO download_state (
+                        id, type, status, progress, phase,
+                        phase_progress, video_progress, subtitle_progress, translation_progress,
+                        download_path, started_at, updated_at
+                    )
+                    VALUES (?, ?, 'downloading', 0.0, 'video', 0.0, 0.0, 0.0, 0.0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, (item_id, item_type, download_path))
+                print(f"Created download entry: {item_id}")
 
             conn.commit()
             conn.close()
-
-            print(f"Created download entry: {item_id}")
             return True
 
-        except sqlite3.IntegrityError as e:
-            print(f"Download entry already exists for {item_id}: {e}")
-            return False
         except Exception as e:
-            print(f"Error creating download entry: {e}")
+            print(f"Error creating/updating download entry: {e}")
             import traceback
             traceback.print_exc()
             return False
@@ -532,19 +557,33 @@ class DownloadStateManager:
         Get watch history for specific item.
 
         Args:
-            item_id: Item identifier
+            item_id: Item identifier (currently only supports series)
 
         Returns:
             Dictionary with watch history or None if not found
         """
         try:
+            # Watch history only supports series, not movies
+            # item_id format for series: "series_123_s1"
+            if not item_id or '_s' not in item_id:
+                # This is a movie, not a series - no watch history
+                return None
+
+            # Parse series_id and season from item_id
+            parts = item_id.rsplit('_s', 1)
+            if len(parts) != 2:
+                return None
+
+            series_id = parts[0]
+            season_number = int(parts[1])
+
             conn = self._get_connection()
             cursor = conn.cursor()
 
             cursor.execute("""
                 SELECT * FROM watch_history
-                WHERE item_id = ?
-            """, (item_id,))
+                WHERE series_id = ? AND season_number = ?
+            """, (series_id, season_number))
 
             row = cursor.fetchone()
             conn.close()
@@ -554,7 +593,7 @@ class DownloadStateManager:
             return None
 
         except Exception as e:
-            print(f"Error getting watch history for {item_id}: {e}")
+            # Silently ignore watch history errors for movies
             return None
 
     def update_watch_history(
