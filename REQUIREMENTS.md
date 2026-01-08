@@ -6,7 +6,8 @@
 
 
 
-An app that can be used to fetch movies and subtitles and generate voice-over based on .srt files. UI also includes suggestions tab based on previously liked movies.
+An app that can be used to fetch movies and series and their subtitles and generate voice-over based on .srt files. 
+Movies and subtitles metadata is served by a server.
 
 
 
@@ -14,23 +15,18 @@ An app that can be used to fetch movies and subtitles and generate voice-over ba
 
    - App can play videos from local storage.
 
-   - App can look for and download torrents of videos based on the movie name.
+   - App can download movies and series and their subtitles that are defined in the .json file fetched from server
 
-   - App can fetch subtitles for a given movie.
-
-   - App can translate subtitles from English to Polish.
+   - App can translate subtitles from English to Polish if metadata specifies that translation is needed.
 
    - App can modify the audio of the movie by generating voice-over using TTS
-
-   - App can handle rating movies and suggesting other movies based on ratings from IMDb
-
 
 
 ### 2. Hardware specifications
 
    - Raspberry Pi 5
 
-   - Storage on external HDD
+   - Storage on external HDD and internal drive
 
    - 1080p display
 
@@ -50,23 +46,23 @@ An app that can be used to fetch movies and subtitles and generate voice-over ba
 
    - GUI based
 
-   - Able to navigate with a IR remote control with a keyboard that can be connected to Raspberry Pi
+   - Able to navigate with a handheld keyboard that can be connected to Raspberry Pi
 
    - should be usable by non technical people
+
+   - Using mouse is limited - user can freely browse items using keyboard, switch movies/series tabs with Tab, trigger search with s, delete items with d, sync with server with p, Enter to confirm, Esc to cancel
 
 
 
 ### 5. Feature requests
 
-   - Library management (view, search, play, remove movies stored locally)
+   - Library management (view, search, play/start download, delete)
 
-   - Download support (search for torrents based on movie name)
+   - Download support (uses magnet link in metadata to download)
 
-   - Subtitle support (search and download subtitles, translate using LLM)
+   - Subtitle support (uses OpenSubtitles API and subtitle ID for getting subtitles, Gemini API for translation)
 
-   - Voiceover support (use subtitles to generate text to speech, mix into video)
-
-   - Suggestions (rate movies, maybe possible to sync with existing IMDb account?)
+   - Voiceover support (use subtitles to generate text to speech, mix into video) - developed at the very end, needs to be researched
 
 
 
