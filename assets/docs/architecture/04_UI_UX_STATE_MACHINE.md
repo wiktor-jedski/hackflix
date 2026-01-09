@@ -65,6 +65,7 @@ stateDiagram-v2
 | **Up / Down** | `NAVIGATE` | Moves selection highlight up/down in the list. |
 | **Enter** | `ACTIVATE` | **Movie:** If Downloaded -> Play. If Missing -> Start Download. <br> **Series:** Enter `SERIES_DRILLDOWN` state (Show Seasons). |
 | **S** | `OPEN_SEARCH` | Opens `SEARCH_OVERLAY` modal. |
+| **X** | `CLEAR_FILTER` | Clears active search filter, shows all items. |
 | **D** | `DELETE` | Shows confirmation dialog to delete file/download. |
 | **P** | `SYNC` | Triggers background metadata sync. |
 | **Esc** | `NONE` | (Or Exit App if desired, usually disabled in appliance mode). |
@@ -101,7 +102,7 @@ stateDiagram-v2
 | **Enter** | `COMMIT` | Closes overlay, **filter persists** on `LIBRARY_ROOT` list. |
 | **Esc** | `CANCEL` | Closes overlay, clears filter, shows all items. |
 
-**Note:** Once a filter is applied via Enter, it persists until the user presses S again or explicitly clears it.
+**Note:** The search filter matches both **title** and **genres** (OR logic). Once a filter is applied via Enter, it persists until the user presses X to clear it, or opens search again.
 
 ### 3.5. State: `PLAYER_ACTIVE`
 **View:** `PlayerView` (Full Screen).

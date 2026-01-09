@@ -43,6 +43,7 @@ This is the JSON structure the server must provide to the player. The app will f
       "id": "uuid-v4-string",
       "type": "movie",
       "title": "Big Buck Bunny",
+      "genres": "Animation, Comedy, Family",
       "magnet": "magnet:?xt=urn:btih:...",
       "poster_url": "https://server.com/images/bbb.jpg",
       "subtitle_id": 123,
@@ -52,6 +53,7 @@ This is the JSON structure the server must provide to the player. The app will f
       "id": "uuid-v4-string-2",
       "type": "series",
       "title": "Open Source Show",
+      "genres": "Documentary, Technology",
       "poster_url": "...",
       "seasons": [
         {
@@ -98,11 +100,12 @@ Stores the high-level metadata for a Movie or TV Show.
 *   `id` (PK, String/UUID) - Matches `content.json`.
 *   `type` (Enum: 'movie', 'series')
 *   `title` (String)
+*   `genres` (String, Nullable) - Comma-separated list of genres (e.g., "Animation, Comedy, Family").
 *   `poster_path` (String) - Local path to cached image (cached during sync).
 *   `created_at` (DateTime)
 *   `last_updated` (DateTime)
 
-**Note:** Fields like year, runtime, overview are only shown if provided by the server. No external metadata enrichment (TMDB/IMDB).
+**Note:** Fields like year, runtime, overview are only shown if provided by the server. No external metadata enrichment (TMDB/IMDB). The `genres` field is searchable along with `title` in the library view.
 
 ### 3.3. Table: `seasons` (For Series Only)
 Represents a season within a series, with its own magnet link.
