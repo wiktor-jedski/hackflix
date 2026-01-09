@@ -172,3 +172,8 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Hackflix development
+.config/
+logs/*
+CLAUDE.md
