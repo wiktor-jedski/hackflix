@@ -522,16 +522,18 @@ class TorrentService(QThread):
             r"[Ss]\d{1,2}[Ee](\d{1,3})",
             # 1x05, 1X05
             r"\d{1,2}[xX](\d{1,3})",
-            # Episode 5, episode 5, EP5, ep5
-            r"[Ee](?:pisode)?[\s._-]*(\d{1,3})",
-            # .105. (single digit season, two digit episode)
+            # Episode 5, episode 5 (requires word boundary or separator before)
+            r"(?:^|[.\s_-])[Ee]pisode[\s._-]*(\d{1,3})",
+            # EP5, ep5, E5, e5 (standalone, requires separator before and after)
+            r"(?:^|[.\s_-])[Ee][Pp]?(\d{1,3})(?:[.\s_-]|$)",
+            # .105. (single digit season, two digit episode, surrounded by dots)
             r"\.(\d)(\d{2})\.",
         ]
 
         for i, pattern in enumerate(patterns):
             match = re.search(pattern, filename)
             if match:
-                if i == 3:  # Special case for .105. pattern
+                if i == 4:  # Special case for .105. pattern
                     # This matches season+episode concatenated, extract episode part
                     return int(match.group(2))
                 return int(match.group(1))

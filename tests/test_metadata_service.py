@@ -540,3 +540,339 @@ class TestMetadataServiceGetPosterPath:
         """Test get_poster_path returns None for non-cached poster."""
         result = service.get_poster_path("nonexistent")
         assert result is None
+
+
+class TestMetadataServiceSeriesDataValidation:
+    """Tests for Series data parsing and validation."""
+
+    @pytest.fixture
+    def service(
+        self, db_manager: DatabaseManager, tmp_path: Path
+    ) -> MetadataService:
+        """Create a MetadataService with test configuration."""
+        return MetadataService(
+            db_manager=db_manager,
+            catalog_url="https://example.com/content.json",
+            cache_dir=tmp_path / "cache",
+        )
+
+    def test_sync_passes_complete_series_structure(
+        self, service: MetadataService
+    ) -> None:
+        """Test that sync passes complete Series structure to upsert_content."""
+        content = {
+            "version": 1,
+            "items": [
+                {
+                    "id": "series-uuid-1",
+                    "type": "series",
+                    "title": "Test Series",
+                    "genres": "Drama, Thriller",
+                    "poster_url": "https://example.com/series.jpg",
+                    "seasons": [
+                        {
+                            "season_number": 1,
+                            "magnet": "magnet:?xt=urn:btih:season1hash",
+                            "episodes": [
+                                {
+                                    "episode_id": "ep-1-1",
+                                    "number": 1,
+                                    "title": "Pilot",
+                                    "subtitle_id": 1001,
+                                    "translation_needed": True,
+                                },
+                                {
+                                    "episode_id": "ep-1-2",
+                                    "number": 2,
+                                    "title": "Second Episode",
+                                    "subtitle_id": 1002,
+                                    "translation_needed": False,
+                                },
+                            ],
+                        },
+                        {
+                            "season_number": 2,
+                            "magnet": "magnet:?xt=urn:btih:season2hash",
+                            "episodes": [
+                                {
+                                    "episode_id": "ep-2-1",
+                                    "number": 1,
+                                    "title": "New Beginning",
+                                    "subtitle_id": None,
+                                    "translation_needed": False,
+                                },
+                            ],
+                        },
+                    ],
+                }
+            ],
+        }
+
+        mock_response = mock.MagicMock()
+        mock_response.read.return_value = json.dumps(content).encode()
+        mock_response.__enter__ = mock.MagicMock(return_value=mock_response)
+        mock_response.__exit__ = mock.MagicMock(return_value=False)
+
+        with mock.patch("urllib.request.urlopen", return_value=mock_response):
+            with mock.patch.object(
+                service._db_manager, "upsert_content"
+            ) as mock_upsert:
+                service.run()
+
+                mock_upsert.assert_called_once()
+                call_args = mock_upsert.call_args[0][0]
+
+                # Verify the structure is intact
+                assert "items" in call_args
+                series = call_args["items"][0]
+
+                assert series["id"] == "series-uuid-1"
+                assert series["type"] == "series"
+                assert series["title"] == "Test Series"
+                assert "seasons" in series
+                assert len(series["seasons"]) == 2
+
+                # Check season 1 structure
+                season1 = series["seasons"][0]
+                assert season1["season_number"] == 1
+                assert season1["magnet"] == "magnet:?xt=urn:btih:season1hash"
+                assert len(season1["episodes"]) == 2
+
+                # Check episode structure in season 1
+                ep1 = season1["episodes"][0]
+                assert ep1["number"] == 1
+                assert ep1["title"] == "Pilot"
+                assert ep1["subtitle_id"] == 1001
+                assert ep1["translation_needed"] is True
+
+                ep2 = season1["episodes"][1]
+                assert ep2["number"] == 2
+                assert ep2["subtitle_id"] == 1002
+                assert ep2["translation_needed"] is False
+
+                # Check season 2 structure
+                season2 = series["seasons"][1]
+                assert season2["season_number"] == 2
+                assert len(season2["episodes"]) == 1
+                assert season2["episodes"][0]["subtitle_id"] is None
+
+    def test_sync_handles_series_with_empty_seasons(
+        self, service: MetadataService
+    ) -> None:
+        """Test that sync handles series with empty seasons list."""
+        content = {
+            "items": [
+                {
+                    "id": "series-empty",
+                    "type": "series",
+                    "title": "Series Without Seasons",
+                    "seasons": [],
+                }
+            ],
+        }
+
+        mock_response = mock.MagicMock()
+        mock_response.read.return_value = json.dumps(content).encode()
+        mock_response.__enter__ = mock.MagicMock(return_value=mock_response)
+        mock_response.__exit__ = mock.MagicMock(return_value=False)
+
+        completed_emissions: list[tuple] = []
+        service.sync_completed.connect(lambda: completed_emissions.append(()))
+
+        with mock.patch("urllib.request.urlopen", return_value=mock_response):
+            service.run()
+
+        # Should complete without error
+        assert len(completed_emissions) == 1
+
+    def test_sync_handles_season_with_empty_episodes(
+        self, service: MetadataService
+    ) -> None:
+        """Test that sync handles seasons with empty episodes list."""
+        content = {
+            "items": [
+                {
+                    "id": "series-no-eps",
+                    "type": "series",
+                    "title": "Series With Empty Season",
+                    "seasons": [
+                        {
+                            "season_number": 1,
+                            "magnet": "magnet:?xt=urn:btih:test",
+                            "episodes": [],
+                        }
+                    ],
+                }
+            ],
+        }
+
+        mock_response = mock.MagicMock()
+        mock_response.read.return_value = json.dumps(content).encode()
+        mock_response.__enter__ = mock.MagicMock(return_value=mock_response)
+        mock_response.__exit__ = mock.MagicMock(return_value=False)
+
+        with mock.patch("urllib.request.urlopen", return_value=mock_response):
+            with mock.patch.object(
+                service._db_manager, "upsert_content"
+            ) as mock_upsert:
+                service.run()
+
+                call_args = mock_upsert.call_args[0][0]
+                season = call_args["items"][0]["seasons"][0]
+                assert season["episodes"] == []
+
+    def test_sync_handles_episodes_without_optional_fields(
+        self, service: MetadataService
+    ) -> None:
+        """Test that sync handles episodes missing optional fields."""
+        content = {
+            "items": [
+                {
+                    "id": "series-minimal-eps",
+                    "type": "series",
+                    "title": "Series With Minimal Episodes",
+                    "seasons": [
+                        {
+                            "season_number": 1,
+                            "episodes": [
+                                {
+                                    "number": 1,
+                                    # No title, subtitle_id, or translation_needed
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+        mock_response = mock.MagicMock()
+        mock_response.read.return_value = json.dumps(content).encode()
+        mock_response.__enter__ = mock.MagicMock(return_value=mock_response)
+        mock_response.__exit__ = mock.MagicMock(return_value=False)
+
+        with mock.patch("urllib.request.urlopen", return_value=mock_response):
+            with mock.patch.object(
+                service._db_manager, "upsert_content"
+            ) as mock_upsert:
+                service.run()
+
+                call_args = mock_upsert.call_args[0][0]
+                episode = call_args["items"][0]["seasons"][0]["episodes"][0]
+                assert episode["number"] == 1
+                # Optional fields should not exist in the dict
+                assert "title" not in episode or episode.get("title") is None
+
+    def test_sync_preserves_movie_and_series_mixed(
+        self, service: MetadataService
+    ) -> None:
+        """Test that sync preserves both movies and series in the same catalog."""
+        content = {
+            "items": [
+                {
+                    "id": "movie-1",
+                    "type": "movie",
+                    "title": "Test Movie",
+                    "magnet": "magnet:?xt=urn:btih:moviehash",
+                },
+                {
+                    "id": "series-1",
+                    "type": "series",
+                    "title": "Test Series",
+                    "seasons": [
+                        {
+                            "season_number": 1,
+                            "magnet": "magnet:?xt=urn:btih:seasonhash",
+                            "episodes": [{"number": 1, "title": "Pilot"}],
+                        }
+                    ],
+                },
+                {
+                    "id": "movie-2",
+                    "type": "movie",
+                    "title": "Another Movie",
+                    "magnet": "magnet:?xt=urn:btih:movie2hash",
+                },
+            ],
+        }
+
+        mock_response = mock.MagicMock()
+        mock_response.read.return_value = json.dumps(content).encode()
+        mock_response.__enter__ = mock.MagicMock(return_value=mock_response)
+        mock_response.__exit__ = mock.MagicMock(return_value=False)
+
+        with mock.patch("urllib.request.urlopen", return_value=mock_response):
+            with mock.patch.object(
+                service._db_manager, "upsert_content"
+            ) as mock_upsert:
+                service.run()
+
+                call_args = mock_upsert.call_args[0][0]
+                items = call_args["items"]
+
+                assert len(items) == 3
+                assert items[0]["type"] == "movie"
+                assert items[1]["type"] == "series"
+                assert items[2]["type"] == "movie"
+
+                # Verify series has seasons
+                assert "seasons" in items[1]
+                assert len(items[1]["seasons"]) == 1
+
+                # Verify movies don't have seasons
+                assert "seasons" not in items[0]
+                assert "seasons" not in items[2]
+
+    def test_sync_passes_translation_needed_correctly(
+        self, service: MetadataService
+    ) -> None:
+        """Test that translation_needed boolean is correctly passed."""
+        content = {
+            "items": [
+                {
+                    "id": "series-translation",
+                    "type": "series",
+                    "title": "Translation Test Series",
+                    "seasons": [
+                        {
+                            "season_number": 1,
+                            "episodes": [
+                                {
+                                    "number": 1,
+                                    "title": "Episode Needing Translation",
+                                    "translation_needed": True,
+                                },
+                                {
+                                    "number": 2,
+                                    "title": "Episode Not Needing Translation",
+                                    "translation_needed": False,
+                                },
+                                {
+                                    "number": 3,
+                                    "title": "Episode With Default",
+                                    # translation_needed not specified, should default
+                                },
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+        mock_response = mock.MagicMock()
+        mock_response.read.return_value = json.dumps(content).encode()
+        mock_response.__enter__ = mock.MagicMock(return_value=mock_response)
+        mock_response.__exit__ = mock.MagicMock(return_value=False)
+
+        with mock.patch("urllib.request.urlopen", return_value=mock_response):
+            with mock.patch.object(
+                service._db_manager, "upsert_content"
+            ) as mock_upsert:
+                service.run()
+
+                call_args = mock_upsert.call_args[0][0]
+                episodes = call_args["items"][0]["seasons"][0]["episodes"]
+
+                assert episodes[0]["translation_needed"] is True
+                assert episodes[1]["translation_needed"] is False
+                # Third episode may or may not have the field depending on JSON
