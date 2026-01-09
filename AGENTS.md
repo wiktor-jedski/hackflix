@@ -1,0 +1,114 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+Hackflix is a movie player application for Raspberry Pi 5 with movie suggestions and voice-over translations. It functions as a "set-top box" style appliance with keyboard-only navigation.
+
+## Commands
+
+```bash
+# Setup
+uv sync
+
+# Run application
+uv run python src/main.py
+
+# Run tests
+uv run pytest tests/
+
+# Run single test file
+uv run pytest tests/test_database.py
+
+# Run with coverage
+uv run pytest --cov=src tests/
+```
+
+## Architecture
+
+**Signal-Driven MVC with PyQt5:**
+- **View (UI):** Dumb components that display data and emit signals. No business logic. Located in `src/ui/`.
+- **Controller:** Connects Views to Services, handles state and routing. `src/controllers/app_controller.py`.
+- **Model:** Raw sqlite3 with per-operation connections (no ORM). Located in `src/database/`.
+- **Services:** QThread-based background workers for Downloads, Pipeline, Playback. Located in `src/services/`.
+
+**Critical Rule:** The UI thread must never perform file I/O or network requests synchronously.
+
+## Project Structure
+
+```
+src/
+├── main.py              # Entry point
+├── config.py            # Constants and settings
+├── database/            # Raw sqlite3 (schema.py, db_manager.py)
+├── controllers/         # AppController
+├── services/            # Background workers (QThreads)
+│   ├── player_service.py      # VLC wrapper
+│   ├── torrent_service.py     # Embedded libtorrent
+│   ├── metadata_service.py    # Sync service
+│   └── pipeline_service.py    # Subtitle/voiceover pipeline
+├── ui/                  # PyQt Views (windows/, components/, input_manager.py)
+└── utils/               # Helpers
+```
+
+## Technology Constraints
+
+| Component | Required | Not Allowed |
+|-----------|----------|-------------|
+| Python | 3.11.x | Newer versions |
+| Database | Raw `sqlite3` | SQLAlchemy ORM |
+| Torrent | Embedded `libtorrent` | qbittorrent-api |
+| TTS | `edge-tts` (online) | Offline engines |
+| TTS Voice | `pl-PL-MarekNeural` | Other voices |
+
+## Environment Variables
+
+Required in `.env`:
+- `GEMINI_API_KEY` - for translation
+- `OPENSUBTITLES_API_KEY` - for subtitle fetching
+
+## Key Implementation Rules
+
+1. **Type hints mandatory** on all function signatures
+2. **No logic in Views** - UI classes must not import services or database
+3. **Specific exception handling** - never bare `try: except:`
+4. **Per-operation DB connections** - open/close for each operation
+5. **Tests required** before committing any code change
+
+## Test Coverage Requirements
+
+**Target: 100% line coverage.** After implementing any feature, run:
+
+```bash
+uv run pytest --cov=src --cov-report=term-missing tests/
+```
+
+If 100% coverage is not achievable, document the specific reason below.
+
+### Accepted Coverage Exceptions
+
+| File | Coverage | Reason |
+|------|----------|--------|
+| `src/main.py` | 0% | Entry point with VLC/libtorrent dependency checks. Requires mocking `sys.modules` which is fragile. Will be covered by integration tests when UI (Phase 3) is implemented. |
+
+### Coverage Rules
+
+1. **All error handling paths must be tested** - use `unittest.mock` to simulate failures
+2. **All branches must be tested** - both `if` and `else` paths (e.g., upsert existing vs new records)
+3. **Negative tests required** - test that functions return `None`/empty list for nonexistent records
+4. **No untested code in production modules** - exceptions must be listed in the table above with justification
+
+## State Enumerations
+
+**Download State:** `PENDING` → `QUEUED` → `DOWNLOADING` → `COMPLETED` / `ERROR`
+
+**Pipeline State:** `NONE` → `FETCHING_SUBS` → `TRANSLATING` → `SUBS_READY` → `GENERATING_TTS` → `MIXING_AUDIO` → `VOICEOVER_READY` / `FAILED`
+
+## Error Handling
+
+- Show toast notifications for user-facing errors (toasts stack visually)
+- Log all errors to `app.log`
+- Failed jobs marked as `Error` in DB for retry
+- Auto-resume incomplete downloads/processing on startup
+- Fail fast if VLC or libtorrent missing
