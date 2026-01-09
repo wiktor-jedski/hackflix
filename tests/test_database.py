@@ -308,6 +308,86 @@ class TestDatabaseManager:
         items = db_manager.get_library_items("movie", search_filter="xyz")
         assert len(items) == 0
 
+    def test_upsert_content_with_genres(
+        self, db_manager: DatabaseManager, sample_content_json: dict
+    ) -> None:
+        """Test that genres are stored when upserting content."""
+        db_manager.upsert_content(sample_content_json)
+
+        # Verify genres are stored for movies
+        items = db_manager.get_library_items("movie")
+        bbb = next(i for i in items if i["title"] == "Big Buck Bunny")
+        assert bbb["genres"] == "Animation, Comedy, Family"
+
+        sintel = next(i for i in items if i["title"] == "Sintel")
+        assert sintel["genres"] == "Animation, Fantasy, Action"
+
+        # Verify genres are stored for series
+        items = db_manager.get_library_items("series")
+        assert items[0]["genres"] == "Documentary, Technology"
+
+    def test_get_library_items_filter_by_genre(
+        self, db_manager: DatabaseManager, sample_content_json: dict
+    ) -> None:
+        """Test filtering library items by genre."""
+        db_manager.upsert_content(sample_content_json)
+
+        # Filter by genre - should find both animation movies
+        items = db_manager.get_library_items("movie", search_filter="Animation")
+        assert len(items) == 2
+        titles = {item["title"] for item in items}
+        assert "Big Buck Bunny" in titles
+        assert "Sintel" in titles
+
+        # Filter by unique genre - should find only one
+        items = db_manager.get_library_items("movie", search_filter="Family")
+        assert len(items) == 1
+        assert items[0]["title"] == "Big Buck Bunny"
+
+        # Filter by genre for series
+        items = db_manager.get_library_items("series", search_filter="Documentary")
+        assert len(items) == 1
+        assert items[0]["title"] == "Open Source Show"
+
+    def test_get_library_items_filter_title_and_genre_or_logic(
+        self, db_manager: DatabaseManager, sample_content_json: dict
+    ) -> None:
+        """Test that search filter matches either title OR genre."""
+        db_manager.upsert_content(sample_content_json)
+
+        # "Bunny" is in title but not in genres
+        items = db_manager.get_library_items("movie", search_filter="Bunny")
+        assert len(items) == 1
+        assert items[0]["title"] == "Big Buck Bunny"
+
+        # "Fantasy" is in genres but not in title
+        items = db_manager.get_library_items("movie", search_filter="Fantasy")
+        assert len(items) == 1
+        assert items[0]["title"] == "Sintel"
+
+        # "Animation" matches genre of both movies
+        items = db_manager.get_library_items("movie", search_filter="Animation")
+        assert len(items) == 2
+
+    def test_upsert_content_without_genres(self, db_manager: DatabaseManager) -> None:
+        """Test upserting content without genres field (backwards compatibility)."""
+        content_no_genres = {
+            "items": [
+                {
+                    "id": "movie-no-genre",
+                    "type": "movie",
+                    "title": "Movie Without Genre",
+                    "magnet": "magnet:?test",
+                    "subtitle_id": None,
+                }
+            ]
+        }
+        db_manager.upsert_content(content_no_genres)
+
+        items = db_manager.get_library_items("movie")
+        assert len(items) == 1
+        assert items[0]["genres"] is None
+
     def test_update_file_state(self, db_manager: DatabaseManager) -> None:
         """Test updating video file download state."""
         # Create a movie

@@ -61,6 +61,7 @@ def sample_content_json() -> dict:
                 "id": "movie-uuid-1",
                 "type": "movie",
                 "title": "Big Buck Bunny",
+                "genres": "Animation, Comedy, Family",
                 "magnet": "magnet:?xt=urn:btih:abc123",
                 "poster_url": "https://example.com/bbb.jpg",
                 "subtitle_id": 123,
@@ -70,6 +71,7 @@ def sample_content_json() -> dict:
                 "id": "movie-uuid-2",
                 "type": "movie",
                 "title": "Sintel",
+                "genres": "Animation, Fantasy, Action",
                 "magnet": "magnet:?xt=urn:btih:def456",
                 "poster_url": "https://example.com/sintel.jpg",
                 "subtitle_id": None,
@@ -79,6 +81,7 @@ def sample_content_json() -> dict:
                 "id": "series-uuid-1",
                 "type": "series",
                 "title": "Open Source Show",
+                "genres": "Documentary, Technology",
                 "poster_url": "https://example.com/oss.jpg",
                 "seasons": [
                     {

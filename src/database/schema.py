@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS media_items (
     id TEXT PRIMARY KEY,
     type TEXT NOT NULL CHECK(type IN ('movie', 'series')),
     title TEXT NOT NULL,
+    genres TEXT,
     poster_path TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP

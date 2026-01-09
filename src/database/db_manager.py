@@ -112,19 +112,21 @@ class DatabaseManager:
                 item_id = item["id"]
                 item_type = item["type"]
                 title = item["title"]
+                genres = item.get("genres")
                 poster_url = item.get("poster_url")
 
                 # Upsert media_item
                 cursor.execute(
                     """
-                    INSERT INTO media_items (id, type, title, poster_path, last_updated)
-                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    INSERT INTO media_items (id, type, title, genres, poster_path, last_updated)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(id) DO UPDATE SET
                         title = excluded.title,
+                        genres = excluded.genres,
                         poster_path = excluded.poster_path,
                         last_updated = CURRENT_TIMESTAMP
                     """,
-                    (item_id, item_type, title, poster_url),
+                    (item_id, item_type, title, genres, poster_url),
                 )
 
                 if item_type == "movie":
@@ -269,7 +271,7 @@ class DatabaseManager:
 
         Args:
             media_type: Type of media ('movie' or 'series').
-            search_filter: Optional title search filter.
+            search_filter: Optional search filter (searches title and genres).
 
         Returns:
             List of media item dictionaries.
@@ -284,17 +286,17 @@ class DatabaseManager:
             if search_filter:
                 cursor.execute(
                     """
-                    SELECT id, type, title, poster_path, created_at, last_updated
+                    SELECT id, type, title, genres, poster_path, created_at, last_updated
                     FROM media_items
-                    WHERE type = ? AND title LIKE ?
+                    WHERE type = ? AND (title LIKE ? OR genres LIKE ?)
                     ORDER BY title
                     """,
-                    (media_type, f"%{search_filter}%"),
+                    (media_type, f"%{search_filter}%", f"%{search_filter}%"),
                 )
             else:
                 cursor.execute(
                     """
-                    SELECT id, type, title, poster_path, created_at, last_updated
+                    SELECT id, type, title, genres, poster_path, created_at, last_updated
                     FROM media_items
                     WHERE type = ?
                     ORDER BY title
