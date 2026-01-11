@@ -1,10 +1,36 @@
 """Pytest fixtures for Hackflix tests."""
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
 from src.database.db_manager import DatabaseManager
+
+
+# ============================================================================
+# Qt Fixtures
+# ============================================================================
+
+
+@pytest.fixture
+def mock_db_manager(db_manager: DatabaseManager, sample_content_json: dict) -> DatabaseManager:
+    """Create a DatabaseManager with sample content loaded.
+
+    Args:
+        db_manager: Base DatabaseManager fixture.
+        sample_content_json: Sample content to load.
+
+    Returns:
+        DatabaseManager with sample data.
+    """
+    db_manager.upsert_content(sample_content_json)
+    return db_manager
+
+
+# ============================================================================
+# Database Fixtures
+# ============================================================================
 
 
 @pytest.fixture

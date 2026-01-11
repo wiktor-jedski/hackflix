@@ -7,13 +7,22 @@ import logging
 import os
 import sys
 
+from PyQt5.QtWidgets import QApplication
+
 from src.config import (
+    CACHE_DIR,
+    CATALOG_URL,
     DATABASE_PATH,
     check_required_env_vars,
     ensure_directories,
     setup_logging,
 )
+from src.controllers.app_controller import AppController
 from src.database import DatabaseManager
+from src.services.metadata_service import MetadataService
+from src.services.torrent_service import TorrentService
+from src.ui.windows.main_window import MainWindow
+from src.utils.i18n import setup_translations
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +108,42 @@ def main() -> int:
 
     logger.info("Hackflix initialization complete")
 
-    # Full application loop will be implemented in Phase 3
-    return 0
+    # Create Qt application
+    app = QApplication(sys.argv)
+    app.setApplicationName("Hackflix")
+
+    # Setup translations (Polish by default)
+    setup_translations(app, "pl")
+
+    # Create main window
+    main_window = MainWindow()
+
+    # Create controller
+    controller = AppController(db_manager)
+    controller.bind_main_window(main_window)
+
+    # Create and bind services
+    metadata_service = MetadataService(
+        db_manager=db_manager,
+        catalog_url=CATALOG_URL,
+        cache_dir=CACHE_DIR,
+    )
+    torrent_service = TorrentService(db_manager=db_manager)
+
+    controller.bind_services(
+        metadata_service=metadata_service,
+        torrent_service=torrent_service,
+    )
+
+    # Bootstrap the controller
+    controller.bootstrap()
+
+    # Show the main window
+    main_window.show()
+
+    # Run the application event loop
+    logger.info("Starting application event loop")
+    return app.exec_()
 
 
 if __name__ == "__main__":

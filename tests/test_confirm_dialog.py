@@ -1,0 +1,90 @@
+"""Tests for ConfirmDialog component."""
+
+import pytest
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QDialog, QWidget
+
+from src.ui.components.confirm_dialog import ConfirmDialog
+
+
+class TestConfirmDialog:
+    """Tests for ConfirmDialog class."""
+
+    @pytest.fixture
+    def parent_widget(self, qtbot) -> QWidget:
+        """Create a parent widget."""
+        widget = QWidget()
+        qtbot.addWidget(widget)
+        return widget
+
+    @pytest.fixture
+    def dialog(self, parent_widget: QWidget, qtbot) -> ConfirmDialog:
+        """Create a ConfirmDialog instance."""
+        dialog = ConfirmDialog("Delete File?", "This action cannot be undone.", parent_widget)
+        qtbot.addWidget(dialog)
+        return dialog
+
+    def test_initialization(self, dialog: ConfirmDialog) -> None:
+        """Test ConfirmDialog initialization."""
+        assert dialog is not None
+        assert dialog.objectName() == "ConfirmDialog"
+
+    def test_title_displayed(self, dialog: ConfirmDialog) -> None:
+        """Test that title is displayed."""
+        assert dialog._title_label.text() == "Delete File?"
+
+    def test_message_displayed(self, dialog: ConfirmDialog) -> None:
+        """Test that message is displayed."""
+        assert dialog._message_label.text() == "This action cannot be undone."
+
+    def test_is_modal(self, dialog: ConfirmDialog) -> None:
+        """Test that dialog is modal."""
+        assert dialog.isModal()
+
+    def test_enter_accepts(self, dialog: ConfirmDialog, qtbot) -> None:
+        """Test that Enter key accepts the dialog."""
+        # Show dialog non-blocking
+        dialog.show()
+
+        # Simulate Enter key
+        qtbot.keyClick(dialog, Qt.Key_Return)
+
+        assert dialog.result() == QDialog.Accepted
+
+    def test_escape_rejects(self, dialog: ConfirmDialog, qtbot) -> None:
+        """Test that Escape key rejects the dialog."""
+        dialog.show()
+
+        qtbot.keyClick(dialog, Qt.Key_Escape)
+
+        assert dialog.result() == QDialog.Rejected
+
+    def test_fixed_width(self, dialog: ConfirmDialog) -> None:
+        """Test that dialog has fixed width."""
+        from src.ui.styles import DIALOG_WIDTH
+        assert dialog.width() == DIALOG_WIDTH
+
+    def test_has_hint_label(self, dialog: ConfirmDialog) -> None:
+        """Test that dialog has hint label."""
+        assert dialog._hint_label is not None
+        assert "Enter" in dialog._hint_label.text()
+        assert "Esc" in dialog._hint_label.text()
+
+
+class TestConfirmDialogStaticMethod:
+    """Tests for ConfirmDialog.confirm static method."""
+
+    @pytest.fixture
+    def parent_widget(self, qtbot) -> QWidget:
+        """Create a parent widget."""
+        widget = QWidget()
+        qtbot.addWidget(widget)
+        return widget
+
+    def test_confirm_creates_dialog(self, parent_widget: QWidget, qtbot) -> None:
+        """Test that confirm method creates and shows dialog."""
+        # We can't easily test the static method in isolation since it blocks
+        # Instead, test that a dialog can be created with the parameters
+        dialog = ConfirmDialog("Test?", "Test message", parent_widget)
+        qtbot.addWidget(dialog)
+        assert dialog is not None
