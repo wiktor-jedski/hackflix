@@ -4,14 +4,15 @@ This module provides the LibraryItemDelegate for rendering
 media items in the library list view.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any
 
 from PyQt5.QtCore import QModelIndex, QRect, QSize, Qt
 from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
 from PyQt5.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QWidget
 
-from src.config import DownloadState, PipelineState
+from src.config import DownloadState
 from src.ui.styles import (
     ERROR_COLOR,
     FONT_FAMILY,
@@ -31,6 +32,7 @@ from src.ui.styles import (
     TEXT_SECONDARY,
     WARNING_COLOR,
 )
+from src.utils.i18n import tr
 
 
 # Data roles for model items
@@ -183,7 +185,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
         # Draw placeholder
         painter.fillRect(rect, QColor(SURFACE_HOVER_COLOR))
         painter.setPen(QColor(TEXT_SECONDARY))
-        painter.drawText(rect, Qt.AlignCenter, "No\nImage")
+        painter.drawText(rect, Qt.AlignCenter, tr("LibraryItemDelegate", "No\nImage"))
 
     def _get_cached_poster(self, path: str) -> QPixmap | None:
         """Get a poster pixmap from cache or load it.
@@ -212,9 +214,8 @@ class LibraryItemDelegate(QStyledItemDelegate):
             rect: Rectangle for metadata.
             index: Model index of the item.
         """
-        title = index.data(LibraryItemRole.TitleRole) or "Unknown Title"
+        title = index.data(LibraryItemRole.TitleRole) or tr("LibraryItemDelegate", "Unknown Title")
         genres = index.data(LibraryItemRole.GenresRole) or ""
-        item_type = index.data(LibraryItemRole.TypeRole)
 
         # Build subtitle based on item type
         subtitle = self._build_subtitle(index)
@@ -279,17 +280,24 @@ class LibraryItemDelegate(QStyledItemDelegate):
 
         if item_type == "series":
             season_count = index.data(LibraryItemRole.SeasonCountRole) or 0
-            return f"{season_count} Season{'s' if season_count != 1 else ''}"
+            if season_count == 1:
+                return tr("LibraryItemDelegate", "%n Season").replace("%n", str(season_count))
+            return tr("LibraryItemDelegate", "%n Seasons").replace("%n", str(season_count))
         elif item_type == "season":
             season_num = index.data(LibraryItemRole.SeasonNumberRole) or 0
             episode_count = index.data(LibraryItemRole.EpisodeCountRole) or 0
-            return f"Season {season_num} \u2022 {episode_count} Episode{'s' if episode_count != 1 else ''}"
+            season_str = tr("LibraryItemDelegate", "Season %n").replace("%n", str(season_num))
+            if episode_count == 1:
+                episode_str = tr("LibraryItemDelegate", "%n Episode").replace("%n", str(episode_count))
+            else:
+                episode_str = tr("LibraryItemDelegate", "%n Episodes").replace("%n", str(episode_count))
+            return f"{season_str} \u2022 {episode_str}"
         elif item_type == "episode":
             ep_num = index.data(LibraryItemRole.EpisodeNumberRole) or 0
             ep_title = index.data(LibraryItemRole.EpisodeTitleRole) or ""
             if ep_title:
-                return f"Episode {ep_num}: {ep_title}"
-            return f"Episode {ep_num}"
+                return tr("LibraryItemDelegate", "Episode %n: %t").replace("%n", str(ep_num)).replace("%t", ep_title)
+            return tr("LibraryItemDelegate", "Episode %n").replace("%n", str(ep_num))
 
         return ""
 

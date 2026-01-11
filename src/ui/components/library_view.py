@@ -26,13 +26,11 @@ from src.ui.components.library_item_delegate import (
 from src.ui.enums import MediaTab
 from src.ui.styles import (
     BACKGROUND_COLOR,
-    FONT_SIZE_BODY,
     FONT_SIZE_TITLE,
     PRIMARY_COLOR,
     ROW_HEIGHT,
     SECONDARY_COLOR,
     SURFACE_COLOR,
-    TEXT_PRIMARY,
     TEXT_SECONDARY,
 )
 

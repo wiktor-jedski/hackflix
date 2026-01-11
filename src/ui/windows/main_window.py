@@ -4,10 +4,13 @@ This module provides the MainWindow class that serves as the
 primary container for all UI components.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING
 
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QCloseEvent, QResizeEvent, QShowEvent
 from PyQt5.QtWidgets import QMainWindow, QVBoxLayout, QWidget
 
 from src.ui.components.confirm_dialog import ConfirmDialog
@@ -200,7 +203,7 @@ class MainWindow(QMainWindow):
         """
         self._status_bar.set_storage_usage(usage)
 
-    def resizeEvent(self, event) -> None:
+    def resizeEvent(self, event: QResizeEvent) -> None:
         """Handle window resize.
 
         Args:
@@ -216,16 +219,19 @@ class MainWindow(QMainWindow):
         if self._search_background.isVisible():
             self._search_background.setGeometry(self.centralWidget().rect())
 
-    def showEvent(self, event) -> None:
+    def showEvent(self, event: QShowEvent) -> None:
         """Handle window show event.
 
         Args:
             event: The show event.
         """
         super().showEvent(event)
+        # Force fullscreen mode per set-top box requirement
+        if not self.isFullScreen():
+            self.showFullScreen()
         self._library_view.set_focus()
 
-    def closeEvent(self, event) -> None:
+    def closeEvent(self, event: QCloseEvent) -> None:
         """Handle window close event.
 
         Args:

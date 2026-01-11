@@ -165,3 +165,38 @@ class TestToastManager:
         assert pos1[0] == pos2[0]
         # Second should be lower (higher Y value)
         assert pos2[1] > pos1[1]
+
+
+class TestToastAutoTimeout:
+    """Tests for toast auto-dismiss timeout behavior."""
+
+    @pytest.fixture
+    def parent_widget(self, qtbot) -> QWidget:
+        """Create a parent widget for toasts."""
+        widget = QWidget()
+        widget.resize(800, 600)
+        qtbot.addWidget(widget)
+        return widget
+
+    def test_on_timeout_dismisses_toast(self, parent_widget: QWidget, qtbot) -> None:
+        """Test that _on_timeout dismisses the toast."""
+        toast = ToastNotification("Test", "info", timeout_ms=50, parent=parent_widget)
+        qtbot.addWidget(toast)
+
+        # Wait for the toast to auto-dismiss
+        with qtbot.waitSignal(toast.dismissed, timeout=200):
+            pass  # The timeout will trigger dismiss automatically
+
+        assert not toast.isVisible()
+
+    def test_timeout_triggers_dismiss(self, parent_widget: QWidget, qtbot) -> None:
+        """Test that timeout triggers the dismiss callback."""
+        toast = ToastNotification("Test", "info", timeout_ms=100, parent=parent_widget)
+        qtbot.addWidget(toast)
+        toast.show()
+
+        # Directly call _on_timeout to exercise the code path
+        toast._on_timeout()
+
+        assert not toast.isVisible()
+        assert not toast._dismiss_timer.isActive()

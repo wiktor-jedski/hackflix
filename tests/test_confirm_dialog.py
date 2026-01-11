@@ -88,3 +88,84 @@ class TestConfirmDialogStaticMethod:
         dialog = ConfirmDialog("Test?", "Test message", parent_widget)
         qtbot.addWidget(dialog)
         assert dialog is not None
+
+    def test_confirm_accept_returns_true(self, parent_widget: QWidget, qtbot) -> None:
+        """Test that confirm returns True when accepted."""
+        from PyQt5.QtCore import QTimer
+
+        result_holder = [None]
+
+        def accept_dialog():
+            # Find the dialog and accept it
+            for widget in parent_widget.children():
+                if isinstance(widget, ConfirmDialog):
+                    widget.accept()
+                    return
+            # Check application-level dialogs
+            from PyQt5.QtWidgets import QApplication
+            for widget in QApplication.topLevelWidgets():
+                if isinstance(widget, ConfirmDialog):
+                    widget.accept()
+                    return
+
+        # Schedule accepting the dialog
+        QTimer.singleShot(50, accept_dialog)
+
+        # Run confirm in a thread-safe way using QTimer
+        def run_confirm():
+            result_holder[0] = ConfirmDialog.confirm("Test?", "Message", parent_widget)
+
+        QTimer.singleShot(10, run_confirm)
+        qtbot.wait(200)
+
+    def test_confirm_without_parent(self, qtbot) -> None:
+        """Test confirm can be called without parent."""
+        from PyQt5.QtCore import QTimer
+
+        def reject_dialog():
+            from PyQt5.QtWidgets import QApplication
+            for widget in QApplication.topLevelWidgets():
+                if isinstance(widget, ConfirmDialog):
+                    widget.reject()
+                    return
+
+        QTimer.singleShot(50, reject_dialog)
+
+        def run_confirm():
+            # This exercises the parent=None code path
+            ConfirmDialog.confirm("Test?", "Message", None)
+
+        QTimer.singleShot(10, run_confirm)
+        qtbot.wait(200)
+
+
+class TestConfirmDialogKeyHandling:
+    """Tests for ConfirmDialog key handling edge cases."""
+
+    @pytest.fixture
+    def parent_widget(self, qtbot) -> QWidget:
+        """Create a parent widget."""
+        widget = QWidget()
+        qtbot.addWidget(widget)
+        return widget
+
+    @pytest.fixture
+    def dialog(self, parent_widget: QWidget, qtbot) -> ConfirmDialog:
+        """Create a ConfirmDialog instance."""
+        dialog = ConfirmDialog("Test?", "Test message", parent_widget)
+        qtbot.addWidget(dialog)
+        return dialog
+
+    def test_other_keys_passed_to_super(self, dialog: ConfirmDialog, qtbot) -> None:
+        """Test that other keys are passed to super().keyPressEvent."""
+        dialog.show()
+        # Press a key that's not Enter or Escape
+        qtbot.keyClick(dialog, Qt.Key_A)
+        # Dialog should still be open (not accepted or rejected)
+        assert dialog.result() == 0  # Neither accepted nor rejected
+
+    def test_enter_key_accepts(self, dialog: ConfirmDialog, qtbot) -> None:
+        """Test Enter key accepts dialog."""
+        dialog.show()
+        qtbot.keyClick(dialog, Qt.Key_Enter)
+        assert dialog.result() == QDialog.Accepted

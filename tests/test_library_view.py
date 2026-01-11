@@ -222,3 +222,90 @@ class TestLibraryView:
         """Test set_focus focuses the list view."""
         library_view.set_focus()
         # Focus behavior depends on widget hierarchy
+
+    def test_select_next_no_current_selection(
+        self, library_view: LibraryView, sample_items: list[dict]
+    ) -> None:
+        """Test select_next when there's no current selection but items exist."""
+        library_view.set_items(sample_items)
+        # Clear selection manually
+        library_view._list_view.clearSelection()
+        library_view._list_view.setCurrentIndex(
+            library_view._model.index(-1, 0)  # Invalid index
+        )
+
+        # select_next should select first item
+        result = library_view.select_next()
+        assert result is True
+        selected = library_view.get_selected_item()
+        assert selected["id"] == "movie-1"
+
+    def test_select_next_empty_list(self, library_view: LibraryView) -> None:
+        """Test select_next returns False when list is empty."""
+        result = library_view.select_next()
+        assert result is False
+
+    def test_select_prev_no_current_selection(
+        self, library_view: LibraryView, sample_items: list[dict]
+    ) -> None:
+        """Test select_prev when there's no current selection but items exist."""
+        library_view.set_items(sample_items)
+        # Clear selection manually
+        library_view._list_view.clearSelection()
+        library_view._list_view.setCurrentIndex(
+            library_view._model.index(-1, 0)  # Invalid index
+        )
+
+        # select_prev should select last item
+        result = library_view.select_prev()
+        assert result is True
+        selected = library_view.get_selected_item()
+        assert selected["id"] == "series-1"  # Last item
+
+    def test_select_prev_empty_list(self, library_view: LibraryView) -> None:
+        """Test select_prev returns False when list is empty."""
+        result = library_view.select_prev()
+        assert result is False
+
+    def test_selection_changed_emits_empty_dict_for_invalid_index(
+        self, library_view: LibraryView, sample_items: list[dict], qtbot
+    ) -> None:
+        """Test that selection_changed emits empty dict for invalid selection."""
+        library_view.set_items(sample_items)
+
+        received = []
+
+        def capture(data):
+            received.append(data)
+
+        library_view.selection_changed.connect(capture)
+
+        # Simulate selection change to invalid index
+        from PyQt5.QtCore import QModelIndex
+        library_view._on_selection_changed(QModelIndex(), QModelIndex())
+
+        assert len(received) == 1
+        assert received[0] == {}
+
+    def test_update_item_with_pipeline_state(
+        self, library_view: LibraryView, sample_items: list[dict]
+    ) -> None:
+        """Test updating an item's pipeline state."""
+        library_view.set_items(sample_items)
+        library_view.update_item("movie-1", {
+            "pipeline_state": "TRANSLATING",
+        })
+        # The update should not raise an exception
+
+    def test_update_item_nonexistent(
+        self, library_view: LibraryView, sample_items: list[dict]
+    ) -> None:
+        """Test updating a nonexistent item does nothing."""
+        library_view.set_items(sample_items)
+        # Should not raise
+        library_view.update_item("nonexistent-id", {"state": "COMPLETED"})
+
+    def test_activate_selected_empty(self, library_view: LibraryView) -> None:
+        """Test activate_selected does nothing when list is empty."""
+        # Should not raise or emit signal
+        library_view.activate_selected()

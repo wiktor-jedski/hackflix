@@ -4,9 +4,11 @@ This module provides the AppController class that serves as the
 central orchestrator connecting the UI to services and database.
 """
 
+from __future__ import annotations
+
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 

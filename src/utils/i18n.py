@@ -108,6 +108,17 @@ def create_translation_source() -> dict[str, dict[str, str]]:
             "Season %n": "",
             "Episode %n": "",
         },
+        "LibraryItemDelegate": {
+            "No\nImage": "",
+            "Unknown Title": "",
+            "%n Season": "",
+            "%n Seasons": "",
+            "Season %n": "",
+            "%n Episode": "",
+            "%n Episodes": "",
+            "Episode %n": "",
+            "Episode %n: %t": "",
+        },
         "StatusBar": {
             "Online": "",
             "Offline": "",

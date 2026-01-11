@@ -137,3 +137,70 @@ class TestSearchOverlayBackground:
 
         with qtbot.waitSignal(background.clicked, timeout=100):
             qtbot.mouseClick(background, Qt.LeftButton)
+
+
+class TestSearchOverlayKeyHandling:
+    """Tests for SearchOverlay key handling edge cases."""
+
+    @pytest.fixture
+    def parent_widget(self, qtbot) -> QWidget:
+        """Create a parent widget."""
+        widget = QWidget()
+        widget.resize(800, 600)
+        qtbot.addWidget(widget)
+        return widget
+
+    @pytest.fixture
+    def overlay(self, parent_widget: QWidget, qtbot) -> SearchOverlay:
+        """Create a SearchOverlay instance."""
+        overlay = SearchOverlay(parent_widget)
+        qtbot.addWidget(overlay)
+        return overlay
+
+    def test_other_keys_passed_to_super(self, overlay: SearchOverlay, qtbot) -> None:
+        """Test that other keys are passed to line edit."""
+        overlay.show_search()
+        # Type a character directly on the line edit
+        qtbot.keyClick(overlay._search_input, Qt.Key_A)
+        # The character should be in the input
+        assert "a" in overlay._search_input.text().lower()
+
+    def test_non_special_keys_call_super(self, overlay: SearchOverlay, qtbot) -> None:
+        """Test that non-special keys call super().keyPressEvent."""
+        from PyQt5.QtGui import QKeyEvent
+        from PyQt5.QtCore import QEvent
+
+        overlay.show_search()
+        # Create a key event for a regular key (not Enter or Escape)
+        event = QKeyEvent(QEvent.KeyPress, Qt.Key_B, Qt.NoModifier, "b")
+        # Call keyPressEvent directly to exercise the super() path
+        overlay.keyPressEvent(event)
+        # Event should be handled (not rejected)
+
+    def test_center_in_parent_without_parent(self, qtbot) -> None:
+        """Test _center_in_parent when overlay has no parent."""
+        overlay = SearchOverlay(None)
+        qtbot.addWidget(overlay)
+
+        # Should not raise
+        overlay._center_in_parent()
+        # Overlay should still exist
+        assert overlay is not None
+
+    def test_center_in_parent_with_non_widget_parent(self, qtbot) -> None:
+        """Test _center_in_parent with valid parent."""
+        parent = QWidget()
+        parent.resize(800, 600)
+        qtbot.addWidget(parent)
+
+        overlay = SearchOverlay(parent)
+        qtbot.addWidget(overlay)
+
+        # Should not raise
+        overlay._center_in_parent()
+
+        # Check that overlay is centered
+        expected_x = (parent.rect().width() - overlay.width()) // 2
+        expected_y = (parent.rect().height() - overlay.height()) // 2
+        assert overlay.x() == expected_x
+        assert overlay.y() == expected_y
