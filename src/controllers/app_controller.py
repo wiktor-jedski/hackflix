@@ -388,7 +388,11 @@ class AppController(QObject):
 
     def push_navigation(self) -> None:
         """Push current navigation context to the stack."""
-        selected = self._main_window.library_view.get_selected_item() if self._main_window else None
+        selected = (
+            self._main_window.library_view.get_selected_item()
+            if self._main_window
+            else None
+        )
         ctx = NavigationContext(
             state=self._current_state,
             tab=self._current_tab,
@@ -442,9 +446,7 @@ class AppController(QObject):
         self._current_tab = tab
 
         try:
-            items = self._db_manager.get_library_items(
-                tab.value, self._search_filter
-            )
+            items = self._db_manager.get_library_items(tab.value, self._search_filter)
 
             # Transform items for the view
             view_items = []
@@ -465,9 +467,13 @@ class AppController(QObject):
                     # Get video file state for movies
                     video = self._db_manager.get_video_details(item["id"])
                     if video:
-                        view_item["state"] = video.get("state", DownloadState.PENDING.value)
+                        view_item["state"] = video.get(
+                            "state", DownloadState.PENDING.value
+                        )
                         view_item["pipeline_state"] = video.get("pipeline_state")
-                        view_item["download_progress"] = video.get("download_progress", 0)
+                        view_item["download_progress"] = video.get(
+                            "download_progress", 0
+                        )
                     else:
                         view_item["state"] = DownloadState.PENDING.value
 
@@ -497,15 +503,17 @@ class AppController(QObject):
             view_items = []
             for season in seasons:
                 episodes = self._db_manager.get_episodes(season["id"])
-                view_items.append({
-                    "id": season["id"],
-                    "type": "season",
-                    "title": f"Season {season['season_number']}",
-                    "season_number": season["season_number"],
-                    "episode_count": len(episodes),
-                    "state": season.get("state", DownloadState.PENDING.value),
-                    "download_progress": season.get("download_progress", 0),
-                })
+                view_items.append(
+                    {
+                        "id": season["id"],
+                        "type": "season",
+                        "title": f"Season {season['season_number']}",
+                        "season_number": season["season_number"],
+                        "episode_count": len(episodes),
+                        "state": season.get("state", DownloadState.PENDING.value),
+                        "download_progress": season.get("download_progress", 0),
+                    }
+                )
 
             self._main_window.library_view.set_items(view_items)
             logger.debug("Loaded %d seasons for series %s", len(view_items), series_id)
@@ -530,16 +538,19 @@ class AppController(QObject):
 
             view_items = []
             for ep in episodes:
-                view_items.append({
-                    "id": ep["id"],
-                    "type": "episode",
-                    "title": ep.get("episode_title") or f"Episode {ep['episode_number']}",
-                    "episode_number": ep["episode_number"],
-                    "episode_title": ep.get("episode_title", ""),
-                    "state": ep.get("state", DownloadState.PENDING.value),
-                    "pipeline_state": ep.get("pipeline_state"),
-                    "download_progress": ep.get("download_progress", 0),
-                })
+                view_items.append(
+                    {
+                        "id": ep["id"],
+                        "type": "episode",
+                        "title": ep.get("episode_title")
+                        or f"Episode {ep['episode_number']}",
+                        "episode_number": ep["episode_number"],
+                        "episode_title": ep.get("episode_title", ""),
+                        "state": ep.get("state", DownloadState.PENDING.value),
+                        "pipeline_state": ep.get("pipeline_state"),
+                        "download_progress": ep.get("download_progress", 0),
+                    }
+                )
 
             self._main_window.library_view.set_items(view_items)
             logger.debug("Loaded %d episodes for season %d", len(view_items), season_id)
@@ -578,7 +589,9 @@ class AppController(QObject):
 
         else:
             # Start download
-            self._main_window.show_toast(f"Starting download: {item.get('title')}", "info")
+            self._main_window.show_toast(
+                f"Starting download: {item.get('title')}", "info"
+            )
             # TODO: Implement download start via torrent service
 
     def navigate_back(self) -> None:
@@ -713,20 +726,25 @@ class AppController(QObject):
     # Download
     # =========================================================================
 
-    @pyqtSlot(int, int, str)
+    @pyqtSlot(int, int, float, float)
     def _on_download_progress(
-        self, file_id: int, percentage: int, speed: str
+        self,
+        context_id: int,
+        percentage: int,
+        download_speed: float,
+        upload_speed: float,
     ) -> None:
         """Handle download progress update.
 
         Args:
-            file_id: Video file ID.
+            context_id: Download context ID.
             percentage: Download percentage.
-            speed: Download speed string.
+            download_speed: Download speed in KB/s.
+            upload_speed: Upload speed in KB/s.
         """
         if self._main_window:
             self._main_window.library_view.update_item(
-                str(file_id),
+                str(context_id),
                 {
                     "state": DownloadState.DOWNLOADING.value,
                     "download_progress": percentage,

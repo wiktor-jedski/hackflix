@@ -175,19 +175,25 @@ class TestLibraryRootHandler:
         """Create a LibraryRootHandler instance."""
         return LibraryRootHandler(controller)
 
-    def test_navigate_up(self, handler: LibraryRootHandler, controller: MagicMock) -> None:
+    def test_navigate_up(
+        self, handler: LibraryRootHandler, controller: MagicMock
+    ) -> None:
         """Test navigate up action."""
         result = handler.handle_action(Action.NAVIGATE_UP, {})
         assert result is True
         controller.main_window.library_view.select_prev.assert_called_once()
 
-    def test_navigate_down(self, handler: LibraryRootHandler, controller: MagicMock) -> None:
+    def test_navigate_down(
+        self, handler: LibraryRootHandler, controller: MagicMock
+    ) -> None:
         """Test navigate down action."""
         result = handler.handle_action(Action.NAVIGATE_DOWN, {})
         assert result is True
         controller.main_window.library_view.select_next.assert_called_once()
 
-    def test_switch_tab(self, handler: LibraryRootHandler, controller: MagicMock) -> None:
+    def test_switch_tab(
+        self, handler: LibraryRootHandler, controller: MagicMock
+    ) -> None:
         """Test switch tab action."""
         result = handler.handle_action(Action.SWITCH_TAB, {})
         assert result is True
@@ -206,7 +212,9 @@ class TestLibraryRootHandler:
         assert result is True
         controller.show_search.assert_called_once()
 
-    def test_clear_filter(self, handler: LibraryRootHandler, controller: MagicMock) -> None:
+    def test_clear_filter(
+        self, handler: LibraryRootHandler, controller: MagicMock
+    ) -> None:
         """Test clear filter action."""
         result = handler.handle_action(Action.CLEAR_FILTER, {})
         assert result is True
@@ -417,9 +425,7 @@ class TestAppControllerAdvanced:
         mock_torrent.download_completed.connect.assert_called_once()
         mock_torrent.download_error.connect.assert_called_once()
 
-    def test_bootstrap_without_main_window(
-        self, controller: AppController
-    ) -> None:
+    def test_bootstrap_without_main_window(self, controller: AppController) -> None:
         """Test bootstrap without main window bound."""
         # Should not raise, just skip window operations
         controller.bootstrap()
@@ -462,9 +468,7 @@ class TestAppControllerAdvanced:
         controller.handle_action(Action.NAVIGATE_DOWN, {})
         mock_main_window.library_view.select_next.assert_called_once()
 
-    def test_handle_action_unhandled(
-        self, controller: AppController
-    ) -> None:
+    def test_handle_action_unhandled(self, controller: AppController) -> None:
         """Test handle_action with unhandled action logs but doesn't raise."""
         # Should not raise
         controller.handle_action(Action.TOGGLE_PAUSE, {})
@@ -488,14 +492,23 @@ class TestAppControllerAdvanced:
         mock_main_window.library_view.get_current_tab.return_value = MediaTab.MOVIES
 
         # Mock database methods
-        controller._db_manager.get_library_items = MagicMock(return_value=[
-            {"id": "movie-1", "type": "movie", "title": "Test Movie", "genres": "Action"}
-        ])
-        controller._db_manager.get_video_details = MagicMock(return_value={
-            "state": DownloadState.COMPLETED.value,
-            "pipeline_state": None,
-            "download_progress": 100,
-        })
+        controller._db_manager.get_library_items = MagicMock(
+            return_value=[
+                {
+                    "id": "movie-1",
+                    "type": "movie",
+                    "title": "Test Movie",
+                    "genres": "Action",
+                }
+            ]
+        )
+        controller._db_manager.get_video_details = MagicMock(
+            return_value={
+                "state": DownloadState.COMPLETED.value,
+                "pipeline_state": None,
+                "download_progress": 100,
+            }
+        )
 
         controller.refresh_library()
 
@@ -512,13 +525,22 @@ class TestAppControllerAdvanced:
         mock_main_window.library_view.get_current_tab.return_value = MediaTab.SERIES
 
         # Mock database methods
-        controller._db_manager.get_library_items = MagicMock(return_value=[
-            {"id": "series-1", "type": "series", "title": "Test Series", "genres": "Drama"}
-        ])
-        controller._db_manager.get_seasons = MagicMock(return_value=[
-            {"id": 1, "season_number": 1},
-            {"id": 2, "season_number": 2},
-        ])
+        controller._db_manager.get_library_items = MagicMock(
+            return_value=[
+                {
+                    "id": "series-1",
+                    "type": "series",
+                    "title": "Test Series",
+                    "genres": "Drama",
+                }
+            ]
+        )
+        controller._db_manager.get_seasons = MagicMock(
+            return_value=[
+                {"id": 1, "season_number": 1},
+                {"id": 2, "season_number": 2},
+            ]
+        )
 
         controller.refresh_library()
 
@@ -548,22 +570,24 @@ class TestAppControllerAdvanced:
         controller._main_window = mock_main_window
 
         # Mock database methods
-        controller._db_manager.get_seasons = MagicMock(return_value=[
-            {"id": 1, "season_number": 1, "state": DownloadState.PENDING.value}
-        ])
-        controller._db_manager.get_episodes = MagicMock(return_value=[
-            {"id": 1, "episode_number": 1},
-            {"id": 2, "episode_number": 2},
-        ])
+        controller._db_manager.get_seasons = MagicMock(
+            return_value=[
+                {"id": 1, "season_number": 1, "state": DownloadState.PENDING.value}
+            ]
+        )
+        controller._db_manager.get_episodes = MagicMock(
+            return_value=[
+                {"id": 1, "episode_number": 1},
+                {"id": 2, "episode_number": 2},
+            ]
+        )
 
         controller.load_seasons("series-1")
 
         assert controller._current_series_id == "series-1"
         mock_main_window.library_view.set_items.assert_called_once()
 
-    def test_load_seasons_without_window(
-        self, controller: AppController
-    ) -> None:
+    def test_load_seasons_without_window(self, controller: AppController) -> None:
         """Test load_seasons does nothing without main window."""
         controller.load_seasons("series-1")
         # Should not raise
@@ -589,18 +613,23 @@ class TestAppControllerAdvanced:
         controller._main_window = mock_main_window
 
         # Mock database methods
-        controller._db_manager.get_episodes = MagicMock(return_value=[
-            {"id": 1, "episode_number": 1, "episode_title": "Pilot", "state": DownloadState.PENDING.value}
-        ])
+        controller._db_manager.get_episodes = MagicMock(
+            return_value=[
+                {
+                    "id": 1,
+                    "episode_number": 1,
+                    "episode_title": "Pilot",
+                    "state": DownloadState.PENDING.value,
+                }
+            ]
+        )
 
         controller.load_episodes(1)
 
         assert controller._current_season_id == 1
         mock_main_window.library_view.set_items.assert_called_once()
 
-    def test_load_episodes_without_window(
-        self, controller: AppController
-    ) -> None:
+    def test_load_episodes_without_window(self, controller: AppController) -> None:
         """Test load_episodes does nothing without main window."""
         controller.load_episodes(1)
         # Should not raise
@@ -694,9 +723,7 @@ class TestAppControllerAdvanced:
         controller.activate_selected()
         # Should not raise or show toast
 
-    def test_activate_selected_without_window(
-        self, controller: AppController
-    ) -> None:
+    def test_activate_selected_without_window(self, controller: AppController) -> None:
         """Test activate_selected without main window does nothing."""
         controller.activate_selected()
         # Should not raise
@@ -758,9 +785,7 @@ class TestAppControllerAdvanced:
 
         assert controller.current_state == AppState.SERIES_DRILLDOWN_EPISODES
 
-    def test_navigate_back_empty_stack(
-        self, controller: AppController
-    ) -> None:
+    def test_navigate_back_empty_stack(self, controller: AppController) -> None:
         """Test navigate_back with empty stack does nothing."""
         controller.navigate_back()
         # Should not raise
@@ -810,9 +835,7 @@ class TestAppControllerAdvanced:
 
         mock_main_window.show_confirm.assert_not_called()
 
-    def test_delete_selected_without_window(
-        self, controller: AppController
-    ) -> None:
+    def test_delete_selected_without_window(self, controller: AppController) -> None:
         """Test delete_selected without main window."""
         controller.delete_selected()
         # Should not raise
@@ -829,9 +852,7 @@ class TestAppControllerAdvanced:
         assert controller.current_state == AppState.SEARCH_OVERLAY
         mock_main_window.show_search.assert_called_once_with("test")
 
-    def test_show_search_without_window(
-        self, controller: AppController
-    ) -> None:
+    def test_show_search_without_window(self, controller: AppController) -> None:
         """Test show_search without main window."""
         controller.show_search()
         # Should not raise
@@ -852,9 +873,7 @@ class TestAppControllerAdvanced:
         mock_main_window.hide_search.assert_called_once()
         assert controller.current_state == AppState.LIBRARY_ROOT
 
-    def test_hide_search_without_window(
-        self, controller: AppController
-    ) -> None:
+    def test_hide_search_without_window(self, controller: AppController) -> None:
         """Test hide_search without main window."""
         controller.hide_search()
         # Should not raise
@@ -895,9 +914,7 @@ class TestAppControllerAdvanced:
         mock_main_window.show_toast.assert_called_once()
         assert "already in progress" in mock_main_window.show_toast.call_args[0][0]
 
-    def test_trigger_sync_starts_service(
-        self, controller: AppController
-    ) -> None:
+    def test_trigger_sync_starts_service(self, controller: AppController) -> None:
         """Test trigger_sync starts metadata service."""
         mock_service = MagicMock()
         mock_service.isRunning.return_value = False
@@ -947,7 +964,7 @@ class TestAppControllerAdvanced:
         """Test _on_download_progress handler."""
         controller._main_window = mock_main_window
 
-        controller._on_download_progress(1, 50, "1.5 MB/s")
+        controller._on_download_progress(1, 50, 1500.0, 100.0)
 
         mock_main_window.library_view.update_item.assert_called_once()
         call_args = mock_main_window.library_view.update_item.call_args
@@ -976,16 +993,12 @@ class TestAppControllerAdvanced:
         mock_main_window.library_view.update_item.assert_called_once()
         assert "Connection failed" in mock_main_window.show_toast.call_args[0][0]
 
-    def test_on_item_activated(
-        self, controller: AppController
-    ) -> None:
+    def test_on_item_activated(self, controller: AppController) -> None:
         """Test on_item_activated callback."""
         # This is a pass-through, should not raise
         controller.on_item_activated({"id": "test"})
 
-    def test_on_selection_changed(
-        self, controller: AppController
-    ) -> None:
+    def test_on_selection_changed(self, controller: AppController) -> None:
         """Test on_selection_changed callback."""
         # This is a pass-through, should not raise
         controller.on_selection_changed({"id": "test"})
@@ -1038,9 +1051,7 @@ class TestAppControllerAdvanced:
 
         mock_main_window.close.assert_called_once()
 
-    def test_shutdown_with_running_services(
-        self, controller: AppController
-    ) -> None:
+    def test_shutdown_with_running_services(self, controller: AppController) -> None:
         """Test shutdown stops running services."""
         mock_metadata = MagicMock()
         mock_metadata.isRunning.return_value = True
@@ -1056,9 +1067,7 @@ class TestAppControllerAdvanced:
         mock_metadata.wait.assert_called_once()
         mock_torrent.stop.assert_called_once()
 
-    def test_push_navigation_no_window(
-        self, controller: AppController
-    ) -> None:
+    def test_push_navigation_no_window(self, controller: AppController) -> None:
         """Test push_navigation with no main window."""
         controller._main_window = None
         controller.push_navigation()
@@ -1111,9 +1120,7 @@ class TestSeriesDrilldownSeasonsHandlerFull:
         assert result is True
         controller.quit_application.assert_called_once()
 
-    def test_unhandled(
-        self, handler: SeriesDrilldownSeasonsHandler
-    ) -> None:
+    def test_unhandled(self, handler: SeriesDrilldownSeasonsHandler) -> None:
         """Test unhandled action."""
         result = handler.handle_action(Action.SEARCH, {})
         assert result is False
@@ -1172,9 +1179,7 @@ class TestSeriesDrilldownEpisodesHandlerFull:
         assert result is True
         controller.quit_application.assert_called_once()
 
-    def test_unhandled(
-        self, handler: SeriesDrilldownEpisodesHandler
-    ) -> None:
+    def test_unhandled(self, handler: SeriesDrilldownEpisodesHandler) -> None:
         """Test unhandled action."""
         result = handler.handle_action(Action.SEARCH, {})
         assert result is False
