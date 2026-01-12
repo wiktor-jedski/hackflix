@@ -352,7 +352,7 @@ class AppController(QObject):
             self._metadata_service.stop()
             self._metadata_service.wait()
 
-        if self._torrent_service and self._torrent_service.is_running:
+        if self._torrent_service and self._torrent_service.isRunning():
             self._torrent_service.stop()
 
     # =========================================================================
