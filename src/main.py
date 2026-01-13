@@ -65,6 +65,11 @@ def main() -> int:
     setup_logging(debug=debug_mode)
     logger.info("Hackflix starting up...")
 
+    # Force X11 backend for PyQt5 compatibility with Wayland
+    if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
+        logger.info("Forcing X11 backend for PyQt5 Wayland compatibility")
+
     # Ensure required directories exist
     ensure_directories()
 
@@ -109,6 +114,10 @@ def main() -> int:
     logger.info("Hackflix initialization complete")
 
     # Create Qt application
+    # Force X11 backend for PyQt5 compatibility with Wayland
+    if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
+
     app = QApplication(sys.argv)
     app.setApplicationName("Hackflix")
 

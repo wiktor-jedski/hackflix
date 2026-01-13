@@ -83,6 +83,12 @@ class InputManager(QObject):
             True if the event was handled and should not propagate.
             False to allow normal event processing.
         """
+        # Debug: Log all events
+        if isinstance(event, QKeyEvent):
+            logger.debug(
+                "Key event received: key=%d, type=%d", event.key(), event.type()
+            )
+
         if not isinstance(event, QKeyEvent):
             return False
 
@@ -209,7 +215,9 @@ class InputManager(QObject):
         if isinstance(watched, QWidget):
             focused = watched.focusWidget()
             if focused is not None:
-                context["focused_widget"] = focused.objectName() or type(focused).__name__
+                context["focused_widget"] = (
+                    focused.objectName() or type(focused).__name__
+                )
 
         return context
 
