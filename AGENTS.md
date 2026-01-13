@@ -1,11 +1,3 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Project Overview
-
-Hackflix is a movie player application for Raspberry Pi 5 with movie suggestions and voice-over translations. It functions as a "set-top box" style appliance with keyboard-only navigation.
-
 ## Commands
 
 ```bash
@@ -15,13 +7,10 @@ uv sync
 # Run application
 uv run python src/main.py
 
-# Run tests
-uv run pytest tests/
-
 # Run single test file
 uv run pytest tests/test_database.py
 
-# Run with coverage
+# Run tests with coverage
 uv run pytest --cov=src tests/
 ```
 
@@ -44,10 +33,6 @@ src/
 ├── database/            # Raw sqlite3 (schema.py, db_manager.py)
 ├── controllers/         # AppController
 ├── services/            # Background workers (QThreads)
-│   ├── player_service.py      # VLC wrapper
-│   ├── torrent_service.py     # Embedded libtorrent
-│   ├── metadata_service.py    # Sync service
-│   └── pipeline_service.py    # Subtitle/voiceover pipeline
 ├── ui/                  # PyQt Views (windows/, components/, input_manager.py)
 └── utils/               # Helpers
 ```
@@ -90,7 +75,6 @@ If 100% coverage is not achievable, document the specific reason below.
 
 | File | Coverage | Reason |
 |------|----------|--------|
-| `src/main.py` | 0% | Entry point with VLC/libtorrent dependency checks. Requires mocking `sys.modules` which is fragile. Will be covered by integration tests when UI (Phase 3) is implemented. |
 
 ### Coverage Rules
 
