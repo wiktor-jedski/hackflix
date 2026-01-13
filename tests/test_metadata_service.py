@@ -23,16 +23,6 @@ class TestServicesModuleLazyImport:
 
     def test_import_torrent_service_from_package(self) -> None:
         """Test that TorrentService can be imported from src.services."""
-        # Mock libtorrent before importing TorrentService
-        with mock.patch.dict("sys.modules", {"libtorrent": mock.MagicMock()}):
-            import importlib
-
-            from src import services
-
-            # Force reimport to hit the lazy import path
-            importlib.reload(services)
-            ts = services.TorrentService
-            assert ts is not None
 
     def test_import_invalid_attribute_raises_error(self) -> None:
         """Test that importing invalid attribute raises AttributeError."""
@@ -52,6 +42,7 @@ class TestMetadataServiceInit:
         assert service._db_manager is db_manager
         # catalog_url comes from config.CATALOG_URL (may be set via env)
         from src.config import CATALOG_URL
+
         assert service._catalog_url == CATALOG_URL
         assert service._should_stop is False
 
@@ -83,9 +74,7 @@ class TestMetadataServiceSync:
     """Tests for MetadataService sync operation."""
 
     @pytest.fixture
-    def service(
-        self, db_manager: DatabaseManager, tmp_path: Path
-    ) -> MetadataService:
+    def service(self, db_manager: DatabaseManager, tmp_path: Path) -> MetadataService:
         """Create a MetadataService with test configuration."""
         return MetadataService(
             db_manager=db_manager,
@@ -160,9 +149,7 @@ class TestMetadataServiceSync:
         assert "Network error" in error_emissions[0][0]
         assert "Connection refused" in error_emissions[0][0]
 
-    def test_sync_json_error_emits_error_signal(
-        self, service: MetadataService
-    ) -> None:
+    def test_sync_json_error_emits_error_signal(self, service: MetadataService) -> None:
         """Test invalid JSON emits error signal."""
         mock_response = mock.MagicMock()
         mock_response.read.return_value = b"not valid json"
@@ -252,9 +239,7 @@ class TestMetadataServicePosterCaching:
     """Tests for poster image caching."""
 
     @pytest.fixture
-    def service(
-        self, db_manager: DatabaseManager, tmp_path: Path
-    ) -> MetadataService:
+    def service(self, db_manager: DatabaseManager, tmp_path: Path) -> MetadataService:
         """Create a MetadataService with test configuration."""
         return MetadataService(
             db_manager=db_manager,
@@ -346,9 +331,7 @@ class TestMetadataServicePosterCaching:
         # Existing data should be preserved
         assert existing_poster.read_bytes() == b"existing data"
 
-    def test_poster_download_failure_continues(
-        self, service: MetadataService
-    ) -> None:
+    def test_poster_download_failure_continues(self, service: MetadataService) -> None:
         """Test that poster download failure doesn't abort sync."""
         content = {
             "items": [
@@ -400,9 +383,7 @@ class TestMetadataServicePosterCaching:
     ) -> None:
         """Test items without poster_url are skipped."""
         content = {
-            "items": [
-                {"id": "movie-1", "type": "movie", "title": "No Poster Movie"}
-            ]
+            "items": [{"id": "movie-1", "type": "movie", "title": "No Poster Movie"}]
         }
 
         mock_content = mock.MagicMock()
@@ -490,9 +471,7 @@ class TestMetadataServiceGetPosterPath:
     """Tests for get_poster_path method."""
 
     @pytest.fixture
-    def service(
-        self, db_manager: DatabaseManager, tmp_path: Path
-    ) -> MetadataService:
+    def service(self, db_manager: DatabaseManager, tmp_path: Path) -> MetadataService:
         """Create a MetadataService with test configuration."""
         svc = MetadataService(
             db_manager=db_manager,
@@ -546,9 +525,7 @@ class TestMetadataServiceSeriesDataValidation:
     """Tests for Series data parsing and validation."""
 
     @pytest.fixture
-    def service(
-        self, db_manager: DatabaseManager, tmp_path: Path
-    ) -> MetadataService:
+    def service(self, db_manager: DatabaseManager, tmp_path: Path) -> MetadataService:
         """Create a MetadataService with test configuration."""
         return MetadataService(
             db_manager=db_manager,

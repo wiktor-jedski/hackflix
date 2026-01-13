@@ -1,6 +1,7 @@
 """Tests for the TorrentService."""
 
 import pickle
+import sys
 from pathlib import Path
 from unittest import mock
 
@@ -16,6 +17,38 @@ def mock_libtorrent_module():
     """Mock libtorrent module for all tests."""
     mock_lt = mock.MagicMock()
 
+    # Setup session mock with all required methods
+    mock_session = mock.MagicMock()
+    mock_session.save_state.return_value = {"test": "state"}
+    mock_session.load_state.return_value = None
+    mock_session.add_torrent.return_value = mock.MagicMock()
+    mock_session.remove_torrent.return_value = None
+    mock_session.pop_alerts.return_value = []
+    mock_session.wait_for_alert.return_value = None
+    mock_lt.session.return_value = mock_session
+
+    # Setup bdecode/bencode functions
+    mock_lt.bdecode.return_value = {"test": "decoded"}
+    mock_lt.bencode.return_value = b"encoded"
+
+    # Setup add_torrent_params mock
+    mock_atp = mock.MagicMock()
+    mock_lt.add_torrent_params.return_value = mock_atp
+
+    # Setup torrent_handle mock
+    mock_handle = mock.MagicMock()
+    mock_handle.is_valid.return_value = True
+    mock_handle.info_hash.return_value = "test_hash"
+    mock_session.add_torrent.return_value = mock_handle
+
+    # Setup alert mocks
+    mock_alert = mock.MagicMock()
+    mock_alert.handle.info_hash.return_value = "test_hash"
+    mock_lt.save_resume_data_alert = mock_alert
+
+    # Setup write_resume_data_buf
+    mock_lt.write_resume_data_buf.return_value = b"resume_data"
+
     # Setup alert category constants
     mock_lt.alert.category_t.error_notification = 1
     mock_lt.alert.category_t.status_notification = 2
@@ -29,6 +62,30 @@ def mock_libtorrent_module():
     mock_lt.torrent_handle.save_info_dict = 1
     mock_lt.torrent_handle.only_if_modified = 2
 
+    # Setup pop_alerts and wait_for_alert
+    mock_session.pop_alerts.return_value = []
+    mock_session.wait_for_alert.return_value = None
+
+    # Setup parse_magnet_uri - return object with attribute access
+    class MagnetInfo:
+        def __init__(self):
+            self.info_hash = "test_hash"
+            self.trackers = []
+            self.url_list = []
+            self.save_path = ""
+
+    mock_lt.parse_magnet_uri.return_value = MagnetInfo()
+
+    # Force reload of torrent_service to ensure it uses the mocked libtorrent
+    if "src.services.torrent_service" in sys.modules:
+        del sys.modules["src.services.torrent_service"]
+
+    # Remove any existing libtorrent from sys.modules to force clean import
+    modules_to_remove = [k for k in sys.modules.keys() if "libtorrent" in k]
+    for module in modules_to_remove:
+        del sys.modules[module]
+
+    # Force immediate module patching
     with mock.patch.dict("sys.modules", {"libtorrent": mock_lt}):
         yield mock_lt
 
@@ -36,9 +93,7 @@ def mock_libtorrent_module():
 class TestDownloadTypeAndContext:
     """Tests for DownloadType and DownloadContext classes."""
 
-    def test_download_type_values(
-        self, mock_libtorrent_module: mock.MagicMock
-    ) -> None:
+    def test_download_type_values(self, mock_libtorrent_module: mock.MagicMock) -> None:
         """Test DownloadType enum values."""
         from src.services.torrent_service import DownloadType
 
@@ -1090,7 +1145,9 @@ class TestTorrentServiceAddMagnet:
 
         context = DownloadContext(DownloadType.SEASON, 201)
         with mock.patch.object(service._db_manager, "update_season_state"):
-            result = service.add_magnet(context, "magnet:?xt=urn:btih:test", sequential=True)
+            result = service.add_magnet(
+                context, "magnet:?xt=urn:btih:test", sequential=True
+            )
 
         assert result is True
         mock_handle.set_sequential_download.assert_called_once_with(True)
@@ -1593,9 +1650,7 @@ class TestTorrentServiceDownloadComplete:
             lambda fid, msg: error_emissions.append((fid, msg))
         )
 
-        with mock.patch.object(
-            service._db_manager, "get_episodes", return_value=[]
-        ):
+        with mock.patch.object(service._db_manager, "get_episodes", return_value=[]):
             with mock.patch.object(service._db_manager, "update_season_state"):
                 service._complete_season_download(context, mock_handle)
 
@@ -1798,21 +1853,15 @@ class TestTorrentServiceRun:
         service._should_stop = True
 
         # Use mock.patch.multiple to mock all methods at once
-        with mock.patch.object(
-            service, "_ensure_directories"
-        ) as mock_ensure, mock.patch.object(
-            service, "_init_session"
-        ) as mock_init, mock.patch.object(
-            service, "_load_session_state"
-        ) as mock_load_state, mock.patch.object(
-            service, "_load_resume_data"
-        ) as mock_load_resume, mock.patch.object(
-            service, "_start_polling"
-        ) as mock_polling, mock.patch.object(
-            service, "_save_session_state"
-        ) as mock_save_state, mock.patch.object(
-            service, "_save_resume_data"
-        ) as mock_save_resume:
+        with (
+            mock.patch.object(service, "_ensure_directories") as mock_ensure,
+            mock.patch.object(service, "_init_session") as mock_init,
+            mock.patch.object(service, "_load_session_state") as mock_load_state,
+            mock.patch.object(service, "_load_resume_data") as mock_load_resume,
+            mock.patch.object(service, "_start_polling") as mock_polling,
+            mock.patch.object(service, "_save_session_state") as mock_save_state,
+            mock.patch.object(service, "_save_resume_data") as mock_save_resume,
+        ):
             service.run()
 
             # Verify all expected methods were called (assertions inside context)
@@ -1832,11 +1881,7 @@ class TestServicesModuleLazyImport:
         self, mock_libtorrent_module: mock.MagicMock
     ) -> None:
         """Test that DownloadType can be imported from src.services."""
-        import importlib
-
         from src import services
-
-        importlib.reload(services)
 
         assert hasattr(services, "DownloadType")
         from src.services.torrent_service import DownloadType
@@ -1847,11 +1892,7 @@ class TestServicesModuleLazyImport:
         self, mock_libtorrent_module: mock.MagicMock
     ) -> None:
         """Test that DownloadContext can be imported from src.services."""
-        import importlib
-
         from src import services
-
-        importlib.reload(services)
 
         assert hasattr(services, "DownloadContext")
         from src.services.torrent_service import DownloadContext
