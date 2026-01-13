@@ -11,7 +11,7 @@ uv run python src/main.py
 uv run pytest tests/test_database.py
 
 # Run tests with coverage
-uv run pytest --cov=src tests/
+uv run pytest --cov=src tests/ --cov-report=term-missing
 ```
 
 ## Architecture
