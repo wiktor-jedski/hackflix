@@ -10,7 +10,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QCloseEvent, QKeyEvent, QResizeEvent, QShowEvent
+from PyQt5.QtGui import QCloseEvent, QResizeEvent, QShowEvent
 from PyQt5.QtWidgets import QMainWindow, QVBoxLayout, QWidget
 
 from src.ui.components.confirm_dialog import ConfirmDialog
@@ -19,7 +19,6 @@ from src.ui.components.search_overlay import SearchOverlay, SearchOverlayBackgro
 from src.ui.components.status_bar import StatusBar
 from src.ui.components.toast_notification import ToastLevel, ToastManager
 from src.ui.input_manager import InputManager
-from src.ui.enums import Action
 from src.ui.styles import BACKGROUND_COLOR, get_stylesheet
 
 if TYPE_CHECKING:
@@ -243,27 +242,6 @@ class MainWindow(QMainWindow):
         if not self.isFullScreen():
             self.showFullScreen()
         self._library_view.set_focus()
-
-    def keyPressEvent(self, event) -> None:
-        """Handle key press events directly as fallback.
-
-        This is a fallback method to ensure keyboard input works
-        even if event filter approach fails.
-        """
-        logger.debug(
-            "MainWindow.keyPressEvent: key=%d, text='%s'", event.key(), event.text()
-        )
-
-        # Try input manager first
-        if self._input_manager:
-            action = self._input_manager._map_key_to_action(event)
-            if action != Action.NONE:
-                logger.info("Action mapped from keyPressEvent: %s", action.name)
-                self._input_manager.action_triggered.emit(action, {})
-                return
-
-        # If no action mapped, pass to parent
-        super().keyPressEvent(event)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Handle window close event.

@@ -83,15 +83,6 @@ class InputManager(QObject):
             True if the event was handled and should not propagate.
             False to allow normal event processing.
         """
-        # Debug: Log all key events
-        if isinstance(event, QKeyEvent):
-            logger.info(
-                "Key event received: key=%d, type=%d, text='%s'",
-                event.key(),
-                event.type(),
-                event.text(),
-            )
-
         if not isinstance(event, QKeyEvent):
             return False
 
