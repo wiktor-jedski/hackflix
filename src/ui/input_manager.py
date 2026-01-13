@@ -83,13 +83,19 @@ class InputManager(QObject):
             True if the event was handled and should not propagate.
             False to allow normal event processing.
         """
-        # Debug: Log all events
+        # Debug: Log all key events
         if isinstance(event, QKeyEvent):
-            logger.debug(
-                "Key event received: key=%d, type=%d", event.key(), event.type()
+            logger.info(
+                "Key event received: key=%d, type=%d, text='%s'",
+                event.key(),
+                event.type(),
+                event.text(),
             )
 
         if not isinstance(event, QKeyEvent):
+            return False
+
+        if event.type() != QKeyEvent.KeyPress:
             return False
 
         if event.type() != QKeyEvent.KeyPress:
@@ -177,7 +183,6 @@ class InputManager(QObject):
             return Action.TOGGLE_MUTE
         if key == Qt.Key_L:
             return Action.CYCLE_AUDIO
-
         return Action.NONE
 
     def _check_debounce(self, key: int) -> bool:

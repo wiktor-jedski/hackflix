@@ -423,15 +423,24 @@ class AppController(QObject):
             action: The action to handle.
             context: Context dictionary.
         """
+        logger.info(
+            "Controller received action: %s in state: %s",
+            action.name,
+            self._current_state.name,
+        )
         handler = self._state_handlers.get(self._current_state)
         if handler:
+            logger.debug("Found handler for state: %s", self._current_state.name)
             handled = handler.handle_action(action, context)
+            logger.info("Action %s handled: %s", action.name, handled)
             if not handled:
                 logger.debug(
                     "Action %s not handled in state %s",
                     action.name,
                     self._current_state.name,
                 )
+        else:
+            logger.warning("No handler found for state: %s", self._current_state.name)
 
     # =========================================================================
     # Library Actions
