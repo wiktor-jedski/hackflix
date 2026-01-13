@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QCloseEvent, QResizeEvent, QShowEvent
-from PyQt5.QtWidgets import QMainWindow, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication
 
 from src.ui.components.confirm_dialog import ConfirmDialog
 from src.ui.components.library_view import LibraryView
@@ -97,8 +97,6 @@ class MainWindow(QMainWindow):
         self._input_manager.action_triggered.connect(controller.handle_action)
 
         # Install input manager as global event filter now that QApplication exists
-        from PyQt5.QtWidgets import QApplication
-
         QApplication.instance().installEventFilter(self._input_manager)
 
         # Also install on library view since it has focus
@@ -138,6 +136,10 @@ class MainWindow(QMainWindow):
         Args:
             current_filter: Current search filter to pre-populate.
         """
+        # Disable global input manager to allow raw text input in the search field
+        QApplication.instance().removeEventFilter(self._input_manager)
+        self._library_view.removeEventFilter(self._input_manager)
+
         # Show background
         self._search_background.show_fullscreen()
 
@@ -145,15 +147,20 @@ class MainWindow(QMainWindow):
         self._search_overlay.show_search(current_filter)
         self._search_overlay.raise_()
 
-        logger.debug("Search overlay shown")
+        logger.debug("Search overlay shown and InputManager suspended")
 
     def hide_search(self) -> None:
         """Hide the search overlay."""
         self._search_overlay.hide()
         self._search_background.hide()
+
+        # Re-enable global input manager for navigation
+        QApplication.instance().installEventFilter(self._input_manager)
+        self._library_view.installEventFilter(self._input_manager)
+
         self._library_view.set_focus()
 
-        logger.debug("Search overlay hidden")
+        logger.debug("Search overlay hidden and InputManager restored")
 
     def _on_search_cancelled(self) -> None:
         """Handle search cancelled via background click."""

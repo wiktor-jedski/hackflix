@@ -101,6 +101,10 @@ class SearchOverlay(QFrame):
                 border-color: {PRIMARY_COLOR};
             }}
         """)
+
+        # Connect return pressed signal to handle Enter key from the line edit
+        self._search_input.returnPressed.connect(self._on_return_pressed)
+
         layout.addWidget(self._search_input)
 
         # Hint text
@@ -124,10 +128,7 @@ class SearchOverlay(QFrame):
         key = event.key()
 
         if key in (Qt.Key_Return, Qt.Key_Enter):
-            # Commit search
-            query = self._search_input.text().strip()
-            self.search_committed.emit(query)
-            self.hide()
+            self._on_return_pressed()
             event.accept()
         elif key == Qt.Key_Escape:
             # Cancel search
@@ -137,6 +138,12 @@ class SearchOverlay(QFrame):
         else:
             # Let the line edit handle other keys
             super().keyPressEvent(event)
+
+    def _on_return_pressed(self) -> None:
+        """Handle return key pressed in line edit or widget."""
+        query = self._search_input.text().strip()
+        self.search_committed.emit(query)
+        self.hide()
 
     def show_search(self, current_filter: str = "") -> None:
         """Show the search overlay.
