@@ -5,7 +5,7 @@ filtering of the media library.
 """
 
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QKeyEvent
+from PyQt5.QtGui import QColor, QKeyEvent, QPalette
 from PyQt5.QtWidgets import (
     QFrame,
     QLabel,
@@ -58,13 +58,16 @@ class SearchOverlay(QFrame):
         self.setObjectName("SearchOverlay")
         self.setFixedWidth(SEARCH_WIDTH)
 
+        # Required for QFrame to render background-color from stylesheet
+        self.setAttribute(Qt.WA_StyledBackground, True)
+
         self.setStyleSheet(f"""
             QFrame#SearchOverlay {{
                 background-color: {SURFACE_COLOR};
                 border: 1px solid {SECONDARY_COLOR};
                 border-radius: 8px;
             }}
-            QLabel {{
+            QFrame#SearchOverlay QLabel {{
                 background-color: transparent;
             }}
         """)
@@ -89,18 +92,21 @@ class SearchOverlay(QFrame):
         self._search_input.setPlaceholderText("Type to search...")
         self._search_input.setFixedHeight(SEARCH_INPUT_HEIGHT)
         self._search_input.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {BACKGROUND_COLOR};
-                border: 2px solid {SECONDARY_COLOR};
-                border-radius: 4px;
-                padding: 0 12px;
-                font-size: {FONT_SIZE_BODY}px;
-                color: {TEXT_PRIMARY};
-            }}
-            QLineEdit:focus {{
-                border-color: {PRIMARY_COLOR};
-            }}
+            background-color: {BACKGROUND_COLOR};
+            border: 2px solid {SECONDARY_COLOR};
+            border-radius: 4px;
+            padding: 8px 12px;
+            font-size: {FONT_SIZE_BODY}px;
+            color: {TEXT_PRIMARY};
+            selection-background-color: {PRIMARY_COLOR};
+            selection-color: {TEXT_PRIMARY};
         """)
+
+        # Set palette colors as fallback for text visibility
+        palette = self._search_input.palette()
+        palette.setColor(QPalette.Text, QColor(TEXT_PRIMARY))
+        palette.setColor(QPalette.PlaceholderText, QColor(TEXT_SECONDARY))
+        self._search_input.setPalette(palette)
 
         # Connect return pressed signal to handle Enter key from the line edit
         self._search_input.returnPressed.connect(self._on_return_pressed)
@@ -115,6 +121,9 @@ class SearchOverlay(QFrame):
         """)
         self._hint_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self._hint_label)
+
+        # Compute proper size based on contents
+        self.adjustSize()
 
         # Hide by default
         self.hide()
@@ -136,8 +145,9 @@ class SearchOverlay(QFrame):
             self.hide()
             event.accept()
         else:
-            # Let the line edit handle other keys
-            super().keyPressEvent(event)
+            # Forward other keys to the search input for text entry
+            self._search_input.setFocus()
+            self._search_input.event(event)
 
     def _on_return_pressed(self) -> None:
         """Handle return key pressed in line edit or widget."""

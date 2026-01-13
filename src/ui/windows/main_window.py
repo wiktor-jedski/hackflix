@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QCloseEvent, QResizeEvent, QShowEvent
 from PyQt5.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication
 
@@ -154,13 +154,18 @@ class MainWindow(QMainWindow):
         self._search_overlay.hide()
         self._search_background.hide()
 
-        # Re-enable global input manager for navigation
+        # Defer re-enabling input manager to avoid the Enter key that closed
+        # the search overlay from also triggering an action in LibraryView
+        QTimer.singleShot(0, self._restore_input_manager)
+
+        logger.debug("Search overlay hidden, InputManager restore scheduled")
+
+    def _restore_input_manager(self) -> None:
+        """Restore the input manager after search overlay is hidden."""
         QApplication.instance().installEventFilter(self._input_manager)
         self._library_view.installEventFilter(self._input_manager)
-
         self._library_view.set_focus()
-
-        logger.debug("Search overlay hidden and InputManager restored")
+        logger.debug("InputManager restored")
 
     def _on_search_cancelled(self) -> None:
         """Handle search cancelled via background click."""
