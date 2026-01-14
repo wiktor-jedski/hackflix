@@ -10,6 +10,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from PyQt5.QtCore import QObject, pyqtSlot
@@ -419,10 +420,53 @@ class AppController(QObject):
         # Load initial library data
         self.refresh_library()
 
+        # Auto-resume incomplete downloads
+        self._resume_incomplete_downloads()
+
         # Auto-resume incomplete pipelines
         self._resume_incomplete_pipelines()
 
         logger.info("AppController bootstrap complete")
+
+    def _resume_incomplete_downloads(self) -> None:
+        """Resume any incomplete downloads on startup."""
+        if not self._torrent_service:
+            return
+
+        try:
+            incomplete = self._db_manager.get_incomplete_downloads()
+            if incomplete:
+                logger.info("Resuming %d incomplete downloads", len(incomplete))
+                if self._main_window:
+                    self._main_window.show_toast(
+                        f"Resuming {len(incomplete)} incomplete downloads",
+                        "info",
+                    )
+                for video in incomplete:
+                    self._resume_download(video)
+        except Exception as e:
+            logger.error("Failed to resume incomplete downloads: %s", e)
+
+    def _resume_download(self, video: dict[str, Any]) -> None:
+        """Resume a single download from database state.
+
+        Args:
+            video: Video file dictionary from database.
+        """
+        magnet = video.get("magnet_link")
+        if not magnet:
+            logger.warning("Cannot resume download %d: no magnet link", video.get("id"))
+            return
+
+        from src.services.torrent_service import DownloadContext, DownloadType
+
+        file_id = video["id"]
+        context = DownloadContext(DownloadType.MOVIE, file_id)
+
+        if self._torrent_service.add_magnet(context, magnet):
+            logger.info("Resumed download for video file %d", file_id)
+        else:
+            logger.warning("Failed to resume download for video file %d", file_id)
 
     def _resume_incomplete_pipelines(self) -> None:
         """Resume any incomplete pipeline processes on startup."""
@@ -706,11 +750,81 @@ class AppController(QObject):
             self.play_media(file_id)
 
         else:
-            # Start download
-            self._main_window.show_toast(
-                f"Starting download: {item.get('title')}", "info"
-            )
-            # TODO: Implement download start via torrent service
+            # Start download (PENDING, ERROR, QUEUED states)
+            if not self._torrent_service:
+                self._main_window.show_toast("Torrent service not available", "error")
+                return
+
+            item_title = item.get("title")
+            item_type = item.get("type")
+            file_id_str = item.get("file_id") or item.get("id")
+
+            if not file_id_str:
+                self._main_window.show_toast("No file ID available", "error")
+                return
+
+            try:
+                file_id = int(file_id_str)
+            except (ValueError, TypeError):
+                self._main_window.show_toast("Invalid file ID", "error")
+                return
+
+            if item_type == "movie":
+                video = self._db_manager.get_video_file(file_id)
+                if not video:
+                    self._main_window.show_toast("Video file not found", "error")
+                    return
+
+                magnet = video.get("magnet_link")
+                if not magnet:
+                    self._main_window.show_toast("No magnet link available", "error")
+                    return
+
+                from src.services.torrent_service import DownloadContext, DownloadType
+
+                context = DownloadContext(DownloadType.MOVIE, file_id)
+                if self._torrent_service.add_magnet(context, magnet):
+                    self._main_window.show_toast(
+                        f"Starting download: {item_title}", "info"
+                    )
+                else:
+                    self._main_window.show_toast(
+                        f"Failed to start download: {item_title}", "error"
+                    )
+
+            elif item_type == "season":
+                season_id = item.get("season_id")
+                series_id = item.get("series_id")
+
+                if not season_id or not series_id:
+                    self._main_window.show_toast("Invalid season selection", "error")
+                    return
+
+                seasons = self._db_manager.get_seasons(series_id)
+                season = next((s for s in seasons if s["id"] == season_id), None)
+                if not season:
+                    self._main_window.show_toast("Season not found", "error")
+                    return
+
+                magnet = season.get("magnet_link")
+                if not magnet:
+                    self._main_window.show_toast("No magnet link available", "error")
+                    return
+
+                from src.services.torrent_service import DownloadContext, DownloadType
+
+                context = DownloadContext(DownloadType.SEASON, season_id)
+                if self._torrent_service.add_magnet(context, magnet):
+                    self._main_window.show_toast(
+                        f"Starting download: {item_title}", "info"
+                    )
+                else:
+                    self._main_window.show_toast(
+                        f"Failed to start download: {item_title}", "error"
+                    )
+
+            else:
+                self._main_window.show_toast(f"Starting download: {item_title}", "info")
 
     def navigate_back(self) -> None:
         """Navigate back to the previous context."""
@@ -751,8 +865,32 @@ class AppController(QObject):
         )
 
         if confirmed:
-            # TODO: Implement actual deletion
-            self._main_window.show_toast(f"Deleted: {title}", "info")
+            item_id = item.get("id")
+            if not item_id:
+                self._main_window.show_toast("Failed to delete: invalid item", "error")
+                return
+
+            file_paths = self._db_manager.get_media_files(item_id)
+            deleted_count = 0
+            failed_count = 0
+
+            for file_path in file_paths:
+                if file_path and Path(file_path).exists():
+                    try:
+                        Path(file_path).unlink()
+                        deleted_count += 1
+                    except OSError:
+                        failed_count += 1
+
+            if failed_count == 0:
+                self._main_window.show_toast(
+                    f"Deleted {deleted_count} file(s): {title}", "info"
+                )
+            else:
+                self._main_window.show_toast(
+                    f"Deleted {deleted_count}, failed {failed_count}: {title}",
+                    "warning",
+                )
             self.refresh_library()
 
     # =========================================================================

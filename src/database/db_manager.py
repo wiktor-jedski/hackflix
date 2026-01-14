@@ -860,3 +860,62 @@ class DatabaseManager:
         except sqlite3.Error as e:
             logger.error("Failed to get voiceover: %s", e)
             raise
+
+    def get_media_files(self, media_id: str) -> list[str]:
+        """Get all file paths associated with a media item for deletion.
+
+        Args:
+            media_id: UUID of the media item.
+
+        Returns:
+            List of file paths to delete.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            file_paths: list[str] = []
+
+            cursor.execute(
+                "SELECT poster_path FROM media_items WHERE id = ?", (media_id,)
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                file_paths.append(row[0])
+
+            cursor.execute(
+                "SELECT file_path FROM video_files WHERE media_item_id = ?", (media_id,)
+            )
+            for row in cursor.fetchall():
+                if row[0]:
+                    file_paths.append(row[0])
+
+            cursor.execute(
+                """
+                SELECT s.file_path FROM subtitles s
+                JOIN video_files vf ON s.video_file_id = vf.id
+                WHERE vf.media_item_id = ?
+                """,
+                (media_id,),
+            )
+            for row in cursor.fetchall():
+                if row[0]:
+                    file_paths.append(row[0])
+
+            cursor.execute(
+                """
+                SELECT v.file_path FROM voiceovers v
+                JOIN video_files vf ON v.video_file_id = vf.id
+                WHERE vf.media_item_id = ?
+                """,
+                (media_id,),
+            )
+            for row in cursor.fetchall():
+                if row[0]:
+                    file_paths.append(row[0])
+
+            self._close_connection(conn)
+            return file_paths
+        except sqlite3.Error as e:
+            logger.error("Failed to get media files: %s", e)
+            raise

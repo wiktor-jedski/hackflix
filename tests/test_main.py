@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+from src.config import LoggingConfig
 from src.main import check_dependencies, main
 
 
@@ -117,7 +118,7 @@ class TestMain(unittest.TestCase):
         result = main()
 
         self.assertEqual(result, 0)
-        mock_setup_logging.assert_called_once_with(debug=True)
+        mock_setup_logging.assert_called_once_with(LoggingConfig(debug=True))
         mock_ensure_dirs.assert_called_once()
 
     @patch("src.main.QApplication")

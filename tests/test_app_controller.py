@@ -910,18 +910,33 @@ class TestAppControllerAdvanced:
         self, controller: AppController, mock_main_window: MagicMock
     ) -> None:
         """Test activate_selected with pending movie starts download."""
+        from src.services.torrent_service import DownloadContext, DownloadType
+
         controller._main_window = mock_main_window
+        mock_torrent = MagicMock()
+        mock_torrent.add_magnet.return_value = True
+        controller._torrent_service = mock_torrent
+
         mock_main_window.library_view.get_selected_item.return_value = {
             "id": "movie-1",
+            "file_id": 1,
             "type": "movie",
             "title": "Test Movie",
             "state": DownloadState.PENDING.value,
         }
 
+        controller._db_manager.get_video_file = MagicMock(
+            return_value={
+                "id": 1,
+                "magnet_link": "magnet:?xt=urn:btih:test123",
+            }
+        )
+
         controller.activate_selected()
 
         mock_main_window.show_toast.assert_called_once()
         assert "Starting download" in mock_main_window.show_toast.call_args[0][0]
+        mock_torrent.add_magnet.assert_called_once()
 
     def test_activate_selected_no_selection(
         self, controller: AppController, mock_main_window: MagicMock
@@ -2100,3 +2115,794 @@ class TestAppControllerPlayerMethods:
         """Test _on_player_error without main window."""
         controller._on_player_error("error")
         # Should not raise
+
+
+class TestErrorRecoveryWorkflows:
+    """Tests for error recovery workflows."""
+
+    @pytest.fixture
+    def db_manager(self) -> DatabaseManager:
+        """Create a test database manager."""
+        manager = DatabaseManager(":memory:")
+        manager.initialize()
+        return manager
+
+    @pytest.fixture
+    def controller(self, db_manager: DatabaseManager) -> AppController:
+        """Create an AppController instance."""
+        return AppController(db_manager)
+
+    @pytest.fixture
+    def mock_main_window(self) -> MagicMock:
+        """Create a mock main window."""
+        window = MagicMock()
+        window.library_view.get_current_tab.return_value = MediaTab.MOVIES
+        window.library_view.get_selected_item.return_value = None
+        window.input_manager = MagicMock()
+        return window
+
+    def test_pipeline_retry_after_network_failure(
+        self, controller: AppController, db_manager: DatabaseManager
+    ) -> None:
+        """Verify pipeline can be restarted after network failure."""
+        from src.config import PipelineState
+
+        mock_pipeline = MagicMock()
+        mock_pipeline.is_busy.return_value = False
+        controller._pipeline_service = mock_pipeline
+
+        video_file_id = 1
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "video-1",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": 12345,
+                    }
+                ]
+            }
+        )
+        video = db_manager.get_video_details("video-1")
+        db_manager.update_pipeline_state(video["id"], PipelineState.FAILED)
+
+        controller.start_pipeline(video["id"])
+
+        mock_pipeline.start_process.assert_called_once_with(video["id"])
+
+    def test_pipeline_retry_after_gemini_api_failure(
+        self, controller: AppController, db_manager: DatabaseManager
+    ) -> None:
+        """Verify pipeline can be restarted after Gemini API failure."""
+        from src.config import PipelineState
+
+        mock_pipeline = MagicMock()
+        mock_pipeline.is_busy.return_value = False
+        controller._pipeline_service = mock_pipeline
+
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "video-1",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": 12345,
+                    }
+                ]
+            }
+        )
+        video = db_manager.get_video_details("video-1")
+        db_manager.update_pipeline_state(video["id"], PipelineState.FAILED)
+
+        controller.start_pipeline(video["id"])
+
+        mock_pipeline.start_process.assert_called_once_with(video["id"])
+
+    def test_activate_selected_on_failed_movie_shows_download_toast(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Verify activating a failed movie shows download toast (not play)."""
+        from src.config import DownloadState
+        from src.services.torrent_service import DownloadContext, DownloadType
+
+        controller._main_window = mock_main_window
+        mock_torrent = MagicMock()
+        mock_torrent.add_magnet.return_value = True
+        controller._torrent_service = mock_torrent
+
+        video_file_id = 1
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": "video-1",
+            "file_id": video_file_id,
+            "type": "movie",
+            "title": "Test Movie",
+            "state": DownloadState.ERROR.value,
+        }
+
+        controller._db_manager.get_video_file = MagicMock(
+            return_value={
+                "id": video_file_id,
+                "magnet_link": "magnet:?xt=urn:btih:test123",
+            }
+        )
+
+        controller.activate_selected()
+
+        mock_main_window.show_toast.assert_called_once()
+        call_args = mock_main_window.show_toast.call_args[0]
+        assert "Starting download" in call_args[0]
+        mock_torrent.add_magnet.assert_called_once()
+
+    def test_pipeline_service_not_busy_allows_retry(
+        self, controller: AppController, db_manager: DatabaseManager
+    ) -> None:
+        """Verify pipeline can be retried when service is not busy."""
+        from src.config import PipelineState
+
+        mock_pipeline = MagicMock()
+        mock_pipeline.is_busy.return_value = False
+        controller._pipeline_service = mock_pipeline
+
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "video-1",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": 99999,
+                    }
+                ]
+            }
+        )
+        video = db_manager.get_video_details("video-1")
+        db_manager.update_pipeline_state(video["id"], PipelineState.FAILED)
+
+        controller.start_pipeline(video["id"])
+
+        mock_pipeline.start_process.assert_called_once_with(video["id"])
+
+    def test_pipeline_already_busy_prevents_retry(
+        self, controller: AppController, db_manager: DatabaseManager
+    ) -> None:
+        """Verify retry is prevented when pipeline is already busy."""
+        from src.config import PipelineState
+
+        mock_pipeline = MagicMock()
+        mock_pipeline.is_busy.return_value = True
+        controller._pipeline_service = mock_pipeline
+
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "video-1",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": 12345,
+                    }
+                ]
+            }
+        )
+        video = db_manager.get_video_details("video-1")
+        db_manager.update_pipeline_state(video["id"], PipelineState.FAILED)
+
+        controller.start_pipeline(video["id"])
+
+        mock_pipeline.start_process.assert_not_called()
+
+
+class TestDownloadRetryController:
+    """Tests for download retry functionality in AppController."""
+
+    @pytest.fixture
+    def db_manager(self) -> DatabaseManager:
+        """Create a test database manager."""
+        manager = DatabaseManager(":memory:")
+        manager.initialize()
+        return manager
+
+    @pytest.fixture
+    def controller(self, db_manager: DatabaseManager) -> AppController:
+        """Create an AppController instance."""
+        return AppController(db_manager)
+
+    @pytest.fixture
+    def mock_main_window(self) -> MagicMock:
+        """Create a mock main window."""
+        window = MagicMock()
+        window.library_view.get_current_tab.return_value = MediaTab.MOVIES
+        window.library_view.get_selected_item.return_value = None
+        window.input_manager = MagicMock()
+        return window
+
+    @pytest.fixture
+    def mock_torrent_service(self) -> MagicMock:
+        """Create a mock torrent service."""
+        service = MagicMock()
+        service.add_magnet.return_value = True
+        return service
+
+    def test_activate_selected_on_failed_movie_calls_torrent_service(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+        mock_torrent_service: MagicMock,
+    ) -> None:
+        """Verify activating a failed movie calls torrent_service.add_magnet."""
+        from src.config import DownloadState
+
+        controller._main_window = mock_main_window
+        controller._torrent_service = mock_torrent_service
+
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "movie-failed",
+                        "type": "movie",
+                        "title": "Failed Movie",
+                        "magnet": "magnet:?xt=urn:btih:test123",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
+        video = db_manager.get_video_details("movie-failed")
+        db_manager.update_file_state(video["id"], DownloadState.ERROR)
+
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": "movie-failed",
+            "file_id": video["id"],
+            "type": "movie",
+            "title": "Failed Movie",
+            "state": DownloadState.ERROR.value,
+        }
+
+        controller.activate_selected()
+
+        mock_torrent_service.add_magnet.assert_called_once()
+        call_args = mock_torrent_service.add_magnet.call_args
+        context = call_args[0][0]
+        assert context.download_type.value == "movie"
+        assert context.id == video["id"]
+        assert call_args[0][1] == "magnet:?xt=urn:btih:test123"
+        mock_main_window.show_toast.assert_called_once()
+        assert "Starting download" in mock_main_window.show_toast.call_args[0][0]
+
+    def test_activate_selected_on_pending_movie_calls_torrent_service(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+        mock_torrent_service: MagicMock,
+    ) -> None:
+        """Verify activating a pending movie calls torrent_service.add_magnet."""
+        from src.config import DownloadState
+
+        controller._main_window = mock_main_window
+        controller._torrent_service = mock_torrent_service
+
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "movie-pending",
+                        "type": "movie",
+                        "title": "Pending Movie",
+                        "magnet": "magnet:?xt=urn:btih:pending123",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
+        video = db_manager.get_video_details("movie-pending")
+        db_manager.update_file_state(video["id"], DownloadState.PENDING)
+
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": "movie-pending",
+            "file_id": video["id"],
+            "type": "movie",
+            "title": "Pending Movie",
+            "state": DownloadState.PENDING.value,
+        }
+
+        controller.activate_selected()
+
+        mock_torrent_service.add_magnet.assert_called_once()
+        mock_main_window.show_toast.assert_called_once()
+
+    def test_activate_selected_without_torrent_service_shows_error(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+    ) -> None:
+        """Verify activating without torrent_service shows error toast."""
+        from src.config import DownloadState
+
+        controller._main_window = mock_main_window
+        controller._torrent_service = None
+
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "movie-noservice",
+                        "type": "movie",
+                        "title": "No Service Movie",
+                        "magnet": "magnet:?xt=urn:btih:noservice",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
+        video = db_manager.get_video_details("movie-noservice")
+        db_manager.update_file_state(video["id"], DownloadState.ERROR)
+
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": "movie-noservice",
+            "file_id": video["id"],
+            "type": "movie",
+            "title": "No Service Movie",
+            "state": DownloadState.ERROR.value,
+        }
+
+        controller.activate_selected()
+
+        mock_main_window.show_toast.assert_called_once()
+        assert "not available" in mock_main_window.show_toast.call_args[0][0]
+
+    def test_activate_selected_add_magnet_fails_shows_error(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+        mock_torrent_service: MagicMock,
+    ) -> None:
+        """Verify add_magnet failure shows error toast."""
+        from src.config import DownloadState
+
+        controller._main_window = mock_main_window
+        controller._torrent_service = mock_torrent_service
+        mock_torrent_service.add_magnet.return_value = False
+
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "movie-fail",
+                        "type": "movie",
+                        "title": "Fail Movie",
+                        "magnet": "magnet:?xt=urn:btih:fail123",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
+        video = db_manager.get_video_details("movie-fail")
+        db_manager.update_file_state(video["id"], DownloadState.ERROR)
+
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": "movie-fail",
+            "file_id": video["id"],
+            "type": "movie",
+            "title": "Fail Movie",
+            "state": DownloadState.ERROR.value,
+        }
+
+        controller.activate_selected()
+
+        mock_main_window.show_toast.assert_called()
+        toast_messages = [
+            call[0][0] for call in mock_main_window.show_toast.call_args_list
+        ]
+        assert any("Failed to start download" in msg for msg in toast_messages)
+
+    def test_activate_selected_no_magnet_shows_error(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+        mock_torrent_service: MagicMock,
+    ) -> None:
+        """Verify missing magnet link shows error toast."""
+        from src.config import DownloadState
+
+        controller._main_window = mock_main_window
+        controller._torrent_service = mock_torrent_service
+
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "movie-nomagnet",
+                        "type": "movie",
+                        "title": "No Magnet Movie",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
+        video = db_manager.get_video_details("movie-nomagnet")
+        db_manager.update_file_state(video["id"], DownloadState.PENDING)
+
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": "movie-nomagnet",
+            "file_id": video["id"],
+            "type": "movie",
+            "title": "No Magnet Movie",
+            "state": DownloadState.PENDING.value,
+        }
+
+        controller.activate_selected()
+
+        mock_main_window.show_toast.assert_called_with(
+            "No magnet link available", "error"
+        )
+        mock_torrent_service.add_magnet.assert_not_called()
+
+    def test_activate_selected_no_file_id_shows_error(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+        mock_torrent_service: MagicMock,
+    ) -> None:
+        """Verify invalid file_id shows error toast."""
+        controller._main_window = mock_main_window
+        controller._torrent_service = mock_torrent_service
+
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": "movie-nofile",
+            "type": "movie",
+            "title": "No File Movie",
+            "state": "pending",
+            "file_id": None,
+        }
+
+        controller.activate_selected()
+
+        mock_main_window.show_toast.assert_called_with("Invalid file ID", "error")
+        mock_torrent_service.add_magnet.assert_not_called()
+
+
+class TestAutoResumeDownloads:
+    """Tests for auto-resume of downloads on startup."""
+
+    @pytest.fixture
+    def db_manager(self) -> DatabaseManager:
+        """Create a test database manager."""
+        manager = DatabaseManager(":memory:")
+        manager.initialize()
+        return manager
+
+    @pytest.fixture
+    def controller(self, db_manager: DatabaseManager) -> AppController:
+        """Create an AppController instance."""
+        return AppController(db_manager)
+
+    @pytest.fixture
+    def mock_main_window(self) -> MagicMock:
+        """Create a mock main window."""
+        window = MagicMock()
+        window.library_view.get_current_tab.return_value = MediaTab.MOVIES
+        window.library_view.get_selected_item.return_value = None
+        window.input_manager = MagicMock()
+        return window
+
+    @pytest.fixture
+    def mock_torrent_service(self) -> MagicMock:
+        """Create a mock torrent service."""
+        service = MagicMock()
+        service.add_magnet.return_value = True
+        return service
+
+    def test_incomplete_downloads_resumed_on_startup(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+        mock_torrent_service: MagicMock,
+    ) -> None:
+        """Verify incomplete downloads are resumed when bootstrap is called."""
+        controller._main_window = mock_main_window
+        controller._torrent_service = mock_torrent_service
+
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "movie-1",
+                        "type": "movie",
+                        "title": "Movie 1",
+                        "magnet": "magnet:?xt=urn:btih:movie1",
+                        "subtitle_id": None,
+                    },
+                    {
+                        "id": "movie-2",
+                        "type": "movie",
+                        "title": "Movie 2",
+                        "magnet": "magnet:?xt=urn:btih:movie2",
+                        "subtitle_id": None,
+                    },
+                ]
+            }
+        )
+        video1 = db_manager.get_video_details("movie-1")
+        video2 = db_manager.get_video_details("movie-2")
+        from src.config import DownloadState
+
+        db_manager.update_file_state(video1["id"], DownloadState.QUEUED)
+        db_manager.update_file_state(video2["id"], DownloadState.DOWNLOADING)
+
+        controller._db_manager.get_incomplete_downloads = MagicMock(
+            return_value=[
+                {
+                    "id": video1["id"],
+                    "magnet_link": "magnet:?xt=urn:btih:movie1",
+                    "title": "Movie 1",
+                },
+                {
+                    "id": video2["id"],
+                    "magnet_link": "magnet:?xt=urn:btih:movie2",
+                    "title": "Movie 2",
+                },
+            ]
+        )
+
+        controller.bootstrap()
+
+        controller._db_manager.get_incomplete_downloads.assert_called_once()
+        assert mock_torrent_service.add_magnet.call_count == 2
+
+        mock_main_window.show_toast.assert_called()
+        toast_args = mock_main_window.show_toast.call_args[0][0]
+        assert "2 incomplete downloads" in toast_args
+
+    def test_no_incomplete_downloads_on_startup(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_torrent_service: MagicMock,
+    ) -> None:
+        """Verify bootstrap handles empty incomplete downloads list."""
+        controller._main_window = mock_main_window
+        controller._torrent_service = mock_torrent_service
+
+        controller._db_manager.get_incomplete_downloads = MagicMock(return_value=[])
+
+        controller.bootstrap()
+
+        controller._db_manager.get_incomplete_downloads.assert_called_once()
+        mock_torrent_service.add_magnet.assert_not_called()
+
+    def test_bootstrap_without_torrent_service_does_not_resume(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+    ) -> None:
+        """Verify bootstrap does not crash when torrent service is not bound.
+
+        When torrent_service is None, _resume_incomplete_downloads returns early
+        without querying the database (optimization).
+        """
+        controller._main_window = mock_main_window
+        controller._torrent_service = None
+
+        controller.bootstrap()
+
+    def test_resume_download_with_magnet(
+        self,
+        controller: AppController,
+        mock_torrent_service: MagicMock,
+    ) -> None:
+        """Verify _resume_download calls add_magnet with correct parameters."""
+        controller._torrent_service = mock_torrent_service
+
+        video = {
+            "id": 42,
+            "magnet_link": "magnet:?xt=urn:btih:abc123",
+            "title": "Test Movie",
+        }
+
+        controller._resume_download(video)
+
+        mock_torrent_service.add_magnet.assert_called_once()
+        call_args = mock_torrent_service.add_magnet.call_args
+        context = call_args[0][0]
+        assert context.download_type.value == "movie"
+        assert context.id == 42
+        assert call_args[0][1] == "magnet:?xt=urn:btih:abc123"
+
+    def test_resume_download_without_magnet(
+        self,
+        controller: AppController,
+        mock_torrent_service: MagicMock,
+    ) -> None:
+        """Verify _resume_download does nothing when magnet link is missing."""
+        controller._torrent_service = mock_torrent_service
+
+        video = {"id": 42, "magnet_link": None, "title": "Test Movie"}
+
+        controller._resume_download(video)
+
+        mock_torrent_service.add_magnet.assert_not_called()
+
+    def test_multiple_incomplete_downloads_all_resumed(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+        mock_torrent_service: MagicMock,
+    ) -> None:
+        """Verify all incomplete downloads are resumed on startup."""
+        controller._main_window = mock_main_window
+        controller._torrent_service = mock_torrent_service
+
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "movie-1",
+                        "type": "movie",
+                        "title": "Movie 1",
+                        "magnet": "magnet:?xt=urn:btih:movie1",
+                        "subtitle_id": None,
+                    },
+                    {
+                        "id": "movie-2",
+                        "type": "movie",
+                        "title": "Movie 2",
+                        "magnet": "magnet:?xt=urn:btih:movie2",
+                        "subtitle_id": None,
+                    },
+                    {
+                        "id": "movie-3",
+                        "type": "movie",
+                        "title": "Movie 3",
+                        "magnet": "magnet:?xt=urn:btih:movie3",
+                        "subtitle_id": None,
+                    },
+                ]
+            }
+        )
+        video1 = db_manager.get_video_details("movie-1")
+        video2 = db_manager.get_video_details("movie-2")
+        video3 = db_manager.get_video_details("movie-3")
+
+        from src.config import DownloadState
+
+        db_manager.update_file_state(video1["id"], DownloadState.QUEUED)
+        db_manager.update_file_state(video2["id"], DownloadState.DOWNLOADING)
+        db_manager.update_file_state(video3["id"], DownloadState.QUEUED)
+
+        controller._db_manager.get_incomplete_downloads = MagicMock(
+            return_value=[
+                {
+                    "id": video1["id"],
+                    "magnet_link": "magnet:?xt=urn:btih:movie1",
+                    "title": "Movie 1",
+                },
+                {
+                    "id": video2["id"],
+                    "magnet_link": "magnet:?xt=urn:btih:movie2",
+                    "title": "Movie 2",
+                },
+                {
+                    "id": video3["id"],
+                    "magnet_link": "magnet:?xt=urn:btih:movie3",
+                    "title": "Movie 3",
+                },
+            ]
+        )
+
+        controller.bootstrap()
+
+        assert mock_torrent_service.add_magnet.call_count == 3
+
+        resumed_ids = [
+            call[0][0].id for call in mock_torrent_service.add_magnet.call_args_list
+        ]
+        assert video1["id"] in resumed_ids
+        assert video2["id"] in resumed_ids
+        assert video3["id"] in resumed_ids
+
+    def test_resume_download_handles_add_magnet_failure(
+        self,
+        controller: AppController,
+        mock_torrent_service: MagicMock,
+    ) -> None:
+        """Verify _resume_download handles add_magnet returning False."""
+        controller._torrent_service = mock_torrent_service
+        mock_torrent_service.add_magnet.return_value = False
+
+        video = {
+            "id": 42,
+            "magnet_link": "magnet:?xt=urn:btih:abc123",
+            "title": "Test Movie",
+        }
+
+        controller._resume_download(video)
+
+        mock_torrent_service.add_magnet.assert_called_once()
+
+    def test_bootstrap_handles_get_incomplete_downloads_error(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+    ) -> None:
+        """Verify bootstrap handles database error when getting incomplete downloads."""
+        controller._main_window = mock_main_window
+        controller._torrent_service = MagicMock()
+
+        controller._db_manager.get_incomplete_downloads = MagicMock(
+            side_effect=Exception("Database error")
+        )
+
+        controller.bootstrap()
+
+        controller._db_manager.get_incomplete_downloads.assert_called_once()
+
+    def test_incomplete_downloads_excludes_completed(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+        mock_torrent_service: MagicMock,
+    ) -> None:
+        """Verify completed downloads are not resumed."""
+        controller._main_window = mock_main_window
+        controller._torrent_service = mock_torrent_service
+
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "movie-1",
+                        "type": "movie",
+                        "title": "Movie 1",
+                        "magnet": "magnet:?xt=urn:btih:movie1",
+                        "subtitle_id": None,
+                    },
+                    {
+                        "id": "movie-2",
+                        "type": "movie",
+                        "title": "Movie 2",
+                        "magnet": "magnet:?xt=urn:btih:movie2",
+                        "subtitle_id": None,
+                    },
+                ]
+            }
+        )
+        video1 = db_manager.get_video_details("movie-1")
+        video2 = db_manager.get_video_details("movie-2")
+
+        from src.config import DownloadState
+
+        db_manager.update_file_state(video1["id"], DownloadState.COMPLETED)
+        db_manager.update_file_state(video2["id"], DownloadState.DOWNLOADING)
+
+        controller._db_manager.get_incomplete_downloads = MagicMock(
+            return_value=[
+                {
+                    "id": video2["id"],
+                    "magnet_link": "magnet:?xt=urn:btih:movie2",
+                    "title": "Movie 2",
+                },
+            ]
+        )
+
+        controller.bootstrap()
+
+        controller._db_manager.get_incomplete_downloads.assert_called_once()
+        assert mock_torrent_service.add_magnet.call_count == 1
+        resumed_id = mock_torrent_service.add_magnet.call_args[0][0].id
+        assert resumed_id == video2["id"]

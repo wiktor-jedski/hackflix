@@ -1396,7 +1396,495 @@ class TestTorrentServiceFindLargestVideo:
         assert result is None
 
 
-class TestTorrentServiceEpisodeMatching:
+class TestDownloadStateTransitions:
+    """Tests for complete download state machine flow."""
+
+    def test_complete_movie_flow_pending_to_completed(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify complete movie download flow: PENDING → QUEUED → DOWNLOADING → COMPLETED."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(
+            db_manager=db_manager,
+            download_dir=tmp_path / "downloads",
+        )
+        service._ensure_directories()
+        service._session = mock.MagicMock()
+
+        mock_handle = mock.MagicMock()
+        mock_handle.is_valid.return_value = True
+        mock_handle.info_hash.return_value = "abc123"
+        service._session.add_torrent.return_value = mock_handle
+
+        state_transitions: list[tuple[int, DownloadState, int | None]] = []
+
+        def track_state(
+            file_id: int, state: DownloadState, progress: int | None = None
+        ) -> None:
+            state_transitions.append((file_id, state, progress))
+
+        service.download_progress.connect(
+            lambda fid, p, d, u: track_state(fid, DownloadState.DOWNLOADING, p)
+        )
+        service.download_completed.connect(
+            lambda fid, path: track_state(fid, DownloadState.COMPLETED, 100)
+        )
+
+        context = DownloadContext(DownloadType.MOVIE, 101)
+
+        with mock.patch.object(service._db_manager, "update_file_state") as mock_update:
+            with mock.patch.object(service._db_manager, "update_file_path"):
+                result = service.add_magnet(context, "magnet:?xt=urn:btih:test")
+
+        assert result is True
+        assert 101 in service._handles
+
+        update_calls = mock_update.call_args_list
+        assert len(update_calls) >= 1
+        first_call_state = update_calls[0][0][1]
+        assert first_call_state == DownloadState.QUEUED
+
+        mock_status = mock.MagicMock()
+        mock_status.state = mock_libtorrent_module.torrent_status.states.downloading
+        mock_status.progress = 0.0
+        mock_status.download_rate = 1024000
+        mock_status.upload_rate = 512000
+        mock_status.save_path = str(tmp_path / "downloads")
+        mock_handle.status.return_value = mock_status
+
+        mock_torrent_info = mock.MagicMock()
+        mock_files = mock.MagicMock()
+        mock_files.num_files.return_value = 1
+        mock_files.file_path.return_value = "movie.mkv"
+        mock_files.file_size.return_value = 1000000
+        mock_torrent_info.files.return_value = mock_files
+        mock_handle.torrent_file.return_value = mock_torrent_info
+
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            with mock.patch.object(service._db_manager, "update_file_path"):
+                service._poll_progress()
+
+        assert len(state_transitions) == 1
+        assert state_transitions[0][1] == DownloadState.DOWNLOADING
+        assert state_transitions[0][2] == 0
+
+        mock_status.progress = 0.5
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            with mock.patch.object(service._db_manager, "update_file_path"):
+                service._poll_progress()
+
+        progress_emissions = [
+            s for s in state_transitions if s[1] == DownloadState.DOWNLOADING
+        ]
+        assert len(progress_emissions) >= 2
+
+        mock_status.state = mock_libtorrent_module.torrent_status.states.seeding
+        mock_status.progress = 1.0
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            with mock.patch.object(service._db_manager, "update_file_path"):
+                service._poll_progress()
+
+        completed_emissions = [
+            s for s in state_transitions if s[1] == DownloadState.COMPLETED
+        ]
+        assert len(completed_emissions) == 1
+
+        assert completed_emissions[0][0] == 101
+
+    def test_complete_season_flow_pending_to_completed(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify complete season download flow: PENDING → QUEUED → DOWNLOADING → COMPLETED."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(db_manager=db_manager)
+
+        mock_handle = mock.MagicMock()
+        mock_status = mock.MagicMock()
+        mock_status.save_path = str(tmp_path)
+        mock_handle.status.return_value = mock_status
+
+        mock_files = mock.MagicMock()
+        mock_files.num_files.return_value = 2
+        mock_files.file_path.side_effect = ["Show.S01E01.mkv", "Show.S01E02.mkv"]
+        mock_files.file_size.side_effect = [500000, 600000]
+
+        mock_torrent_info = mock.MagicMock()
+        mock_torrent_info.files.return_value = mock_files
+        mock_handle.torrent_file.return_value = mock_torrent_info
+
+        context = DownloadContext(DownloadType.SEASON, 201)
+
+        completed_emissions: list[tuple] = []
+        service.download_completed.connect(
+            lambda fid, path: completed_emissions.append((fid, path))
+        )
+
+        episodes = [
+            {"id": 1001, "episode_number": 1},
+            {"id": 1002, "episode_number": 2},
+        ]
+        with mock.patch.object(
+            service._db_manager, "get_episodes", return_value=episodes
+        ):
+            with mock.patch.object(service._db_manager, "update_file_state"):
+                with mock.patch.object(service._db_manager, "update_file_path"):
+                    with mock.patch.object(service._db_manager, "update_season_state"):
+                        service._complete_season_download(context, mock_handle)
+
+        assert len(completed_emissions) == 2
+        episode_ids = [e[0] for e in completed_emissions]
+        assert 1001 in episode_ids
+        assert 1002 in episode_ids
+
+    def test_download_flow_to_error_state(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify error flow: DOWNLOADING → ERROR."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(
+            db_manager=db_manager,
+            download_dir=tmp_path / "downloads",
+        )
+        service._ensure_directories()
+        service._session = mock.MagicMock()
+
+        mock_handle = mock.MagicMock()
+        mock_handle.is_valid.return_value = True
+        mock_handle.info_hash.return_value = "error123"
+        service._session.add_torrent.return_value = mock_handle
+
+        context = DownloadContext(DownloadType.MOVIE, 301)
+
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            service.add_magnet(context, "magnet:?xt=urn:btih:testerror")
+
+        mock_status = mock.MagicMock()
+        mock_status.state = mock_libtorrent_module.torrent_status.states.downloading
+        mock_status.progress = 0.25
+        mock_handle.status.return_value = mock_status
+
+        class MockTorrentErrorAlert:
+            pass
+
+        mock_alert = MockTorrentErrorAlert()
+        mock_alert.handle = mock_handle
+        mock_alert.error = mock.MagicMock()
+        mock_alert.error.message.return_value = "Connection lost"
+        mock_libtorrent_module.torrent_error_alert = MockTorrentErrorAlert
+
+        service._session.pop_alerts.return_value = [mock_alert]
+
+        with mock.patch.object(service._db_manager, "update_file_state") as mock_update:
+            service._poll_progress()
+
+        error_calls = [
+            call
+            for call in mock_update.call_args_list
+            if call[0][1] == DownloadState.ERROR
+        ]
+        assert len(error_calls) >= 1
+        assert error_calls[-1][0][0] == 301
+
+    def test_pending_to_queued_state_transition(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify PENDING → QUEUED transition on add_magnet."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(
+            db_manager=db_manager,
+            download_dir=tmp_path / "downloads",
+        )
+        service._ensure_directories()
+        service._session = mock.MagicMock()
+
+        mock_handle = mock.MagicMock()
+        mock_handle.info_hash.return_value = "hash123"
+        service._session.add_torrent.return_value = mock_handle
+
+        context = DownloadContext(DownloadType.MOVIE, 401)
+
+        with mock.patch.object(service._db_manager, "update_file_state") as mock_update:
+            result = service.add_magnet(context, "magnet:?xt=urn:btih:new")
+
+        assert result is True
+        mock_update.assert_called_with(401, DownloadState.QUEUED)
+
+    def test_queued_to_downloading_state_transition(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify QUEUED → DOWNLOADING transition when torrent starts downloading."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(
+            db_manager=db_manager,
+            download_dir=tmp_path / "downloads",
+        )
+        service._ensure_directories()
+        service._session = mock.MagicMock()
+
+        mock_handle = mock.MagicMock()
+        mock_handle.is_valid.return_value = True
+        mock_handle.info_hash.return_value = "hash456"
+        service._session.add_torrent.return_value = mock_handle
+
+        context = DownloadContext(DownloadType.MOVIE, 501)
+
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            service.add_magnet(context, "magnet:?xt=urn:btih:downloading")
+
+        mock_status = mock.MagicMock()
+        mock_status.state = mock_libtorrent_module.torrent_status.states.downloading
+        mock_status.progress = 0.0
+        mock_status.download_rate = 500000
+        mock_status.upload_rate = 250000
+        mock_handle.status.return_value = mock_status
+
+        with mock.patch.object(service._db_manager, "update_file_state") as mock_update:
+            service._poll_progress()
+
+        downloading_calls = [
+            call
+            for call in mock_update.call_args_list
+            if call[0][1] == DownloadState.DOWNLOADING
+        ]
+        assert len(downloading_calls) == 1
+        assert downloading_calls[0][0][0] == 501
+
+    def test_downloading_to_completed_state_transition(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify DOWNLOADING → COMPLETED transition when torrent seeds."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(
+            db_manager=db_manager,
+            download_dir=tmp_path / "downloads",
+        )
+        service._ensure_directories()
+        service._session = mock.MagicMock()
+
+        mock_handle = mock.MagicMock()
+        mock_handle.is_valid.return_value = True
+        mock_handle.info_hash.return_value = "hash789"
+        mock_handle.status.return_value = mock.MagicMock()
+        mock_handle.torrent_file.return_value = mock.MagicMock()
+        service._session.add_torrent.return_value = mock_handle
+
+        context = DownloadContext(DownloadType.MOVIE, 601)
+
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            with mock.patch.object(service._db_manager, "update_file_path"):
+                service.add_magnet(context, "magnet:?xt=urn:btih:complete")
+
+        mock_status = mock.MagicMock()
+        mock_status.state = mock_libtorrent_module.torrent_status.states.seeding
+        mock_status.progress = 1.0
+        mock_status.save_path = str(tmp_path / "downloads")
+        mock_handle.status.return_value = mock_status
+
+        mock_torrent_info = mock.MagicMock()
+        mock_files = mock.MagicMock()
+        mock_files.num_files.return_value = 1
+        mock_files.file_path.return_value = "complete.mkv"
+        mock_files.file_size.return_value = 2000000
+        mock_torrent_info.files.return_value = mock_files
+        mock_handle.torrent_file.return_value = mock_torrent_info
+
+        with mock.patch.object(service._db_manager, "update_file_state") as mock_update:
+            with mock.patch.object(service._db_manager, "update_file_path"):
+                service._poll_progress()
+
+        completed_calls = [
+            call
+            for call in mock_update.call_args_list
+            if call[0][1] == DownloadState.COMPLETED
+        ]
+        assert len(completed_calls) == 1
+        assert completed_calls[0][0][0] == 601
+        assert completed_calls[0][0][2] == 100
+
+    def test_error_state_blocks_further_processing(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify ERROR state prevents further download progress."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(
+            db_manager=db_manager,
+            download_dir=tmp_path / "downloads",
+        )
+        service._ensure_directories()
+        service._session = mock.MagicMock()
+
+        mock_handle = mock.MagicMock()
+        mock_handle.is_valid.return_value = True
+        mock_handle.info_hash.return_value = "errorhash"
+        service._session.add_torrent.return_value = mock_handle
+
+        context = DownloadContext(DownloadType.MOVIE, 701)
+
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            service.add_magnet(context, "magnet:?xt=urn:btih:willerror")
+
+        class MockTorrentErrorAlert:
+            pass
+
+        mock_alert = MockTorrentErrorAlert()
+        mock_alert.handle = mock_handle
+        mock_alert.error = mock.MagicMock()
+        mock_alert.error.message.return_value = "Disk full"
+        mock_libtorrent_module.torrent_error_alert = MockTorrentErrorAlert
+
+        service._session.pop_alerts.return_value = [mock_alert]
+
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            service._poll_progress()
+
+        assert 701 not in service._handles
+        assert 701 not in service._contexts
+        mock_handle.status.assert_not_called()
+
+        mock_handle.status.assert_not_called()
+
+
+class TestDownloadStateCancelAndRetry:
+    """Tests for cancel and retry state transitions."""
+
+    def test_cancel_download_resets_to_pending(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify cancelling a download resets state to PENDING."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(
+            db_manager=db_manager,
+            download_dir=tmp_path / "downloads",
+        )
+        service._ensure_directories()
+        service._session = mock.MagicMock()
+
+        mock_handle = mock.MagicMock()
+        mock_handle.is_valid.return_value = True
+        mock_handle.info_hash.return_value = "cancelhash"
+        service._session.add_torrent.return_value = mock_handle
+
+        context = DownloadContext(DownloadType.MOVIE, 801)
+
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            service.add_magnet(context, "magnet:?xt=urn:btih:cancel")
+
+        with mock.patch.object(service._db_manager, "update_file_state") as mock_update:
+            result = service.cancel_download(context)
+
+        assert result is True
+        pending_calls = [
+            call
+            for call in mock_update.call_args_list
+            if call[0][1] == DownloadState.PENDING
+        ]
+        assert len(pending_calls) == 1
+        assert pending_calls[0][0][0] == 801
+        assert 801 not in service._handles
+
+    def test_retry_from_pending_after_add_magnet(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify retry from PENDING state succeeds."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(
+            db_manager=db_manager,
+            download_dir=tmp_path / "downloads",
+        )
+        service._ensure_directories()
+        service._session = mock.MagicMock()
+
+        mock_handle = mock.MagicMock()
+        mock_handle.is_valid.return_value = True
+        mock_handle.info_hash.return_value = "retryhash"
+        service._session.add_torrent.return_value = mock_handle
+
+        context = DownloadContext(DownloadType.MOVIE, 901)
+
+        with mock.patch.object(service._db_manager, "update_file_state") as mock_update:
+            result = service.add_magnet(context, "magnet:?xt=urn:btih:retry")
+
+        assert result is True
+        queued_calls = [
+            call
+            for call in mock_update.call_args_list
+            if call[0][1] == DownloadState.QUEUED
+        ]
+        assert len(queued_calls) == 1
+        assert queued_calls[0][0][0] == 901
+
     """Tests for episode file matching methods."""
 
     def test_extract_episode_number_s01e05_format(
@@ -1898,3 +2386,427 @@ class TestServicesModuleLazyImport:
         from src.services.torrent_service import DownloadContext
 
         assert services.DownloadContext is DownloadContext
+
+
+class TestDownloadRetry:
+    """Tests for download retry from ERROR state."""
+
+    def test_retry_download_from_error_state_movie(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify download can be retried from ERROR state for movies."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(
+            db_manager=db_manager,
+            download_dir=tmp_path / "downloads",
+        )
+        service._ensure_directories()
+        service._session = mock.MagicMock()
+
+        mock_handle = mock.MagicMock()
+        mock_handle.info_hash.return_value = "abc123"
+        service._session.add_torrent.return_value = mock_handle
+
+        context = DownloadContext(DownloadType.MOVIE, 101)
+
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            result = service.add_magnet(context, "magnet:?xt=urn:btih:test")
+
+        assert result is True
+        assert 101 in service._handles
+
+        service._unregister_handle(101)
+        service._db_manager.update_file_state(101, DownloadState.ERROR)
+
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            retry_result = service.add_magnet(context, "magnet:?xt=urn:btih:test")
+
+        assert retry_result is True
+        assert 101 in service._handles
+
+    def test_retry_download_from_error_state_season(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify download can be retried from ERROR state for seasons."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(
+            db_manager=db_manager,
+            download_dir=tmp_path / "downloads",
+        )
+        service._ensure_directories()
+        service._session = mock.MagicMock()
+
+        mock_handle = mock.MagicMock()
+        mock_handle.info_hash.return_value = "def456"
+        service._session.add_torrent.return_value = mock_handle
+
+        context = DownloadContext(DownloadType.SEASON, 201)
+
+        with mock.patch.object(service._db_manager, "update_season_state"):
+            result = service.add_magnet(context, "magnet:?xt=urn:btih:test")
+
+        assert result is True
+        assert 201 in service._handles
+
+        service._unregister_handle(201)
+        service._db_manager.update_season_state(201, DownloadState.ERROR)
+
+        with mock.patch.object(service._db_manager, "update_season_state"):
+            retry_result = service.add_magnet(context, "magnet:?xt=urn:btih:test")
+
+        assert retry_result is True
+        assert 201 in service._handles
+
+    def test_retry_sets_state_to_queued(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify retry from ERROR sets state to QUEUED for movies."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(
+            db_manager=db_manager,
+            download_dir=tmp_path / "downloads",
+        )
+        service._ensure_directories()
+        service._session = mock.MagicMock()
+
+        mock_handle = mock.MagicMock()
+        mock_handle.info_hash.return_value = "retry123"
+        service._session.add_torrent.return_value = mock_handle
+
+        context = DownloadContext(DownloadType.MOVIE, 301)
+
+        with mock.patch.object(service._db_manager, "update_file_state") as mock_update:
+            service.add_magnet(context, "magnet:?xt=urn:btih:test")
+
+        mock_update.assert_called_with(301, DownloadState.QUEUED)
+
+    def test_retry_after_cancel_restarts_download(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify cancel followed by retry restarts download properly."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(
+            db_manager=db_manager,
+            download_dir=tmp_path / "downloads",
+        )
+        service._ensure_directories()
+        service._session = mock.MagicMock()
+
+        mock_handle = mock.MagicMock()
+        mock_handle.info_hash.return_value = "cancel123"
+        service._session.add_torrent.return_value = mock_handle
+
+        context = DownloadContext(DownloadType.MOVIE, 401)
+
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            service.add_magnet(context, "magnet:?xt=urn:btih:test")
+
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            service.cancel_download(context)
+
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            retry_result = service.add_magnet(context, "magnet:?xt=urn:btih:test")
+
+        assert retry_result is True
+        assert service._session.add_torrent.call_count == 2
+
+
+class TestDownloadStatePersistence:
+    """Tests for download state persistence across restarts."""
+
+    def test_download_state_persisted_to_disk(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify download state saved to resume file during shutdown."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        state_dir = tmp_path / "torrents"
+        state_dir.mkdir(parents=True)
+
+        service = TorrentService(
+            db_manager=db_manager,
+            state_dir=state_dir,
+            download_dir=tmp_path / "downloads",
+        )
+        service._ensure_directories()
+        service._session = mock.MagicMock()
+
+        mock_handle = mock.MagicMock()
+        mock_handle.is_valid.return_value = True
+        mock_handle.info_hash.return_value = "persist123"
+        mock_status = mock.MagicMock()
+        mock_status.save_path = str(tmp_path / "downloads")
+        mock_handle.status.return_value = mock_status
+
+        context = DownloadContext(DownloadType.MOVIE, 101)
+        service._handles = {101: mock_handle}
+        service._contexts = {101: context}
+        service._handle_to_context = {"persist123": 101}
+
+        class MockSaveResumeDataAlert:
+            pass
+
+        mock_alert = MockSaveResumeDataAlert()
+        mock_alert.handle = mock_handle
+        mock_libtorrent_module.save_resume_data_alert = MockSaveResumeDataAlert
+
+        mock_libtorrent_module.write_resume_data_buf.return_value = b"resume_data_bytes"
+
+        service._session.pop_alerts.return_value = [mock_alert]
+
+        service._save_resume_data()
+
+        resume_file = state_dir / TorrentService.RESUME_DATA_FILE
+        assert resume_file.exists()
+
+        with open(resume_file, "rb") as f:
+            saved_data = pickle.load(f)
+
+        assert 101 in saved_data
+        assert saved_data[101]["resume_data"] == b"resume_data_bytes"
+        assert saved_data[101]["save_path"] == str(tmp_path / "downloads")
+        assert saved_data[101]["download_type"] == "movie"
+        assert saved_data[101]["context_db_id"] == 101
+
+    def test_download_state_restored_on_restart(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify download state restored from resume file on service restart."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        state_dir = tmp_path / "torrents"
+        state_dir.mkdir(parents=True)
+        resume_file = state_dir / TorrentService.RESUME_DATA_FILE
+
+        resume_data = {
+            201: {
+                "resume_data": b"saved_state_1",
+                "save_path": "/path/to/downloads",
+                "download_type": "movie",
+                "context_db_id": 201,
+            },
+        }
+        with open(resume_file, "wb") as f:
+            pickle.dump(resume_data, f)
+
+        mock_handle = mock.MagicMock()
+        mock_handle.info_hash.return_value = "restore_hash"
+
+        new_service = TorrentService(
+            db_manager=db_manager,
+            state_dir=state_dir,
+        )
+        new_service._session = mock.MagicMock()
+        new_service._session.add_torrent.return_value = mock_handle
+
+        new_service._load_resume_data()
+
+        new_service._session.add_torrent.assert_called_once()
+        assert len(new_service._handles) == 1
+        assert len(new_service._contexts) == 1
+        assert 201 in new_service._contexts
+        assert new_service._contexts[201].download_type == DownloadType.MOVIE
+        assert new_service._contexts[201].id == 201
+
+    def test_session_state_persisted_to_disk(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify libtorrent session state saved to disk."""
+        from src.services.torrent_service import TorrentService
+
+        state_dir = tmp_path / "torrents"
+        state_dir.mkdir(parents=True)
+
+        service = TorrentService(
+            db_manager=db_manager,
+            state_dir=state_dir,
+        )
+        service._session = mock.MagicMock()
+        service._session.save_state.return_value = {"dht_nodes": ["node1", "node2"]}
+        mock_libtorrent_module.bencode.return_value = b"encoded_session_state"
+
+        service._save_session_state()
+
+        state_file = state_dir / TorrentService.SESSION_STATE_FILE
+        assert state_file.exists()
+        assert state_file.read_bytes() == b"encoded_session_state"
+
+        service._session.save_state.assert_called_once()
+
+    def test_session_state_restored_on_startup(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify libtorrent session state restored from disk on startup."""
+        from src.services.torrent_service import TorrentService
+
+        state_dir = tmp_path / "torrents"
+        state_dir.mkdir(parents=True)
+        state_file = state_dir / TorrentService.SESSION_STATE_FILE
+        state_file.write_bytes(b"session_data_bytes")
+
+        mock_libtorrent_module.bdecode.return_value = {"dht_routers": ["router1"]}
+
+        service = TorrentService(
+            db_manager=db_manager,
+            state_dir=state_dir,
+        )
+        service._session = mock.MagicMock()
+
+        service._load_session_state()
+
+        mock_libtorrent_module.bdecode.assert_called_once_with(b"session_data_bytes")
+        service._session.load_state.assert_called_once_with(
+            {"dht_routers": ["router1"]}
+        )
+
+    def test_resume_data_preserves_download_progress(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify resume data includes progress information for resuming downloads."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        state_dir = tmp_path / "torrents"
+        state_dir.mkdir(parents=True)
+        resume_file = state_dir / TorrentService.RESUME_DATA_FILE
+
+        resume_data = {
+            301: {
+                "resume_data": b"progress_state",
+                "save_path": "/downloads",
+                "download_type": "season",
+                "context_db_id": 301,
+            },
+        }
+        with open(resume_file, "wb") as f:
+            pickle.dump(resume_data, f)
+
+        mock_handle = mock.MagicMock()
+        mock_handle.info_hash.return_value = "progress_hash"
+        mock_libtorrent_module.session.return_value.add_torrent.return_value = (
+            mock_handle
+        )
+
+        new_service = TorrentService(
+            db_manager=db_manager,
+            state_dir=state_dir,
+        )
+        new_service._session = mock.MagicMock()
+
+        new_service._load_resume_data()
+
+        new_service._session.add_torrent.assert_called_once()
+        call_args = new_service._session.add_torrent.call_args
+        atp = call_args[0][0]
+        assert atp.resume_data == b"progress_state"
+        assert atp.save_path == "/downloads"
+
+        assert 301 in new_service._contexts
+        assert new_service._contexts[301].download_type == DownloadType.SEASON
+        assert new_service._contexts[301].id == 301
+
+    def test_corrupted_resume_file_handled_gracefully(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify corrupted resume file doesn't crash the service."""
+        from src.services.torrent_service import TorrentService
+
+        state_dir = tmp_path / "torrents"
+        state_dir.mkdir(parents=True)
+        resume_file = state_dir / TorrentService.RESUME_DATA_FILE
+        resume_file.write_bytes(b"not valid pickle data")
+
+        service = TorrentService(
+            db_manager=db_manager,
+            state_dir=state_dir,
+        )
+        service._session = mock.MagicMock()
+
+        service._load_resume_data()
+
+        service._session.add_torrent.assert_not_called()
+        assert len(service._handles) == 0
+
+    def test_missing_resume_file_on_startup(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify service starts normally when resume file doesn't exist."""
+        from src.services.torrent_service import TorrentService
+
+        state_dir = tmp_path / "torrents"
+        state_dir.mkdir(parents=True)
+
+        service = TorrentService(
+            db_manager=db_manager,
+            state_dir=state_dir,
+        )
+        service._session = mock.MagicMock()
+
+        service._load_resume_data()
+
+        service._session.add_torrent.assert_not_called()
+        assert len(service._handles) == 0

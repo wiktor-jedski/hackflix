@@ -6,9 +6,11 @@ and logging configuration for the application.
 
 import logging
 import os
+from dataclasses import dataclass
 from enum import Enum
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -147,24 +149,36 @@ LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 LOG_BACKUP_COUNT = 7  # Keep 7 days of logs
 
 
+@dataclass
+class LoggingConfig:
+    """Logging configuration."""
+
+    debug: bool = False
+    log_file: Optional[str] = None
+    level: str = "INFO"
+
+
 # =============================================================================
 # Logging Setup
 # =============================================================================
 
 
-def setup_logging(debug: bool = False) -> None:
+def setup_logging(config: Optional[LoggingConfig] = None) -> None:
     """Configure application logging.
 
     Sets up file and console handlers with appropriate formatting.
     File handler uses daily rotation with LOG_BACKUP_COUNT days retention.
 
     Args:
-        debug: If True, set log level to DEBUG. Otherwise, use INFO.
+        config: LoggingConfig instance. If None, uses defaults.
     """
     ensure_directories()
 
-    log_level = logging.DEBUG if debug else logging.INFO
-    log_file = LOG_DIR / "app.log"
+    if config is None:
+        config = LoggingConfig()
+
+    log_level = logging.DEBUG if config.debug else logging.INFO
+    log_file_path = config.log_file if config.log_file else str(LOG_DIR / "app.log")
 
     # Create formatter
     formatter = logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
@@ -178,7 +192,7 @@ def setup_logging(debug: bool = False) -> None:
 
     # File handler with daily rotation
     file_handler = TimedRotatingFileHandler(
-        log_file,
+        log_file_path,
         when="midnight",
         interval=1,
         backupCount=LOG_BACKUP_COUNT,

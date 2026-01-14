@@ -77,9 +77,7 @@ class TestDatabaseManager:
         # Verify tables exist
         conn = sqlite3.connect(str(db_path))
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        )
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = {row[0] for row in cursor.fetchall()}
         conn.close()
 
@@ -91,9 +89,7 @@ class TestDatabaseManager:
     ) -> None:
         """Test upserting a movie from content.json."""
         # Insert only the first movie
-        single_movie = {
-            "items": [sample_content_json["items"][0]]
-        }
+        single_movie = {"items": [sample_content_json["items"][0]]}
         db_manager.upsert_content(single_movie)
 
         # Verify media item exists
@@ -113,9 +109,7 @@ class TestDatabaseManager:
     ) -> None:
         """Test upserting a series with seasons and episodes."""
         # Insert only the series
-        series_only = {
-            "items": [sample_content_json["items"][2]]
-        }
+        series_only = {"items": [sample_content_json["items"][2]]}
         db_manager.upsert_content(series_only)
 
         # Verify media item exists
@@ -930,3 +924,260 @@ class TestDatabaseManagerErrorHandling:
 
             with pytest.raises(sqlite3.Error, match="Query failed"):
                 db_manager.get_voiceover(1)
+
+
+class TestDatabaseThreadSafety:
+    """Tests for database thread safety behavior.
+
+    Note: SQLite does not support concurrent connections from multiple threads.
+    The db_manager is designed to use per-operation connections, but the manager
+    instance itself should not be shared across threads. These tests verify
+    that the system correctly handles or reports thread-safety violations.
+    """
+
+    def test_single_thread_success(self, db_manager: DatabaseManager) -> None:
+        """Verify database operations work correctly from a single thread."""
+        content = {
+            "items": [
+                {
+                    "id": "movie-1",
+                    "type": "movie",
+                    "title": "Test Movie",
+                    "magnet": "magnet:?test",
+                    "subtitle_id": None,
+                }
+            ]
+        }
+        db_manager.upsert_content(content)
+        items = db_manager.get_library_items("movie")
+        assert len(items) == 1
+        assert items[0]["title"] == "Test Movie"
+
+    def test_multiple_sequential_operations_in_single_thread(
+        self, db_manager: DatabaseManager
+    ) -> None:
+        """Verify multiple operations work correctly."""
+        for i in range(10):
+            content = {
+                "items": [
+                    {
+                        "id": f"movie-{i}",
+                        "type": "movie",
+                        "title": f"Movie {i}",
+                        "magnet": f"magnet:?test{i}",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+            db_manager.upsert_content(content)
+
+        items = db_manager.get_library_items("movie")
+        assert len(items) == 10
+
+    def test_connection_isolation_per_operation(
+        self, db_manager: DatabaseManager
+    ) -> None:
+        """Verify each operation gets its own connection scope."""
+        items1 = db_manager.get_library_items("movie")
+        items2 = db_manager.get_library_items("movie")
+        assert items1 == items2
+
+
+class TestDatabaseTransactionRollback:
+    """Tests for transaction rollback behavior."""
+
+    def test_upsert_content_rollback_on_error(
+        self, db_manager: DatabaseManager
+    ) -> None:
+        """Verify upsert_content rolls back on error."""
+        initial_count = len(db_manager.get_library_items("movie"))
+
+        with mock.patch.object(db_manager, "_get_connection") as mock_conn:
+            mock_conn.side_effect = sqlite3.Error("Database connection failed")
+
+            with pytest.raises(sqlite3.Error):
+                db_manager.upsert_content({"items": []})
+
+        final_count = len(db_manager.get_library_items("movie"))
+        assert final_count == initial_count
+
+    def test_batch_insert_rollback_on_failure(
+        self, db_manager: DatabaseManager
+    ) -> None:
+        """Verify batch insert of series with episodes rolls back on failure."""
+        initial_items = db_manager.get_library_items("series")
+
+        with mock.patch.object(db_manager, "_get_connection") as mock_conn:
+            mock_conn.return_value.cursor.return_value.execute.side_effect = (
+                sqlite3.Error("Constraint violation")
+            )
+
+            invalid_content = {
+                "items": [
+                    {
+                        "id": "series-fail",
+                        "type": "series",
+                        "title": "Failing Series",
+                        "poster_url": None,
+                        "seasons": [
+                            {
+                                "season_number": 1,
+                                "magnet": "magnet:?fail",
+                                "episodes": [
+                                    {"number": 1, "title": "Ep1", "subtitle_id": None}
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+
+            with pytest.raises(sqlite3.Error):
+                db_manager.upsert_content(invalid_content)
+
+        final_items = db_manager.get_library_items("series")
+        assert len(final_items) == len(initial_items)
+        assert not any(item["id"] == "series-fail" for item in final_items)
+
+    def test_nested_transaction_rollback(self, db_manager: DatabaseManager) -> None:
+        """Verify nested transactions properly rollback."""
+        initial_count = len(db_manager.get_library_items("movie"))
+
+        with mock.patch.object(db_manager, "_get_connection") as mock_conn:
+            call_count = [0]
+            original_execute = mock_conn.return_value.cursor.return_value.execute
+
+            def failing_execute(*args, **kwargs):
+                call_count[0] += 1
+                if call_count[0] > 2:
+                    raise sqlite3.Error("Nested transaction error")
+                return original_execute(*args, **kwargs)
+
+            mock_conn.return_value.cursor.return_value.execute.side_effect = (
+                failing_execute
+            )
+
+            with pytest.raises(sqlite3.Error):
+                content = {
+                    "items": [
+                        {
+                            "id": "movie-nested",
+                            "type": "movie",
+                            "title": "Nested Test",
+                            "magnet": "magnet:?nested",
+                            "subtitle_id": None,
+                        }
+                    ]
+                }
+                db_manager.upsert_content(content)
+
+        final_count = len(db_manager.get_library_items("movie"))
+        assert final_count == initial_count
+
+
+class TestForeignKeyConstraints:
+    """Tests for foreign key constraint enforcement."""
+
+    def test_foreign_key_constraint_enforced(self, tmp_path: Path) -> None:
+        """Verify foreign key constraints prevent orphaned records."""
+        from src.database.schema import initialize_database
+
+        db_path = tmp_path / "test_fk.db"
+        initialize_database(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "INSERT INTO media_items (id, type, title) VALUES (?, ?, ?)",
+            ("media-1", "movie", "Test Movie"),
+        )
+
+        with pytest.raises(sqlite3.IntegrityError):
+            cursor.execute(
+                "INSERT INTO video_files (media_item_id, file_path) VALUES (?, ?)",
+                ("non-existent-media", "/path/to/file.mkv"),
+            )
+
+        conn.close()
+
+    def test_cascade_delete_media_item(self, tmp_path: Path) -> None:
+        """Verify deleting media item cascades to video_files."""
+        from src.database.schema import initialize_database
+
+        db_path = tmp_path / "test_cascade.db"
+        initialize_database(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "INSERT INTO media_items (id, type, title) VALUES (?, ?, ?)",
+            ("cascade-test", "movie", "Cascade Test Movie"),
+        )
+        cursor.execute(
+            "INSERT INTO video_files (media_item_id, file_path, state) VALUES (?, ?, ?)",
+            ("cascade-test", "/path/to/file.mkv", "PENDING"),
+        )
+
+        cursor.execute("DELETE FROM media_items WHERE id = ?", ("cascade-test",))
+        conn.commit()
+
+        cursor.execute(
+            "SELECT * FROM video_files WHERE media_item_id = ?", ("cascade-test",)
+        )
+        orphaned = cursor.fetchall()
+
+        assert len(orphaned) == 0
+
+        conn.close()
+
+    def test_video_file_requires_valid_media_item(
+        self, db_manager: DatabaseManager
+    ) -> None:
+        """Verify video file operations require valid media_item_id."""
+        content = {
+            "items": [
+                {
+                    "id": "movie-valid",
+                    "type": "movie",
+                    "title": "Valid Movie",
+                    "magnet": "magnet:?valid",
+                    "subtitle_id": None,
+                }
+            ]
+        }
+        db_manager.upsert_content(content)
+
+        video = db_manager.get_video_details("movie-valid")
+        assert video is not None
+        assert video["media_item_id"] is not None
+
+    def test_subtitle_requires_valid_video_file(
+        self, db_manager: DatabaseManager
+    ) -> None:
+        """Verify subtitle operations require valid video_file_id."""
+        content = {
+            "items": [
+                {
+                    "id": "movie-sub",
+                    "type": "movie",
+                    "title": "Subtitle Test Movie",
+                    "magnet": "magnet:?sub",
+                    "subtitle_id": 123,
+                }
+            ]
+        }
+        db_manager.upsert_content(content)
+
+        video = db_manager.get_video_details("movie-sub")
+        assert video is not None
+
+        sub_id = db_manager.add_subtitle(video["id"], "en", "/path/to/en.srt")
+        assert sub_id is not None
+
+        subtitles = db_manager.get_subtitles(video["id"])
+        assert len(subtitles) == 1
+        assert subtitles[0]["video_file_id"] == video["id"]

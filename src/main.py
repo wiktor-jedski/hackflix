@@ -14,6 +14,7 @@ from src.config import (
     CACHE_DIR,
     CATALOG_URL,
     DATABASE_PATH,
+    LoggingConfig,
     check_required_env_vars,
     ensure_directories,
     setup_logging,
@@ -79,7 +80,8 @@ def main() -> int:
     """
     # Setup logging first
     debug_mode = os.environ.get("DEBUG", "false").lower() == "true"
-    setup_logging(debug=debug_mode)
+    log_config = LoggingConfig(debug=debug_mode)
+    setup_logging(log_config)
     logger.info("Hackflix starting up...")
 
     # Ensure required directories exist

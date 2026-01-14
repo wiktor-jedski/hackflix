@@ -1,0 +1,119 @@
+"""Tests for code quality enforcement."""
+
+import ast
+from pathlib import Path
+
+import pytest
+
+
+class TestBareExceptDetection:
+    """Tests verifying no bare except: blocks in production code."""
+
+    def test_no_bare_except_blocks(self):
+        """Verify no bare except: blocks in production code."""
+        violations = []
+
+        for py_file in Path("src").rglob("*.py"):
+            try:
+                tree = ast.parse(py_file.read_text())
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ExceptHandler):
+                    if node.type is None:
+                        lineno = node.lineno
+                        violations.append(f"{py_file}:{lineno}")
+
+        assert not violations, f"Bare except: blocks found:\n" + "\n".join(violations)
+
+    def test_no_bare_except_in_tests(self):
+        """Verify no bare except: blocks in test code."""
+        violations = []
+
+        for py_file in Path("tests").rglob("*.py"):
+            try:
+                tree = ast.parse(py_file.read_text())
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ExceptHandler):
+                    if node.type is None:
+                        lineno = node.lineno
+                        violations.append(f"{py_file}:{lineno}")
+
+        assert not violations, f"Bare except: blocks found in tests:\n" + "\n".join(
+            violations
+        )
+
+
+class TestExceptionSpecificity:
+    """Tests for proper exception handling specificity."""
+
+    def test_exceptions_have_message_variables(self):
+        """Verify exceptions use variable messages, not raw strings where appropriate."""
+        violations = []
+
+        for py_file in Path("src").rglob("*.py"):
+            try:
+                content = py_file.read_text()
+                tree = ast.parse(content)
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Raise):
+                    if isinstance(node.exc, ast.Call):
+                        if hasattr(node.exc.func, "id"):
+                            exc_name = node.exc.func.id
+                            if exc_name.endswith("Error") or exc_name.endswith(
+                                "Exception"
+                            ):
+                                if len(node.exc.args) == 0:
+                                    violations.append(
+                                        f"{py_file}:{node.lineno} {exc_name} raised without arguments"
+                                    )
+
+        assert not violations, f"Exceptions raised without messages:\n" + "\n".join(
+            violations[:10]
+        )
+
+
+class TestCoverageEnforcement:
+    """Tests for coverage enforcement."""
+
+    def test_coverage_meets_100_percent_target(self):
+        """Verify test coverage meets 100% target.
+
+        This test runs pytest with coverage and ensures all production
+        code is covered by tests.
+        """
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "--cov=src",
+                "--cov-fail-under=100",
+                "--cov-report=term-missing",
+                "tests/",
+                "-q",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).parent.parent,
+        )
+
+        assert result.returncode == 0, (
+            f"Coverage below 100% target.\n"
+            f"stdout: {result.stdout}\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

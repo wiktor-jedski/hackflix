@@ -6,6 +6,7 @@ from unittest import mock
 
 from src.config import (
     DownloadState,
+    LoggingConfig,
     PipelineState,
     check_required_env_vars,
     ensure_directories,
@@ -160,16 +161,12 @@ class TestSetupLogging:
         log_dir.mkdir()
 
         with mock.patch("src.config.LOG_DIR", log_dir):
-            # Clear existing handlers
             root_logger = logging.getLogger()
             root_logger.handlers.clear()
 
-            setup_logging(debug=False)
+            setup_logging(LoggingConfig(debug=False))
 
-            # Check logger level
             assert root_logger.level == logging.INFO
-
-            # Check handlers exist
             assert len(root_logger.handlers) >= 1
 
     def test_debug_mode(self, tmp_path: Path) -> None:
@@ -181,7 +178,7 @@ class TestSetupLogging:
             root_logger = logging.getLogger()
             root_logger.handlers.clear()
 
-            setup_logging(debug=True)
+            setup_logging(LoggingConfig(debug=True))
 
             assert root_logger.level == logging.DEBUG
 
@@ -194,11 +191,9 @@ class TestSetupLogging:
             root_logger = logging.getLogger()
             root_logger.handlers.clear()
 
-            setup_logging(debug=False)
+            setup_logging(LoggingConfig(debug=False))
 
-            # Log something to trigger file creation
             logging.info("Test log message")
 
-            # Check log file exists
             log_files = list(log_dir.glob("*.log"))
             assert len(log_files) >= 1
