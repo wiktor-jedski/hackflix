@@ -204,21 +204,17 @@ class TestStretchAudio:
     """Tests for stretch_audio method."""
 
     def test_stretch_audio_valid_factor_1_0(self, tmp_path: Path):
-        """Verify stretch_audio with factor 1.0 (no change)."""
+        """Verify stretch_audio with factor 1.0 copies file (no processing)."""
         audio_path = tmp_path / "input.wav"
         output_path = tmp_path / "output.wav"
 
-        audio_path.touch()
+        audio_path.write_bytes(b"fake audio data")
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stderr="", stdout="")
-
+        with patch("shutil.copy") as mock_copy:
             processor = AudioProcessor()
             processor.stretch_audio(audio_path, 1.0, output_path)
 
-            mock_run.assert_called_once()
-            args = mock_run.call_args[0][0]
-            assert "atempo=1.0" in args
+            mock_copy.assert_called_once_with(str(audio_path), str(output_path))
 
     def test_stretch_audio_valid_factor_1_3(self, tmp_path: Path):
         """Verify stretch_audio with factor 1.3 (max speedup)."""

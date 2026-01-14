@@ -102,7 +102,10 @@ Do not include any explanation or markdown formatting."""
                     logger.warning("Rate limit hit, waiting before retry...")
                     import time
 
-                    time.sleep(60)
+                    for _ in range(60):
+                        if hasattr(self, "_should_stop") and self._should_stop:
+                            raise GeminiTranslationError("Cancelled")
+                        time.sleep(1)
                     translated_batch = self._translate_single_batch(
                         batch, batch_idx + 1, total_batches
                     )

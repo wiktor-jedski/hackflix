@@ -57,7 +57,9 @@ def mock_db_manager():
 def pipeline_service(mock_db_manager):
     """Create a PipelineService instance with mocked dependencies."""
     service = PipelineService(mock_db_manager)
-    return service
+    yield service
+    if service.isRunning():
+        service.wait()
 
 
 class TestPipelineServiceInitialization:
@@ -72,7 +74,6 @@ class TestPipelineServiceInitialization:
         assert pipeline_service._video_file_id is None
         assert pipeline_service._should_stop is False
         assert pipeline_service._current_state == PipelineState.NONE
-        assert pipeline_service._is_busy is False
 
     def test_is_busy_returns_false_initially(self, pipeline_service):
         """Verify is_busy returns False before processing starts."""
@@ -82,6 +83,7 @@ class TestPipelineServiceInitialization:
         """Verify is_busy returns True after start_process is called."""
         pipeline_service.start_process(1)
         assert pipeline_service.is_busy() is True
+        pipeline_service.wait()
 
 
 class TestPipelineServiceStartProcess:
@@ -97,11 +99,6 @@ class TestPipelineServiceStartProcess:
         pipeline_service._should_stop = True
         pipeline_service.start_process(1)
         assert pipeline_service._should_stop is False
-
-    def test_start_process_sets_is_busy_true(self, pipeline_service):
-        """Verify start_process sets is_busy to True."""
-        pipeline_service.start_process(1)
-        assert pipeline_service._is_busy is True
 
 
 class TestPipelineServiceStop:
@@ -126,7 +123,7 @@ class TestPipelineServiceSkipConditions:
             "pipeline_state": PipelineState.NONE.value,
         }
 
-        pipeline_service.start_process(1)
+        pipeline_service._video_file_id = 1
 
         with (
             patch(
@@ -152,7 +149,7 @@ class TestPipelineServiceSkipConditions:
             "pipeline_state": PipelineState.VOICEOVER_READY.value,
         }
 
-        pipeline_service.start_process(1)
+        pipeline_service._video_file_id = 1
 
         with (
             patch(
@@ -926,7 +923,7 @@ class TestPipelineServiceEndToEndIntegration:
             ) as mock_finished,
         ):
             pipeline_service.start_process(video_file_id)
-            pipeline_service.run()
+            pipeline_service.wait()
 
             mock_open_subtitles.download_subtitle.assert_called_once()
             mock_gemini.translate_batch.assert_called_once()
@@ -961,7 +958,7 @@ class TestPipelineServiceEndToEndIntegration:
             pipeline_service.signals, "pipeline_finished"
         ) as mock_finished:
             pipeline_service.start_process(video_file_id)
-            pipeline_service.run()
+            pipeline_service.wait()
 
             mock_finished.emit.assert_called_once_with(video_file_id, True)
 
@@ -989,7 +986,7 @@ class TestPipelineServiceEndToEndIntegration:
             pipeline_service.signals, "pipeline_finished"
         ) as mock_finished:
             pipeline_service.start_process(video_file_id)
-            pipeline_service.run()
+            pipeline_service.wait()
 
             mock_finished.emit.assert_called_once_with(video_file_id, True)
 
@@ -1048,7 +1045,7 @@ class TestPipelineServiceEndToEndIntegration:
             ) as mock_finished,
         ):
             pipeline_service.start_process(video_file_id)
-            pipeline_service.run()
+            pipeline_service.wait()
 
             mock_open_subtitles.download_subtitle.assert_called_once()
             mock_edge_tts.generate_tts.assert_called_once()
@@ -1089,7 +1086,7 @@ class TestPipelineServiceEndToEndIntegration:
             patch.object(pipeline_service.signals, "error_occurred") as mock_error,
         ):
             pipeline_service.start_process(video_file_id)
-            pipeline_service.run()
+            pipeline_service.wait()
 
             mock_finished.emit.assert_called_once_with(video_file_id, False)
             mock_error.emit.assert_called_once()
@@ -1141,6 +1138,6 @@ class TestPipelineServiceEndToEndIntegration:
         ):
             pipeline_service.start_process(video_file_id)
             pipeline_service.stop()
-            pipeline_service.run()
+            pipeline_service.wait()
 
             mock_finished.emit.assert_called_once_with(video_file_id, True)

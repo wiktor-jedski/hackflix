@@ -21,6 +21,7 @@ from src.config import (
 from src.controllers.app_controller import AppController
 from src.database import DatabaseManager
 from src.services.metadata_service import MetadataService
+from src.services.pipeline_service import PipelineService
 from src.services.torrent_service import TorrentService
 from src.ui.windows.main_window import MainWindow
 from src.utils.i18n import setup_translations
@@ -149,10 +150,12 @@ def main() -> int:
         cache_dir=CACHE_DIR,
     )
     torrent_service = TorrentService(db_manager=db_manager)
+    pipeline_service = PipelineService(db_manager=db_manager)
 
     controller.bind_services(
         metadata_service=metadata_service,
         torrent_service=torrent_service,
+        pipeline_service=pipeline_service,
     )
 
     # Bootstrap the controller

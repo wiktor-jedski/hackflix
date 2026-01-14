@@ -5,6 +5,7 @@ and mixing for the PipelineService.
 """
 
 import logging
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -121,6 +122,11 @@ class AudioProcessor:
             raise AudioProcessingError(
                 f"Invalid speedup factor: {speedup_factor}. Must be 1.0-1.3"
             )
+
+        if speedup_factor == 1.0:
+            shutil.copy(str(audio_path), str(output_path))
+            logger.info("No stretching needed, copied audio to %s", output_path)
+            return
 
         cmd = [
             "ffmpeg",

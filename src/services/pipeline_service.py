@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from PyQt5.QtCore import QObject, QRunnable, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 from src.config import PipelineState
 
@@ -39,8 +39,8 @@ class PipelineSignals(QObject):
     error_occurred = pyqtSignal(int, str)
 
 
-class PipelineService(QRunnable):
-    """QRunnable worker for subtitle translation and voiceover generation.
+class PipelineService(QThread):
+    """QThread worker for subtitle translation and voiceover generation.
 
     Attributes:
         signals: Signal emitters for progress and completion events.
@@ -66,7 +66,6 @@ class PipelineService(QRunnable):
         self._video_file_id: Optional[int] = None
         self._should_stop = False
         self._current_state = PipelineState.NONE
-        self._is_busy = False
 
         logger.info("PipelineService initialized")
 
@@ -76,7 +75,7 @@ class PipelineService(QRunnable):
         Returns:
             True if pipeline is running, False otherwise.
         """
-        return self._is_busy
+        return self.isRunning()
 
     @pyqtSlot(int)
     def start_process(self, video_file_id: int) -> None:
@@ -87,8 +86,7 @@ class PipelineService(QRunnable):
         """
         self._video_file_id = video_file_id
         self._should_stop = False
-        self._is_busy = True
-        logger.info("Starting pipeline for video_file_id=%d", video_file_id)
+        self.start()
 
     def stop(self) -> None:
         """Request the pipeline to stop processing.
@@ -194,7 +192,6 @@ class PipelineService(QRunnable):
                     self._video_file_id,
                 )
                 self.signals.pipeline_finished.emit(self._video_file_id, True)
-                self._is_busy = False
             else:
                 raise RuntimeError("Voiceover generation failed")
 
@@ -205,7 +202,6 @@ class PipelineService(QRunnable):
             self._update_pipeline_state(PipelineState.FAILED)
             self.signals.error_occurred.emit(self._video_file_id, str(e))
             self.signals.pipeline_finished.emit(self._video_file_id, False)
-            self._is_busy = False
 
     def _emit_update(self, state: PipelineState, message: str) -> None:
         """Emit a pipeline update signal.
