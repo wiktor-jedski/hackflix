@@ -27,7 +27,18 @@ def __getattr__(name: str):
         from src.services.player_service import PlayerService
 
         return PlayerService
+    if name == "PipelineService":
+        from src.services.pipeline_service import PipelineService
+
+        return PipelineService
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__all__ = ["MetadataService", "TorrentService", "DownloadType", "DownloadContext", "PlayerService"]
+__all__ = [
+    "MetadataService",
+    "TorrentService",
+    "DownloadType",
+    "DownloadContext",
+    "PlayerService",
+    "PipelineService",
+]

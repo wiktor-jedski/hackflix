@@ -14,12 +14,13 @@ from typing import TYPE_CHECKING, Any
 
 from PyQt5.QtCore import QObject, pyqtSlot
 
-from src.config import DownloadState
+from src.config import DownloadState, PipelineState
 from src.database.db_manager import DatabaseManager
 from src.ui.enums import Action, AppState, MediaTab
 
 if TYPE_CHECKING:
     from src.services.metadata_service import MetadataService
+    from src.services.pipeline_service import PipelineService
     from src.services.player_service import PlayerService
     from src.services.torrent_service import TorrentService
     from src.ui.windows.main_window import MainWindow
@@ -296,6 +297,7 @@ class AppController(QObject):
         self._metadata_service: "MetadataService | None" = None
         self._torrent_service: "TorrentService | None" = None
         self._player_service: "PlayerService | None" = None
+        self._pipeline_service: "PipelineService | None" = None
 
         # State machine
         self._current_state = AppState.LIBRARY_ROOT
@@ -337,6 +339,7 @@ class AppController(QObject):
         metadata_service: "MetadataService | None" = None,
         torrent_service: "TorrentService | None" = None,
         player_service: "PlayerService | None" = None,
+        pipeline_service: "PipelineService | None" = None,
     ) -> None:
         """Bind background services to this controller.
 
@@ -344,10 +347,12 @@ class AppController(QObject):
             metadata_service: Optional MetadataService instance.
             torrent_service: Optional TorrentService instance.
             player_service: Optional PlayerService instance.
+            pipeline_service: Optional PipelineService instance.
         """
         self._metadata_service = metadata_service
         self._torrent_service = torrent_service
         self._player_service = player_service
+        self._pipeline_service = pipeline_service
 
         # Connect service signals
         if metadata_service:
@@ -364,6 +369,13 @@ class AppController(QObject):
             player_service.playback_finished.connect(self._on_playback_finished)
             player_service.time_changed.connect(self._on_time_changed)
             player_service.error_occurred.connect(self._on_player_error)
+
+        if pipeline_service:
+            pipeline_service.signals.pipeline_update.connect(self._on_pipeline_update)
+            pipeline_service.signals.pipeline_finished.connect(
+                self._on_pipeline_finished
+            )
+            pipeline_service.signals.error_occurred.connect(self._on_pipeline_error)
 
         logger.debug("Services bound to controller")
 
@@ -406,7 +418,30 @@ class AppController(QObject):
 
         # Load initial library data
         self.refresh_library()
+
+        # Auto-resume incomplete pipelines
+        self._resume_incomplete_pipelines()
+
         logger.info("AppController bootstrap complete")
+
+    def _resume_incomplete_pipelines(self) -> None:
+        """Resume any incomplete pipeline processes on startup."""
+        if not self._pipeline_service:
+            return
+
+        try:
+            incomplete = self._db_manager.get_incomplete_pipelines()
+            if incomplete:
+                logger.info("Resuming %d incomplete pipelines", len(incomplete))
+                if self._main_window:
+                    self._main_window.show_toast(
+                        f"Resuming {len(incomplete)} incomplete processing tasks",
+                        "info",
+                    )
+                for video in incomplete:
+                    self.start_pipeline(video["id"])
+        except Exception as e:
+            logger.error("Failed to resume incomplete pipelines: %s", e)
 
     def shutdown(self) -> None:
         """Clean shutdown of the controller."""
@@ -849,6 +884,10 @@ class AppController(QObject):
             )
             self._main_window.show_toast("Download completed", "info")
 
+        video = self._db_manager.get_video_file(file_id)
+        if video and video.get("subtitle_id"):
+            self.start_pipeline(file_id)
+
     @pyqtSlot(int, str)
     def _on_download_error(self, file_id: int, error: str) -> None:
         """Handle download error.
@@ -863,6 +902,81 @@ class AppController(QObject):
                 {"state": DownloadState.ERROR.value},
             )
             self._main_window.show_toast(f"Download failed: {error}", "error")
+
+    # =========================================================================
+    # Pipeline
+    # =========================================================================
+
+    def start_pipeline(self, video_file_id: int) -> None:
+        """Start the voiceover pipeline for a video file.
+
+        Args:
+            video_file_id: Database ID of the video file to process.
+        """
+        if not self._pipeline_service:
+            if self._main_window:
+                self._main_window.show_toast("Pipeline service not available", "error")
+            logger.error("PipelineService not bound")
+            return
+
+        if self._pipeline_service.is_busy():
+            if self._main_window:
+                self._main_window.show_toast("Pipeline already in progress", "warning")
+            return
+
+        self._pipeline_service.start_process(video_file_id)
+        logger.info("Pipeline started for video_file_id=%d", video_file_id)
+
+    @pyqtSlot(int, PipelineState, str)
+    def _on_pipeline_update(
+        self, file_id: int, state: PipelineState, message: str
+    ) -> None:
+        """Handle pipeline progress update.
+
+        Args:
+            file_id: Video file ID.
+            state: Pipeline state (PipelineState enum).
+            message: Progress message.
+        """
+        if self._main_window:
+            self._main_window.show_toast(f"Processing: {message}", "info")
+            self._main_window.library_view.update_item(
+                str(file_id), {"pipeline_state": state.value}
+            )
+
+    @pyqtSlot(int, bool)
+    def _on_pipeline_finished(self, file_id: int, success: bool) -> None:
+        """Handle pipeline completion.
+
+        Args:
+            file_id: Video file ID.
+            success: Whether the pipeline completed successfully.
+        """
+        if self._main_window:
+            if success:
+                self._main_window.show_toast("Voiceover ready", "info")
+            else:
+                self._main_window.show_toast("Voiceover generation failed", "error")
+            self._main_window.library_view.update_item(
+                str(file_id),
+                {"pipeline_state": "completed" if success else "failed"},
+            )
+        self.refresh_library()
+
+    @pyqtSlot(int, str)
+    def _on_pipeline_error(self, file_id: int, error: str) -> None:
+        """Handle pipeline error.
+
+        Args:
+            file_id: Video file ID.
+            error: Error message.
+        """
+        logger.error("Pipeline error for file %d: %s", file_id, error)
+        if self._main_window:
+            self._main_window.show_toast(f"Pipeline error: {error}", "error")
+            self._main_window.library_view.update_item(
+                str(file_id), {"pipeline_state": "failed"}
+            )
 
     # =========================================================================
     # Player
