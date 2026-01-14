@@ -759,7 +759,10 @@ class TestAppControllerAdvanced:
         controller.activate_selected()
 
         mock_main_window.show_toast.assert_called_once()
-        assert "Player service not available" in mock_main_window.show_toast.call_args[0][0]
+        assert (
+            "Player service not available"
+            in mock_main_window.show_toast.call_args[0][0]
+        )
 
     def test_activate_selected_pending_movie(
         self, controller: AppController, mock_main_window: MagicMock
@@ -1288,9 +1291,7 @@ class TestAppControllerPlayerMethods:
     # play_media() tests
     # =========================================================================
 
-    def test_play_media_no_main_window(
-        self, controller: AppController
-    ) -> None:
+    def test_play_media_no_main_window(self, controller: AppController) -> None:
         """Test play_media returns early without main window."""
         controller.play_media(1)
         # Should not raise
@@ -1315,9 +1316,7 @@ class TestAppControllerPlayerMethods:
         controller._main_window = mock_main_window
         controller._player_service = mock_player_service
         controller.play_media("nonexistent-uuid")
-        mock_main_window.show_toast.assert_called_with(
-            "Video file not found", "error"
-        )
+        mock_main_window.show_toast.assert_called_with("Video file not found", "error")
 
     def test_play_media_video_file_not_found(
         self,
@@ -1330,9 +1329,7 @@ class TestAppControllerPlayerMethods:
         controller._main_window = mock_main_window
         controller._player_service = mock_player_service
         controller.play_media(99999)
-        mock_main_window.show_toast.assert_called_with(
-            "Video file not found", "error"
-        )
+        mock_main_window.show_toast.assert_called_with("Video file not found", "error")
 
     def test_play_media_video_no_file_path(
         self,
@@ -1343,15 +1340,19 @@ class TestAppControllerPlayerMethods:
     ) -> None:
         """Test play_media when video file has no file_path."""
         # Insert media and video file without file_path
-        db_manager.upsert_content({
-            "items": [{
-                "id": "test-movie",
-                "type": "movie",
-                "title": "Test Movie",
-                "magnet": "magnet:?test",
-                "subtitle_id": None,
-            }]
-        })
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "test-movie",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
         # Get video and verify it has no file_path
         video = db_manager.get_video_details("test-movie")
         controller._main_window = mock_main_window
@@ -1370,15 +1371,19 @@ class TestAppControllerPlayerMethods:
     ) -> None:
         """Test successful play_media without voiceover."""
         # Insert media and video file
-        db_manager.upsert_content({
-            "items": [{
-                "id": "test-movie",
-                "type": "movie",
-                "title": "Test Movie",
-                "magnet": "magnet:?test",
-                "subtitle_id": None,
-            }]
-        })
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "test-movie",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
         video = db_manager.get_video_details("test-movie")
         db_manager.update_file_path(video["id"], "/path/to/video.mp4")
 
@@ -1401,15 +1406,19 @@ class TestAppControllerPlayerMethods:
     ) -> None:
         """Test play_media resumes from saved position."""
         # Insert media and video file with resume position
-        db_manager.upsert_content({
-            "items": [{
-                "id": "test-movie",
-                "type": "movie",
-                "title": "Test Movie",
-                "magnet": "magnet:?test",
-                "subtitle_id": None,
-            }]
-        })
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "test-movie",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
         video = db_manager.get_video_details("test-movie")
         db_manager.update_file_path(video["id"], "/path/to/video.mp4")
         db_manager.update_resume_position(video["id"], 300)
@@ -1420,6 +1429,107 @@ class TestAppControllerPlayerMethods:
 
         mock_player_service.set_position_seconds.assert_called_once_with(300)
 
+    def test_play_media_with_subtitles(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+        db_manager: DatabaseManager,
+    ) -> None:
+        """Test play_media loads subtitles (Polish priority)."""
+        # Insert media and video file
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "test-movie",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
+        video = db_manager.get_video_details("test-movie")
+        db_manager.update_file_path(video["id"], "/path/to/video.mp4")
+        # Add Polish and English subtitles
+        db_manager.add_subtitle(video["id"], "en", "/path/to/en.srt")
+        db_manager.add_subtitle(video["id"], "pl", "/path/to/pl.srt")
+
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller.play_media(video["id"])
+
+        # Should load Polish subtitle (priority over English)
+        mock_player_service.load_subtitle.assert_called_once_with("/path/to/pl.srt")
+
+    def test_play_media_with_english_subtitle(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+        db_manager: DatabaseManager,
+    ) -> None:
+        """Test play_media loads English subtitle when Polish not available."""
+        # Insert media and video file
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "test-movie",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
+        video = db_manager.get_video_details("test-movie")
+        db_manager.update_file_path(video["id"], "/path/to/video.mp4")
+        # Add only English subtitle
+        db_manager.add_subtitle(video["id"], "en", "/path/to/en.srt")
+
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller.play_media(video["id"])
+
+        # Should load English subtitle
+        mock_player_service.load_subtitle.assert_called_once_with("/path/to/en.srt")
+
+    def test_play_media_without_subtitles(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+        db_manager: DatabaseManager,
+    ) -> None:
+        """Test play_media works without subtitles."""
+        # Insert media and video file
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "test-movie",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
+        video = db_manager.get_video_details("test-movie")
+        db_manager.update_file_path(video["id"], "/path/to/video.mp4")
+
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller.play_media(video["id"])
+
+        # Should not call load_subtitle
+        mock_player_service.load_subtitle.assert_not_called()
+
     def test_play_media_file_not_found_error(
         self,
         controller: AppController,
@@ -1428,15 +1538,19 @@ class TestAppControllerPlayerMethods:
         db_manager: DatabaseManager,
     ) -> None:
         """Test play_media handles FileNotFoundError."""
-        db_manager.upsert_content({
-            "items": [{
-                "id": "test-movie",
-                "type": "movie",
-                "title": "Test Movie",
-                "magnet": "magnet:?test",
-                "subtitle_id": None,
-            }]
-        })
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "test-movie",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
         video = db_manager.get_video_details("test-movie")
         db_manager.update_file_path(video["id"], "/path/to/video.mp4")
         mock_player_service.load_video.side_effect = FileNotFoundError("File missing")
@@ -1455,15 +1569,19 @@ class TestAppControllerPlayerMethods:
         db_manager: DatabaseManager,
     ) -> None:
         """Test play_media handles generic exception."""
-        db_manager.upsert_content({
-            "items": [{
-                "id": "test-movie",
-                "type": "movie",
-                "title": "Test Movie",
-                "magnet": "magnet:?test",
-                "subtitle_id": None,
-            }]
-        })
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "test-movie",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
         video = db_manager.get_video_details("test-movie")
         db_manager.update_file_path(video["id"], "/path/to/video.mp4")
         mock_player_service.load_video.side_effect = Exception("VLC error")
@@ -1478,9 +1596,7 @@ class TestAppControllerPlayerMethods:
     # stop_player() tests
     # =========================================================================
 
-    def test_stop_player_no_main_window(
-        self, controller: AppController
-    ) -> None:
+    def test_stop_player_no_main_window(self, controller: AppController) -> None:
         """Test stop_player returns early without main window."""
         controller.stop_player()
         # Should not raise
@@ -1535,15 +1651,19 @@ class TestAppControllerPlayerMethods:
         db_manager: DatabaseManager,
     ) -> None:
         """Test _save_resume_position saves position to database."""
-        db_manager.upsert_content({
-            "items": [{
-                "id": "test-movie",
-                "type": "movie",
-                "title": "Test Movie",
-                "magnet": "magnet:?test",
-                "subtitle_id": None,
-            }]
-        })
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "test-movie",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
         video = db_manager.get_video_details("test-movie")
         db_manager.update_file_path(video["id"], "/path/to/video.mp4")
 
@@ -1587,9 +1707,7 @@ class TestAppControllerPlayerMethods:
     # Player control methods tests
     # =========================================================================
 
-    def test_player_toggle_pause_no_services(
-        self, controller: AppController
-    ) -> None:
+    def test_player_toggle_pause_no_services(self, controller: AppController) -> None:
         """Test player_toggle_pause returns early without services."""
         controller.player_toggle_pause()
         # Should not raise
@@ -1610,9 +1728,7 @@ class TestAppControllerPlayerMethods:
         mock_player_service.toggle_pause.assert_called_once()
         mock_main_window.player_view.show_pause_indicator.assert_called_once_with(True)
 
-    def test_player_seek_forward_no_services(
-        self, controller: AppController
-    ) -> None:
+    def test_player_seek_forward_no_services(self, controller: AppController) -> None:
         """Test player_seek_forward returns early without services."""
         controller.player_seek_forward()
         # Should not raise
@@ -1634,9 +1750,7 @@ class TestAppControllerPlayerMethods:
             forward=True
         )
 
-    def test_player_seek_backward_no_services(
-        self, controller: AppController
-    ) -> None:
+    def test_player_seek_backward_no_services(self, controller: AppController) -> None:
         """Test player_seek_backward returns early without services."""
         controller.player_seek_backward()
         # Should not raise
@@ -1658,9 +1772,7 @@ class TestAppControllerPlayerMethods:
             forward=False
         )
 
-    def test_player_volume_up_no_services(
-        self, controller: AppController
-    ) -> None:
+    def test_player_volume_up_no_services(self, controller: AppController) -> None:
         """Test player_volume_up returns early without services."""
         controller.player_volume_up()
         # Should not raise
@@ -1674,15 +1786,16 @@ class TestAppControllerPlayerMethods:
         """Test player_volume_up changes volume and shows indicator."""
         controller._main_window = mock_main_window
         controller._player_service = mock_player_service
+        mock_player_service.volume_up.return_value = 75
 
         controller.player_volume_up()
 
         mock_player_service.volume_up.assert_called_once()
-        mock_main_window.player_view.show_volume_indicator.assert_called_once()
+        mock_main_window.player_view.show_volume_indicator.assert_called_once_with(
+            75, is_muted=False
+        )
 
-    def test_player_volume_down_no_services(
-        self, controller: AppController
-    ) -> None:
+    def test_player_volume_down_no_services(self, controller: AppController) -> None:
         """Test player_volume_down returns early without services."""
         controller.player_volume_down()
         # Should not raise
@@ -1696,15 +1809,16 @@ class TestAppControllerPlayerMethods:
         """Test player_volume_down changes volume and shows indicator."""
         controller._main_window = mock_main_window
         controller._player_service = mock_player_service
+        mock_player_service.volume_down.return_value = 45
 
         controller.player_volume_down()
 
         mock_player_service.volume_down.assert_called_once()
-        mock_main_window.player_view.show_volume_indicator.assert_called_once()
+        mock_main_window.player_view.show_volume_indicator.assert_called_once_with(
+            45, is_muted=False
+        )
 
-    def test_player_toggle_mute_no_services(
-        self, controller: AppController
-    ) -> None:
+    def test_player_toggle_mute_no_services(self, controller: AppController) -> None:
         """Test player_toggle_mute returns early without services."""
         controller.player_toggle_mute()
         # Should not raise
@@ -1718,6 +1832,7 @@ class TestAppControllerPlayerMethods:
         """Test player_toggle_mute toggles mute and shows indicator."""
         controller._main_window = mock_main_window
         controller._player_service = mock_player_service
+        mock_player_service.toggle_mute.return_value = (0, True)
 
         controller.player_toggle_mute()
 
@@ -1726,9 +1841,7 @@ class TestAppControllerPlayerMethods:
             0, is_muted=True
         )
 
-    def test_player_cycle_audio_no_services(
-        self, controller: AppController
-    ) -> None:
+    def test_player_cycle_audio_no_services(self, controller: AppController) -> None:
         """Test player_cycle_audio returns early without services."""
         controller.player_cycle_audio()
         # Should not raise
@@ -1778,15 +1891,19 @@ class TestAppControllerPlayerMethods:
         db_manager: DatabaseManager,
     ) -> None:
         """Test _on_playback_finished clears resume and stops player."""
-        db_manager.upsert_content({
-            "items": [{
-                "id": "test-movie",
-                "type": "movie",
-                "title": "Test Movie",
-                "magnet": "magnet:?test",
-                "subtitle_id": None,
-            }]
-        })
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "test-movie",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
         video = db_manager.get_video_details("test-movie")
         db_manager.update_file_path(video["id"], "/path/to/video.mp4")
         db_manager.update_resume_position(video["id"], 300)
@@ -1817,9 +1934,7 @@ class TestAppControllerPlayerMethods:
         # Should not raise
         controller._on_playback_finished()
 
-    def test_on_time_changed(
-        self, controller: AppController
-    ) -> None:
+    def test_on_time_changed(self, controller: AppController) -> None:
         """Test _on_time_changed does nothing (placeholder)."""
         # Should not raise
         controller._on_time_changed(5000, 120000)
@@ -1839,9 +1954,7 @@ class TestAppControllerPlayerMethods:
         mock_main_window.show_toast.assert_called_once()
         assert "VLC crashed" in mock_main_window.show_toast.call_args[0][0]
 
-    def test_on_player_error_no_main_window(
-        self, controller: AppController
-    ) -> None:
+    def test_on_player_error_no_main_window(self, controller: AppController) -> None:
         """Test _on_player_error without main window."""
         controller._on_player_error("error")
         # Should not raise

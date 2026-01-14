@@ -163,9 +163,7 @@ class TestPlayerServiceLoadVideo:
     """Tests for PlayerService.load_video() method."""
 
     @pytest.fixture
-    def initialized_service(
-        self, mock_vlc_module: mock.MagicMock
-    ) -> Any:
+    def initialized_service(self, mock_vlc_module: mock.MagicMock) -> Any:
         """Create an initialized PlayerService."""
         from src.services.player_service import PlayerService
 
@@ -236,7 +234,9 @@ class TestPlayerServiceLoadVideo:
     ) -> None:
         """Test video loading failure when file doesn't exist."""
         error_received = []
-        initialized_service.error_occurred.connect(lambda msg: error_received.append(msg))
+        initialized_service.error_occurred.connect(
+            lambda msg: error_received.append(msg)
+        )
 
         with pytest.raises(FileNotFoundError):
             initialized_service.load_video("/nonexistent/video.mp4")
@@ -266,9 +266,7 @@ class TestPlayerServicePlaybackControls:
     """Tests for playback control methods."""
 
     @pytest.fixture
-    def playing_service(
-        self, mock_vlc_module: mock.MagicMock
-    ) -> Any:
+    def playing_service(self, mock_vlc_module: mock.MagicMock) -> Any:
         """Create an initialized PlayerService with mock player."""
         from src.services.player_service import PlayerService
 
@@ -460,9 +458,7 @@ class TestPlayerServiceAudioControls:
     """Tests for audio control methods."""
 
     @pytest.fixture
-    def playing_service(
-        self, mock_vlc_module: mock.MagicMock
-    ) -> Any:
+    def playing_service(self, mock_vlc_module: mock.MagicMock) -> Any:
         """Create an initialized PlayerService with mock player."""
         from src.services.player_service import PlayerService
 
@@ -478,8 +474,9 @@ class TestPlayerServiceAudioControls:
         """Test volume increase."""
         mock_vlc_module._mock_player.audio_get_volume.return_value = 50
 
-        playing_service.volume_up()
+        new_volume = playing_service.volume_up()
 
+        assert new_volume == 55
         mock_vlc_module._mock_player.audio_set_volume.assert_called_once_with(55)
 
     def test_volume_up_clamps_to_100(
@@ -490,8 +487,9 @@ class TestPlayerServiceAudioControls:
         """Test volume increase clamps at 100."""
         mock_vlc_module._mock_player.audio_get_volume.return_value = 98
 
-        playing_service.volume_up()
+        new_volume = playing_service.volume_up()
 
+        assert new_volume == 100
         mock_vlc_module._mock_player.audio_set_volume.assert_called_once_with(100)
 
     def test_volume_down(
@@ -502,8 +500,9 @@ class TestPlayerServiceAudioControls:
         """Test volume decrease."""
         mock_vlc_module._mock_player.audio_get_volume.return_value = 50
 
-        playing_service.volume_down()
+        new_volume = playing_service.volume_down()
 
+        assert new_volume == 45
         mock_vlc_module._mock_player.audio_set_volume.assert_called_once_with(45)
 
     def test_volume_down_clamps_to_zero(
@@ -514,8 +513,9 @@ class TestPlayerServiceAudioControls:
         """Test volume decrease clamps at 0."""
         mock_vlc_module._mock_player.audio_get_volume.return_value = 3
 
-        playing_service.volume_down()
+        new_volume = playing_service.volume_down()
 
+        assert new_volume == 0
         mock_vlc_module._mock_player.audio_set_volume.assert_called_once_with(0)
 
     def test_volume_up_not_initialized(
@@ -526,7 +526,8 @@ class TestPlayerServiceAudioControls:
         from src.services.player_service import PlayerService
 
         service = PlayerService()
-        service.volume_up()  # Should not raise
+        new_volume = service.volume_up()
+        assert new_volume == 0
 
     def test_volume_down_not_initialized(
         self,
@@ -536,7 +537,8 @@ class TestPlayerServiceAudioControls:
         from src.services.player_service import PlayerService
 
         service = PlayerService()
-        service.volume_down()  # Should not raise
+        new_volume = service.volume_down()
+        assert new_volume == 0
 
     def test_toggle_mute(
         self,
@@ -547,8 +549,10 @@ class TestPlayerServiceAudioControls:
         mock_vlc_module._mock_player.audio_get_volume.return_value = 75
 
         # Mute
-        playing_service.toggle_mute()
+        volume, is_muted = playing_service.toggle_mute()
 
+        assert volume == 0
+        assert is_muted is True
         assert playing_service._is_muted is True
         assert playing_service._pre_mute_volume == 75
         mock_vlc_module._mock_player.audio_set_volume.assert_called_with(0)
@@ -562,8 +566,10 @@ class TestPlayerServiceAudioControls:
         playing_service._is_muted = True
         playing_service._pre_mute_volume = 75
 
-        playing_service.toggle_mute()
+        volume, is_muted = playing_service.toggle_mute()
 
+        assert volume == 75
+        assert is_muted is False
         assert playing_service._is_muted is False
         mock_vlc_module._mock_player.audio_set_volume.assert_called_with(75)
 
@@ -575,16 +581,16 @@ class TestPlayerServiceAudioControls:
         from src.services.player_service import PlayerService
 
         service = PlayerService()
-        service.toggle_mute()  # Should not raise
+        volume, is_muted = service.toggle_mute()
+        assert volume == 0
+        assert is_muted is False
 
 
 class TestPlayerServiceAudioTracks:
     """Tests for audio track methods."""
 
     @pytest.fixture
-    def playing_service(
-        self, mock_vlc_module: mock.MagicMock
-    ) -> Any:
+    def playing_service(self, mock_vlc_module: mock.MagicMock) -> Any:
         """Create an initialized PlayerService with mock player."""
         from src.services.player_service import PlayerService
 
@@ -732,13 +738,60 @@ class TestPlayerServiceAudioTracks:
         assert track is None
 
 
+class TestPlayerServiceSubtitles:
+    """Tests for subtitle methods."""
+
+    @pytest.fixture
+    def playing_service(self, mock_vlc_module: mock.MagicMock) -> Any:
+        """Create an initialized PlayerService with mock player."""
+        from src.services.player_service import PlayerService
+
+        service = PlayerService()
+        service.initialize(12345)
+        return service
+
+    def test_load_subtitle(
+        self,
+        mock_vlc_module: mock.MagicMock,
+        playing_service: Any,
+        tmp_path: Path,
+    ) -> None:
+        """Test loading a subtitle file."""
+        subtitle_file = tmp_path / "test.srt"
+        subtitle_file.touch()
+
+        playing_service.load_subtitle(str(subtitle_file))
+
+        mock_vlc_module._mock_player.video_set_subtitle_file.assert_called_once_with(
+            str(subtitle_file)
+        )
+
+    def test_load_subtitle_not_found(
+        self,
+        mock_vlc_module: mock.MagicMock,
+        playing_service: Any,
+    ) -> None:
+        """Test loading a non-existent subtitle file."""
+        playing_service.load_subtitle("/nonexistent/subtitle.srt")
+
+        mock_vlc_module._mock_player.video_set_subtitle_file.assert_not_called()
+
+    def test_load_subtitle_not_initialized(
+        self,
+        mock_vlc_module: mock.MagicMock,
+    ) -> None:
+        """Test load_subtitle when not initialized."""
+        from src.services.player_service import PlayerService
+
+        service = PlayerService()
+        service.load_subtitle("/some/subtitle.srt")  # Should not raise
+
+
 class TestPlayerServiceStateAndRelease:
     """Tests for state checking and resource release."""
 
     @pytest.fixture
-    def playing_service(
-        self, mock_vlc_module: mock.MagicMock
-    ) -> Any:
+    def playing_service(self, mock_vlc_module: mock.MagicMock) -> Any:
         """Create an initialized PlayerService with mock player."""
         from src.services.player_service import PlayerService
 
@@ -826,9 +879,7 @@ class TestPlayerServiceEvents:
     """Tests for event handling and signals."""
 
     @pytest.fixture
-    def playing_service(
-        self, mock_vlc_module: mock.MagicMock
-    ) -> Any:
+    def playing_service(self, mock_vlc_module: mock.MagicMock) -> Any:
         """Create an initialized PlayerService with mock player."""
         from src.services.player_service import PlayerService
 

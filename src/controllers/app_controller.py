@@ -912,6 +912,17 @@ class AppController(QObject):
         voiceover = self._db_manager.get_voiceover(video_file_id)
         voiceover_path = voiceover.get("file_path") if voiceover else None
 
+        # Check for subtitles (prefer Polish, fallback to English)
+        subtitles = self._db_manager.get_subtitles(video_file_id)
+        subtitle_path = None
+        for lang_code in ["pl", "en"]:
+            for sub in subtitles:
+                if sub.get("language_code") == lang_code:
+                    subtitle_path = sub.get("file_path")
+                    break
+            if subtitle_path:
+                break
+
         # Store current file ID for resume position saving
         self._current_playing_file_id = video_file_id
 
@@ -929,6 +940,10 @@ class AppController(QObject):
 
             # Load and start playback
             self._player_service.load_video(file_path, voiceover_path)
+
+            # Load subtitle if available
+            if subtitle_path:
+                self._player_service.load_subtitle(subtitle_path)
 
             # Resume from saved position if available
             resume_position = video.get("resume_position_seconds", 0)
@@ -1023,27 +1038,24 @@ class AppController(QObject):
         if not self._player_service or not self._main_window:
             return
 
-        self._player_service.volume_up()
-        # Note: We don't have direct access to volume level, so we show a generic indicator
-        # In a full implementation, PlayerService would expose current volume
-        self._main_window.player_view.show_volume_indicator(100, is_muted=False)
+        new_volume = self._player_service.volume_up()
+        self._main_window.player_view.show_volume_indicator(new_volume, is_muted=False)
 
     def player_volume_down(self) -> None:
         """Decrease playback volume."""
         if not self._player_service or not self._main_window:
             return
 
-        self._player_service.volume_down()
-        self._main_window.player_view.show_volume_indicator(50, is_muted=False)
+        new_volume = self._player_service.volume_down()
+        self._main_window.player_view.show_volume_indicator(new_volume, is_muted=False)
 
     def player_toggle_mute(self) -> None:
         """Toggle audio mute state."""
         if not self._player_service or not self._main_window:
             return
 
-        self._player_service.toggle_mute()
-        # Assume muted after toggle - PlayerService could expose this state
-        self._main_window.player_view.show_volume_indicator(0, is_muted=True)
+        volume, is_muted = self._player_service.toggle_mute()
+        self._main_window.player_view.show_volume_indicator(volume, is_muted=is_muted)
 
     def player_cycle_audio(self) -> None:
         """Cycle through available audio tracks."""

@@ -116,9 +116,7 @@ class PlayerService(QObject):
             self.error_occurred.emit(f"VLC initialization failed: {e}")
             raise
 
-    def load_video(
-        self, file_path: str, voiceover_path: str | None = None
-    ) -> None:
+    def load_video(self, file_path: str, voiceover_path: str | None = None) -> None:
         """Load a video file with optional external audio track.
 
         Args:
@@ -173,6 +171,27 @@ class PlayerService(QObject):
             logger.error("Failed to load video: %s", e)
             self.error_occurred.emit(f"Failed to load video: {e}")
             raise
+
+    def load_subtitle(self, path: str) -> None:
+        """Load a subtitle file.
+
+        Args:
+            path: Path to the subtitle file (SRT format).
+        """
+        if not self._player:
+            logger.error("Player not initialized")
+            return
+
+        subtitle_file = Path(path)
+        if not subtitle_file.exists():
+            logger.warning("Subtitle file not found: %s", path)
+            return
+
+        try:
+            self._player.video_set_subtitle_file(path)
+            logger.info("Loaded subtitle file: %s", path)
+        except Exception as e:
+            logger.error("Failed to load subtitle: %s", e)
 
     def toggle_pause(self) -> None:
         """Toggle pause state of playback."""
@@ -241,44 +260,60 @@ class PlayerService(QObject):
         self._player.set_time(time_ms)
         logger.debug("Set position to %d seconds", seconds)
 
-    def volume_up(self) -> None:
-        """Increase volume by configured step."""
+    def volume_up(self) -> int:
+        """Increase volume by configured step.
+
+        Returns:
+            The new volume level (0-100).
+        """
         if not self._player:
-            return
+            return 0
 
         current = self._player.audio_get_volume()
         new_volume = min(100, current + self._volume_step)
         self._player.audio_set_volume(new_volume)
         self._is_muted = False
         logger.debug("Volume up: %d -> %d", current, new_volume)
+        return new_volume
 
-    def volume_down(self) -> None:
-        """Decrease volume by configured step."""
+    def volume_down(self) -> int:
+        """Decrease volume by configured step.
+
+        Returns:
+            The new volume level (0-100).
+        """
         if not self._player:
-            return
+            return 0
 
         current = self._player.audio_get_volume()
         new_volume = max(0, current - self._volume_step)
         self._player.audio_set_volume(new_volume)
         self._is_muted = new_volume == 0
         logger.debug("Volume down: %d -> %d", current, new_volume)
+        return new_volume
 
-    def toggle_mute(self) -> None:
-        """Toggle audio mute state."""
+    def toggle_mute(self) -> tuple[int, bool]:
+        """Toggle audio mute state.
+
+        Returns:
+            Tuple of (current_volume, is_muted).
+        """
         if not self._player:
-            return
+            return (0, False)
 
         if self._is_muted:
             # Unmute - restore previous volume
             self._player.audio_set_volume(self._pre_mute_volume)
             self._is_muted = False
             logger.debug("Unmuted, volume restored to %d", self._pre_mute_volume)
+            return (self._pre_mute_volume, False)
         else:
             # Mute - save current volume and set to 0
             self._pre_mute_volume = self._player.audio_get_volume()
             self._player.audio_set_volume(0)
             self._is_muted = True
             logger.debug("Muted, saved volume %d", self._pre_mute_volume)
+            return (0, True)
 
     def get_audio_tracks(self) -> list[dict[str, Any]]:
         """Get list of available audio tracks.
@@ -298,11 +333,15 @@ class PlayerService(QObject):
                 # Skip "Disable" track (id = -1)
                 if track_id == -1:
                     continue
-                tracks.append({
-                    "id": track_id,
-                    "name": track_name.decode("utf-8") if isinstance(track_name, bytes) else track_name,
-                    "is_current": track_id == current_track_id,
-                })
+                tracks.append(
+                    {
+                        "id": track_id,
+                        "name": track_name.decode("utf-8")
+                        if isinstance(track_name, bytes)
+                        else track_name,
+                        "is_current": track_id == current_track_id,
+                    }
+                )
 
         return tracks
 
