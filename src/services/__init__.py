@@ -23,7 +23,11 @@ def __getattr__(name: str):
         from src.services.torrent_service import DownloadContext
 
         return DownloadContext
+    if name == "PlayerService":
+        from src.services.player_service import PlayerService
+
+        return PlayerService
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__all__ = ["MetadataService", "TorrentService", "DownloadType", "DownloadContext"]
+__all__ = ["MetadataService", "TorrentService", "DownloadType", "DownloadContext", "PlayerService"]

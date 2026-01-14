@@ -131,6 +131,11 @@ TRANSLATION_BATCH_SIZE = 30
 # Torrent Configuration
 TORRENT_POLL_INTERVAL_MS = 2000
 
+# Player Configuration
+PLAYER_VOLUME_STEP: int = 5
+PLAYER_SEEK_SECONDS: int = 10
+PLAYER_TIME_UPDATE_INTERVAL_MS: int = 500
+
 # Logging Configuration
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
