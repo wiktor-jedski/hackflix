@@ -130,29 +130,72 @@ class TestSetupTranslationsWithFile:
 
     def test_loads_valid_translation_file(self, qtbot, tmp_path: Path) -> None:
         """Test that a valid .qm file is loaded successfully."""
-        # Create a dummy .qm file (Qt Linguist binary format header)
-        # A minimal valid .qm file starts with specific magic bytes
-        qm_file = tmp_path / "hackflix_pl.qm"
-        # Write minimal .qm file header (Qt message file format)
-        # This is the minimal valid header for Qt to accept the file
-        qm_file.write_bytes(
-            b'\x3c\xb8\x64\x18\xff\xff\xff\xff\x08\x00\x00\x00\x00'
-        )
+        from unittest.mock import MagicMock, patch
+        from PyQt5.QtCore import QTranslator
+        import src.utils.i18n as i18n_module
 
         app = QApplication.instance()
-        # Even with a minimal file, QTranslator.load may return False
-        # if the format isn't exactly right, but we exercise the code path
-        result = setup_translations(app, "pl", tmp_path)
-        # Result depends on whether Qt accepts our minimal file
-        assert isinstance(result, bool)
 
-    def test_translation_file_exists_but_fails_load(self, qtbot, tmp_path: Path) -> None:
+        i18n_module._translator = None
+
+        mock_translator = MagicMock(spec=QTranslator)
+        mock_translator.load.return_value = True
+
+        with patch.object(i18n_module, "QTranslator", return_value=mock_translator):
+            with patch.object(app, "installTranslator") as mock_install:
+                qm_file = tmp_path / "hackflix_pl.qm"
+                qm_file.touch()
+
+                result = setup_translations(app, "pl", tmp_path)
+
+                assert result is True
+                mock_translator.load.assert_called_once()
+                mock_translator.load.assert_called_with(str(qm_file))
+                mock_install.assert_called_once_with(mock_translator)
+
+    def test_translation_file_exists_but_fails_load(
+        self, qtbot, tmp_path: Path
+    ) -> None:
         """Test behavior when translation file exists but fails to load."""
-        # Create an invalid .qm file (wrong format)
-        qm_file = tmp_path / "hackflix_test.qm"
-        qm_file.write_text("invalid content")
+        from unittest.mock import MagicMock, patch
+        from PyQt5.QtCore import QTranslator
+        import src.utils.i18n as i18n_module
 
         app = QApplication.instance()
-        result = setup_translations(app, "test", tmp_path)
-        # Should return False because file exists but can't be loaded
-        assert result is False
+
+        i18n_module._translator = None
+
+        mock_translator = MagicMock(spec=QTranslator)
+        mock_translator.load.return_value = False
+
+        with patch.object(i18n_module, "QTranslator", return_value=mock_translator):
+            qm_file = tmp_path / "hackflix_test.qm"
+            qm_file.touch()
+
+            result = setup_translations(app, "test", tmp_path)
+
+            assert result is False
+            mock_translator.load.assert_called_once()
+
+    def test_logs_warning_when_load_fails(self, qtbot, tmp_path: Path, caplog) -> None:
+        """Test that warning is logged when load fails."""
+        from unittest.mock import MagicMock, patch
+        from PyQt5.QtCore import QTranslator
+        import src.utils.i18n as i18n_module
+
+        app = QApplication.instance()
+
+        i18n_module._translator = None
+
+        mock_translator = MagicMock(spec=QTranslator)
+        mock_translator.load.return_value = False
+
+        with patch.object(i18n_module, "QTranslator", return_value=mock_translator):
+            qm_file = tmp_path / "hackflix_test.qm"
+            qm_file.touch()
+
+            with caplog.at_level("WARNING"):
+                result = setup_translations(app, "test", tmp_path)
+
+            assert result is False
+            assert "Failed to load translation file" in caplog.text

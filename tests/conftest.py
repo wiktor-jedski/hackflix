@@ -14,7 +14,9 @@ from src.database.db_manager import DatabaseManager
 
 
 @pytest.fixture
-def mock_db_manager(db_manager: DatabaseManager, sample_content_json: dict) -> DatabaseManager:
+def mock_db_manager(
+    db_manager: DatabaseManager, sample_content_json: dict
+) -> DatabaseManager:
     """Create a DatabaseManager with sample content loaded.
 
     Args:

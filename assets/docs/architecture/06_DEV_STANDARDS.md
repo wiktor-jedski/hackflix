@@ -121,10 +121,20 @@ When the coding agent begins, it should follow this sequence to avoid circular d
 2.  **Phase 2: Services** -> Implement `MetadataService` (Sync) and `TorrentService` (embedded libtorrent) logic *without* UI.
 3.  **Phase 3: Core UI** -> Build `MainWindow` and `InputManager`. Connect them to dummy data. Add i18n support (external .qm files).
 4.  **Phase 4: Player Integration** -> Implement `PlayerService` (VLC) and connect to `PlayerView`.
-5.  **Phase 5: Pipeline** -> Implement the AI Subtitle/Voiceover pipeline with full lector mode.
+5.  **Phase 5: Pipeline** -> Implement the AI Subtitle/Voiceover pipeline with full lector mode. **(COMPLETED Jan 2026)**
+    *   Subtitle parser utility for SRT parsing/writing with sound effect detection
+    *   Audio processor utility for extraction, ducking, stretching, and mixing
+    *   OpenSubtitles API client for subtitle downloads
+    *   Gemini API client for batch translation with resumable progress tracking
+    *   Edge-TTS client for Polish voice synthesis (pl-PL-MarekNeural)
+    *   PipelineService orchestration with state machine (FETCHING_SUBS -> TRANSLATING -> GENERATING_TTS -> MIXING_AUDIO -> VOICEOVER_READY)
+    *   Full lector mode with dynamic ducking (20% reduction, 100ms/500ms fades)
+    *   10-minute chunk processing for Pi 5 memory optimization
+    *   Auto-resume incomplete pipelines on startup
+    *   LibraryView status indicators for pipeline states
 
 **Startup Requirements:**
-*   Application must **fail fast** if required dependencies (VLC, libtorrent) are missing.
+*   Application must **fail fast** if required dependencies (VLC, libtorrent, FFmpeg) are missing.
 *   On startup, **auto-resume** all incomplete downloads and pipeline processing.
 *   No autostart built-in - user configures manually.
 

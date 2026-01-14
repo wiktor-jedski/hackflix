@@ -490,6 +490,148 @@ class TestAppControllerAdvanced:
         mock_torrent.download_completed.connect.assert_called_once()
         mock_torrent.download_error.connect.assert_called_once()
 
+    def test_bind_services_with_pipeline_service(
+        self, controller: AppController
+    ) -> None:
+        """Test binding pipeline service."""
+        mock_pipeline = MagicMock()
+        controller.bind_services(pipeline_service=mock_pipeline)
+        assert controller._pipeline_service == mock_pipeline
+        mock_pipeline.signals.pipeline_update.connect.assert_called_once()
+        mock_pipeline.signals.pipeline_finished.connect.assert_called_once()
+        mock_pipeline.signals.error_occurred.connect.assert_called_once()
+
+    def test_start_pipeline_calls_service(self, controller: AppController) -> None:
+        """Test start_pipeline dispatches to pipeline service."""
+        mock_pipeline = MagicMock()
+        mock_pipeline.is_busy.return_value = False
+        controller._pipeline_service = mock_pipeline
+
+        controller.start_pipeline(video_file_id=42)
+
+        mock_pipeline.start_process.assert_called_once_with(42)
+
+    def test_start_pipeline_without_service(self, controller: AppController) -> None:
+        """Test start_pipeline does nothing when service not bound."""
+        controller._pipeline_service = None
+        controller.start_pipeline(video_file_id=42)
+
+    def test_bootstrap_calls_get_incomplete_pipelines(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test bootstrap retrieves incomplete pipelines from database."""
+        controller._main_window = mock_main_window
+        mock_pipeline = MagicMock()
+        mock_pipeline.is_busy.return_value = False
+        controller._pipeline_service = mock_pipeline
+        controller._db_manager.get_incomplete_pipelines = MagicMock(
+            return_value=[
+                {"id": 1, "file_path": "/video1.mp4"},
+                {"id": 2, "file_path": "/video2.mp4"},
+            ]
+        )
+
+        controller.bootstrap()
+
+        controller._db_manager.get_incomplete_pipelines.assert_called_once()
+        mock_pipeline.start_process.assert_any_call(1)
+        mock_pipeline.start_process.assert_any_call(2)
+        assert mock_pipeline.start_process.call_count == 2
+
+    def test_bootstrap_handles_no_incomplete_pipelines(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test bootstrap handles empty incomplete pipelines list."""
+        controller._main_window = mock_main_window
+        mock_pipeline = MagicMock()
+        controller._pipeline_service = mock_pipeline
+        controller._db_manager.get_incomplete_pipelines = MagicMock(return_value=[])
+
+        controller.bootstrap()
+
+        controller._db_manager.get_incomplete_pipelines.assert_called_once()
+        mock_pipeline.start_process.assert_not_called()
+
+    def test_on_download_completed_triggers_pipeline(
+        self, controller: AppController
+    ) -> None:
+        """Test download completion triggers pipeline for video with subtitle_id."""
+        mock_pipeline = MagicMock()
+        mock_pipeline.is_busy.return_value = False
+        controller._pipeline_service = mock_pipeline
+        controller._db_manager.get_video_file = MagicMock(
+            return_value={
+                "id": 1,
+                "subtitle_id": 12345,
+                "needs_translation": True,
+                "pipeline_state": "NONE",
+            }
+        )
+
+        controller._on_download_completed(file_id=1, path="/video.mp4")
+
+        mock_pipeline.start_process.assert_called_once_with(1)
+
+    def test_on_download_completed_skips_without_subtitle(
+        self, controller: AppController
+    ) -> None:
+        """Test download completion skips pipeline when subtitle_id is null."""
+        mock_pipeline = MagicMock()
+        controller._pipeline_service = mock_pipeline
+        controller._db_manager.get_video_file = MagicMock(
+            return_value={
+                "id": 1,
+                "subtitle_id": None,
+                "needs_translation": False,
+                "pipeline_state": "NONE",
+            }
+        )
+
+        controller._on_download_completed(file_id=1, path="/video.mp4")
+
+        mock_pipeline.start_process.assert_not_called()
+
+    def test_on_pipeline_error_shows_toast(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test pipeline error displays toast notification."""
+        controller._main_window = mock_main_window
+
+        controller._on_pipeline_error(file_id=42, error="Translation failed")
+
+        mock_main_window.show_toast.assert_called_once()
+        call_args = mock_main_window.show_toast.call_args
+        assert "Translation failed" in call_args[0][0]
+        assert call_args[0][1] == "error"
+
+    def test_on_pipeline_finished_updates_ui(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test pipeline completion refreshes library view."""
+        controller._main_window = mock_main_window
+
+        controller._on_pipeline_finished(file_id=42, success=True)
+
+        mock_main_window.library_view.set_items.assert_called()
+
+    def test_bind_services_preserves_existing_services(
+        self, controller: AppController
+    ) -> None:
+        """Test binding one service doesn't unbind others."""
+        mock_metadata = MagicMock()
+        mock_torrent = MagicMock()
+        mock_pipeline = MagicMock()
+
+        controller.bind_services(
+            metadata_service=mock_metadata,
+            torrent_service=mock_torrent,
+            pipeline_service=mock_pipeline,
+        )
+
+        assert controller._metadata_service == mock_metadata
+        assert controller._torrent_service == mock_torrent
+        assert controller._pipeline_service == mock_pipeline
+
     def test_bootstrap_without_main_window(self, controller: AppController) -> None:
         """Test bootstrap without main window bound."""
         # Should not raise, just skip window operations

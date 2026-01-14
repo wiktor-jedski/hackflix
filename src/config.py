@@ -32,7 +32,7 @@ MEDIA_LIBRARY_PATH = Path(
 
 def ensure_directories() -> None:
     """Create all required directories if they don't exist."""
-    for directory in [CONFIG_DIR, LOG_DIR, CACHE_DIR, TORRENT_STATE_DIR]:
+    for directory in [CONFIG_DIR, LOG_DIR, CACHE_DIR, TORRENT_STATE_DIR, TTS_TEMP_DIR]:
         directory.mkdir(parents=True, exist_ok=True)
 
 
@@ -127,6 +127,11 @@ TOAST_TIMEOUT_MS = 5000
 
 # Translation Configuration
 TRANSLATION_BATCH_SIZE = 30
+
+# Pipeline Configuration
+PIPELINE_CHUNK_DURATION_MINUTES = 10
+TTS_TEMP_DIR = CACHE_DIR / "tts"
+VOICEOVER_PATH_TEMPLATE = "{video_folder}/voiceover_pl.wav"
 
 # Torrent Configuration
 TORRENT_POLL_INTERVAL_MS = 2000

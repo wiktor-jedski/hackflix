@@ -5,6 +5,7 @@ Entry point for the application.
 
 import logging
 import os
+import subprocess
 import sys
 
 from PyQt5.QtWidgets import QApplication
@@ -47,6 +48,21 @@ def check_dependencies() -> bool:
     except ImportError:
         missing.append("libtorrent")
 
+    # Check for FFmpeg
+    try:
+        subprocess.run(
+            ["ffmpeg", "-version"],
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
+        missing.append("ffmpeg")
+
     if missing:
         logger.error("Missing required dependencies: %s", ", ".join(missing))
         return False
@@ -80,7 +96,7 @@ def main() -> int:
     if not check_dependencies():
         logger.error(
             "Required system dependencies are missing. "
-            "Please install VLC and libtorrent."
+            "Please install VLC, libtorrent, and FFmpeg."
         )
         return 1
 

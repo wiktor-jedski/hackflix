@@ -18,12 +18,20 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch, call
+import sys
 
 import pytest
 from PyQt5.QtCore import QObject
 
 from src.config import PipelineState
 from src.services.pipeline_service import PipelineService, PipelineSignals
+
+
+@pytest.fixture(autouse=True)
+def mock_pipeline_service_logger():
+    """Mock the pipeline_service logger to avoid format string issues with None values."""
+    with patch("src.services.pipeline_service.logger") as mock_logger:
+        yield mock_logger
 
 
 @pytest.fixture
@@ -361,3 +369,778 @@ class TestPipelineServiceDatabasePersistence:
         mock_db_manager.update_pipeline_state.assert_called_with(
             file_id, PipelineState.VOICEOVER_READY
         )
+
+
+class TestPipelineServiceFetchSubtitlesIntegration:
+    """Integration tests for _fetch_subtitles method."""
+
+    def test_fetch_subtitles_success(self, pipeline_service, mock_db_manager, tmp_path):
+        """Verify _fetch_subtitles downloads and records subtitles."""
+        from unittest.mock import MagicMock, patch
+
+        video_folder = tmp_path
+        subtitle_id = 12345
+        pipeline_service._video_file_id = 1
+
+        mock_client = MagicMock()
+        mock_client.download_subtitle = MagicMock()
+
+        with patch(
+            "src.utils.opensubtitles_client.OpenSubtitlesClient",
+            return_value=mock_client,
+        ):
+            result = pipeline_service._fetch_subtitles(subtitle_id, video_folder)
+
+        mock_client.download_subtitle.assert_called_once_with(
+            subtitle_id, video_folder / "original.srt"
+        )
+        mock_db_manager.add_subtitle.assert_called_once()
+        assert result == video_folder / "original.srt"
+
+    def test_fetch_subtitles_updates_state(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _fetch_subtitles updates state to FETCHING_SUBS."""
+        from unittest.mock import MagicMock, patch
+
+        video_folder = tmp_path
+        subtitle_id = 12345
+        pipeline_service._video_file_id = 1
+
+        mock_client = MagicMock()
+        mock_client.download_subtitle = MagicMock()
+
+        with patch(
+            "src.utils.opensubtitles_client.OpenSubtitlesClient",
+            return_value=mock_client,
+        ):
+            pipeline_service._fetch_subtitles(subtitle_id, video_folder)
+
+        assert pipeline_service._current_state == PipelineState.FETCHING_SUBS
+
+    def test_fetch_subtitles_handles_api_error(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _fetch_subtitles propagates API errors."""
+        from unittest.mock import MagicMock, patch
+
+        video_folder = tmp_path
+        subtitle_id = 12345
+        pipeline_service._video_file_id = 1
+
+        mock_client = MagicMock()
+        mock_client.download_subtitle.side_effect = Exception("API rate limit")
+
+        with patch(
+            "src.utils.opensubtitles_client.OpenSubtitlesClient",
+            return_value=mock_client,
+        ):
+            with pytest.raises(Exception) as exc_info:
+                pipeline_service._fetch_subtitles(subtitle_id, video_folder)
+
+        assert "API rate limit" in str(exc_info.value)
+
+
+class TestPipelineServiceTranslateSubtitlesIntegration:
+    """Integration tests for _translate_subtitles method."""
+
+    def test_translate_subtitles_success(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _translate_subtitles processes and saves translation."""
+        from unittest.mock import MagicMock, patch
+        from src.utils.subtitle_parser import SubtitleLine
+
+        video_folder = tmp_path
+        video_file_id = 1
+        pipeline_service._video_file_id = video_file_id
+
+        original_srt = video_folder / "original.srt"
+        original_srt.write_text("1\n00:00:01,000 --> 00:00:04,000\nHello world\n")
+
+        mock_translator = MagicMock()
+        mock_translator.translate_batch.return_value = [
+            SubtitleLine(
+                index=1,
+                start_ms=1000,
+                end_ms=4000,
+                text_source="Hello world",
+                text_translated="Witaj świecie",
+                is_sound_effect=False,
+            )
+        ]
+
+        with patch(
+            "src.utils.gemini_client.GeminiTranslator",
+            return_value=mock_translator,
+        ):
+            result = pipeline_service._translate_subtitles(video_folder, video_file_id)
+
+        assert len(result) == 1
+        assert result[0].text_translated == "Witaj świecie"
+        mock_db_manager.add_subtitle.assert_called()
+        mock_db_manager.clear_translation_progress.assert_called_once_with(
+            video_file_id
+        )
+
+    def test_translate_subtitles_loads_progress(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _translate_subtitles resumes from saved progress."""
+        from unittest.mock import MagicMock, patch
+
+        video_folder = tmp_path
+        video_file_id = 1
+        pipeline_service._video_file_id = video_file_id
+
+        original_srt = video_folder / "original.srt"
+        original_srt.write_text("1\n00:00:01,000 --> 00:00:04,000\nTest\n")
+
+        mock_db_manager.get_translation_progress.return_value = {"completed_batches": 2}
+
+        mock_translator = MagicMock()
+        mock_translator.translate_batch.return_value = []
+
+        with patch(
+            "src.utils.gemini_client.GeminiTranslator",
+            return_value=mock_translator,
+        ):
+            pipeline_service._translate_subtitles(video_folder, video_file_id)
+
+        mock_db_manager.get_translation_progress.assert_called_once_with(video_file_id)
+
+    def test_translate_subtitles_updates_state(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _translate_subtitles updates state to TRANSLATING then SUBS_READY."""
+        from unittest.mock import MagicMock, patch
+
+        video_folder = tmp_path
+        video_file_id = 1
+        pipeline_service._video_file_id = video_file_id
+
+        original_srt = video_folder / "original.srt"
+        original_srt.write_text("1\n00:00:01,000 --> 00:00:04,000\nTest\n")
+
+        mock_translator = MagicMock()
+        mock_translator.translate_batch.return_value = []
+
+        with patch(
+            "src.utils.gemini_client.GeminiTranslator",
+            return_value=mock_translator,
+        ):
+            pipeline_service._translate_subtitles(video_folder, video_file_id)
+
+        assert pipeline_service._current_state == PipelineState.SUBS_READY
+
+
+class TestPipelineServiceGenerateTTSClipsIntegration:
+    """Integration tests for _generate_tts_clips method."""
+
+    def test_generate_tts_clips_success(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _generate_tts_clips creates audio files for subtitle lines."""
+        from unittest.mock import MagicMock, patch
+        from src.utils.subtitle_parser import SubtitleLine
+
+        video_folder = tmp_path
+        pipeline_service._video_file_id = 1
+
+        subtitle_lines = [
+            SubtitleLine(
+                index=1,
+                start_ms=1000,
+                end_ms=2000,
+                text_source="Witaj świecie",
+                is_sound_effect=False,
+            ),
+            SubtitleLine(
+                index=2,
+                start_ms=3000,
+                end_ms=4000,
+                text_source="Druga linia",
+                is_sound_effect=False,
+            ),
+        ]
+
+        mock_client = MagicMock()
+        mock_client.generate_tts = MagicMock()
+
+        with patch(
+            "src.utils.edge_tts_client.EdgeTTSClient",
+            return_value=mock_client,
+        ):
+            result = pipeline_service._generate_tts_clips(subtitle_lines, video_folder)
+
+        assert mock_client.generate_tts.call_count == 2
+        assert subtitle_lines[0].audio_clip_path is not None
+        assert subtitle_lines[1].audio_clip_path is not None
+
+    def test_generate_tts_skips_sound_effects(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _generate_tts_clips skips sound effect lines."""
+        from unittest.mock import MagicMock, patch
+        from src.utils.subtitle_parser import SubtitleLine
+
+        video_folder = tmp_path
+        pipeline_service._video_file_id = 1
+
+        subtitle_lines = [
+            SubtitleLine(
+                index=1,
+                start_ms=1000,
+                end_ms=2000,
+                text_source="[Drzwi się zamykają]",
+                is_sound_effect=True,
+            ),
+            SubtitleLine(
+                index=2,
+                start_ms=3000,
+                end_ms=4000,
+                text_source="Normal dialogue",
+                is_sound_effect=False,
+            ),
+        ]
+
+        mock_client = MagicMock()
+        mock_client.generate_tts = MagicMock()
+
+        with patch(
+            "src.utils.edge_tts_client.EdgeTTSClient",
+            return_value=mock_client,
+        ):
+            result = pipeline_service._generate_tts_clips(subtitle_lines, video_folder)
+
+        assert mock_client.generate_tts.call_count == 1
+        assert subtitle_lines[1].audio_clip_path is not None
+
+    def test_generate_tts_skips_empty_lines(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _generate_tts_clips skips empty lines and '...'."""
+        from unittest.mock import MagicMock, patch
+        from src.utils.subtitle_parser import SubtitleLine
+
+        video_folder = tmp_path
+        pipeline_service._video_file_id = 1
+
+        subtitle_lines = [
+            SubtitleLine(
+                index=1,
+                start_ms=1000,
+                end_ms=2000,
+                text_source="",
+                is_sound_effect=False,
+            ),
+            SubtitleLine(
+                index=2,
+                start_ms=3000,
+                end_ms=4000,
+                text_source="...",
+                is_sound_effect=False,
+            ),
+            SubtitleLine(
+                index=3,
+                start_ms=5000,
+                end_ms=6000,
+                text_source="Valid text",
+                is_sound_effect=False,
+            ),
+        ]
+
+        mock_client = MagicMock()
+        mock_client.generate_tts = MagicMock()
+
+        with patch(
+            "src.utils.edge_tts_client.EdgeTTSClient",
+            return_value=mock_client,
+        ):
+            result = pipeline_service._generate_tts_clips(subtitle_lines, video_folder)
+
+        assert mock_client.generate_tts.call_count == 1
+
+    def test_generate_tts_updates_progress(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _generate_tts_clips updates state with progress percentage."""
+        from unittest.mock import MagicMock, patch
+        from src.utils.subtitle_parser import SubtitleLine
+
+        video_folder = tmp_path
+        pipeline_service._video_file_id = 1
+
+        subtitle_lines = [
+            SubtitleLine(
+                index=1,
+                start_ms=1000,
+                end_ms=2000,
+                text_source="Line 1",
+                is_sound_effect=False,
+            ),
+            SubtitleLine(
+                index=2,
+                start_ms=3000,
+                end_ms=4000,
+                text_source="Line 2",
+                is_sound_effect=False,
+            ),
+        ]
+
+        mock_client = MagicMock()
+        mock_client.generate_tts = MagicMock()
+
+        with patch(
+            "src.utils.edge_tts_client.EdgeTTSClient",
+            return_value=mock_client,
+        ):
+            with patch.object(
+                pipeline_service.signals, "pipeline_update"
+            ) as mock_signal:
+                pipeline_service._generate_tts_clips(subtitle_lines, video_folder)
+                calls = mock_signal.emit.call_args_list
+                assert len(calls) >= 2
+
+
+class TestPipelineServiceExtractAudioIntegration:
+    """Integration tests for _extract_original_audio method."""
+
+    def test_extract_audio_success(self, pipeline_service, mock_db_manager, tmp_path):
+        """Verify _extract_original_audio extracts audio track."""
+        from unittest.mock import MagicMock, patch
+
+        video_path = tmp_path / "video.mp4"
+        video_folder = tmp_path
+        pipeline_service._video_file_id = 1
+
+        mock_processor = MagicMock()
+        mock_processor.extract_audio = MagicMock()
+
+        with patch(
+            "src.utils.audio_processor.AudioProcessor",
+            return_value=mock_processor,
+        ):
+            result = pipeline_service._extract_original_audio(video_path, video_folder)
+
+        mock_processor.extract_audio.assert_called_once_with(
+            video_path, video_folder / "original_audio.wav"
+        )
+        assert result == video_folder / "original_audio.wav"
+
+    def test_extract_audio_updates_state(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _extract_original_audio updates state to MIXING_AUDIO."""
+        from unittest.mock import MagicMock, patch
+
+        video_path = tmp_path / "video.mp4"
+        video_folder = tmp_path
+        pipeline_service._video_file_id = 1
+
+        mock_processor = MagicMock()
+        mock_processor.extract_audio = MagicMock()
+
+        with patch(
+            "src.utils.audio_processor.AudioProcessor",
+            return_value=mock_processor,
+        ):
+            pipeline_service._extract_original_audio(video_path, video_folder)
+
+        assert pipeline_service._current_state == PipelineState.MIXING_AUDIO
+
+
+class TestPipelineServiceGenerateVoiceoverIntegration:
+    """Integration tests for _generate_voiceover method."""
+
+    def test_generate_voiceover_success(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _generate_voiceover creates final voiceover file."""
+        from unittest.mock import MagicMock, patch
+        from src.utils.subtitle_parser import SubtitleLine
+
+        video_folder = tmp_path
+        video_duration_ms = 600000
+        pipeline_service._video_file_id = 1
+
+        subtitle_lines = [
+            SubtitleLine(
+                index=1,
+                start_ms=1000,
+                end_ms=2000,
+                text_source="Test",
+                is_sound_effect=False,
+                audio_clip_path=str(video_folder / "line_000.mp3"),
+            )
+        ]
+        original_audio_path = video_folder / "original_audio.wav"
+        original_audio_path.touch()
+
+        mock_processor = MagicMock()
+        mock_processor.generate_voiceover = MagicMock()
+
+        with patch(
+            "src.utils.audio_processor.AudioProcessor",
+            return_value=mock_processor,
+        ):
+            result = pipeline_service._generate_voiceover(
+                subtitle_lines, original_audio_path, video_folder, video_duration_ms
+            )
+
+        mock_processor.generate_voiceover.assert_called_once()
+        assert result == video_folder / "voiceover_pl.wav"
+
+    def test_generate_voiceover_cleans_temp_files(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _generate_voiceover cleans up temporary files."""
+        from unittest.mock import MagicMock, patch
+
+        video_folder = tmp_path
+        video_duration_ms = 600000
+        pipeline_service._video_file_id = 1
+
+        subtitle_lines = []
+        original_audio_path = video_folder / "original_audio.wav"
+        original_audio_path.touch()
+
+        temp_dir = video_folder / "temp_tts"
+        temp_dir.mkdir()
+        (temp_dir / "line_000.mp3").touch()
+
+        mock_processor = MagicMock()
+        mock_processor.generate_voiceover = MagicMock()
+
+        with patch(
+            "src.utils.audio_processor.AudioProcessor",
+            return_value=mock_processor,
+        ):
+            pipeline_service._generate_voiceover(
+                subtitle_lines, original_audio_path, video_folder, video_duration_ms
+            )
+
+        assert not temp_dir.exists()
+
+    def test_generate_voiceover_updates_state(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _generate_voiceover maintains MIXING_AUDIO state."""
+        from unittest.mock import MagicMock, patch
+
+        video_folder = tmp_path
+        video_duration_ms = 600000
+        pipeline_service._video_file_id = 1
+
+        subtitle_lines = []
+        original_audio_path = video_folder / "original_audio.wav"
+        original_audio_path.touch()
+
+        mock_processor = MagicMock()
+        mock_processor.generate_voiceover = MagicMock()
+
+        with patch(
+            "src.utils.audio_processor.AudioProcessor",
+            return_value=mock_processor,
+        ):
+            pipeline_service._generate_voiceover(
+                subtitle_lines, original_audio_path, video_folder, video_duration_ms
+            )
+
+        assert pipeline_service._current_state == PipelineState.MIXING_AUDIO
+
+
+class TestPipelineServiceEndToEndIntegration:
+    """End-to-end integration tests for complete pipeline flow."""
+
+    def test_complete_pipeline_flow_success(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify complete pipeline flow from fetch to voiceover generation."""
+        from unittest.mock import MagicMock, patch
+        from src.utils.subtitle_parser import SubtitleLine
+
+        video_folder = tmp_path
+        video_path = video_folder / "video.mp4"
+        video_file_id = 1
+        subtitle_id = 12345
+
+        video_path.touch()
+
+        mock_db_manager.get_video_file.return_value = {
+            "id": video_file_id,
+            "file_path": str(video_path),
+            "subtitle_id": subtitle_id,
+            "needs_translation": True,
+            "pipeline_state": PipelineState.NONE.value,
+        }
+
+        original_srt = video_folder / "original.srt"
+        original_srt.write_text("1\n00:00:01,000 --> 00:00:04,000\nOriginal text\n")
+
+        mock_open_subtitles = MagicMock()
+        mock_open_subtitles.download_subtitle = MagicMock()
+
+        mock_gemini = MagicMock()
+        mock_gemini.translate_batch.return_value = [
+            SubtitleLine(
+                index=1,
+                start_ms=1000,
+                end_ms=4000,
+                text_source="Original text",
+                text_translated="Przetłumaczony tekst",
+                is_sound_effect=False,
+                audio_clip_path=str(video_folder / "line_000.mp3"),
+            )
+        ]
+
+        mock_edge_tts = MagicMock()
+        mock_edge_tts.generate_tts = MagicMock()
+
+        mock_audio_processor = MagicMock()
+        mock_audio_processor.extract_audio = MagicMock()
+        voiceover_path = video_folder / "voiceover_pl.wav"
+        voiceover_path.touch()
+        mock_audio_processor.generate_voiceover.return_value = voiceover_path
+
+        with (
+            patch(
+                "src.utils.opensubtitles_client.OpenSubtitlesClient",
+                return_value=mock_open_subtitles,
+            ),
+            patch(
+                "src.utils.gemini_client.GeminiTranslator",
+                return_value=mock_gemini,
+            ),
+            patch(
+                "src.utils.edge_tts_client.EdgeTTSClient",
+                return_value=mock_edge_tts,
+            ),
+            patch(
+                "src.utils.audio_processor.AudioProcessor",
+                return_value=mock_audio_processor,
+            ),
+            patch.object(pipeline_service, "_get_video_duration", return_value=600000),
+            patch.object(
+                pipeline_service.signals, "pipeline_finished"
+            ) as mock_finished,
+        ):
+            pipeline_service.start_process(video_file_id)
+            pipeline_service.run()
+
+            mock_open_subtitles.download_subtitle.assert_called_once()
+            mock_gemini.translate_batch.assert_called_once()
+            mock_edge_tts.generate_tts.assert_called_once()
+            mock_audio_processor.extract_audio.assert_called_once()
+            mock_audio_processor.generate_voiceover.assert_called_once()
+            mock_db_manager.add_subtitle.assert_called()
+            mock_db_manager.add_voiceover.assert_called_once()
+            mock_finished.emit.assert_called_once_with(video_file_id, True)
+
+    def test_complete_pipeline_skip_when_no_subtitle_id(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify pipeline skips when subtitle_id is null."""
+        from unittest.mock import MagicMock, patch
+
+        video_folder = tmp_path
+        video_path = video_folder / "video.mp4"
+        video_file_id = 1
+
+        video_path.touch()
+
+        mock_db_manager.get_video_file.return_value = {
+            "id": video_file_id,
+            "file_path": str(video_path),
+            "subtitle_id": None,
+            "needs_translation": False,
+            "pipeline_state": PipelineState.NONE.value,
+        }
+
+        with patch.object(
+            pipeline_service.signals, "pipeline_finished"
+        ) as mock_finished:
+            pipeline_service.start_process(video_file_id)
+            pipeline_service.run()
+
+            mock_finished.emit.assert_called_once_with(video_file_id, True)
+
+    def test_complete_pipeline_skip_when_voiceover_exists(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify pipeline skips when voiceover already exists."""
+        from unittest.mock import MagicMock, patch
+
+        video_folder = tmp_path
+        video_path = video_folder / "video.mp4"
+        video_file_id = 1
+
+        video_path.touch()
+
+        mock_db_manager.get_video_file.return_value = {
+            "id": video_file_id,
+            "file_path": str(video_path),
+            "subtitle_id": 12345,
+            "needs_translation": True,
+            "pipeline_state": PipelineState.VOICEOVER_READY.value,
+        }
+
+        with patch.object(
+            pipeline_service.signals, "pipeline_finished"
+        ) as mock_finished:
+            pipeline_service.start_process(video_file_id)
+            pipeline_service.run()
+
+            mock_finished.emit.assert_called_once_with(video_file_id, True)
+
+    def test_complete_pipeline_skip_translation_when_disabled(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify pipeline skips translation when needs_translation is False."""
+        from unittest.mock import MagicMock, patch
+
+        video_folder = tmp_path
+        video_path = video_folder / "video.mp4"
+        video_file_id = 1
+        subtitle_id = 12345
+
+        video_path.touch()
+
+        original_srt = video_folder / "original.srt"
+        original_srt.write_text("1\n00:00:01,000 --> 00:00:04,000\nOriginal text\n")
+
+        mock_db_manager.get_video_file.return_value = {
+            "id": video_file_id,
+            "file_path": str(video_path),
+            "subtitle_id": subtitle_id,
+            "needs_translation": False,
+            "pipeline_state": PipelineState.NONE.value,
+        }
+
+        mock_open_subtitles = MagicMock()
+        mock_open_subtitles.download_subtitle = MagicMock()
+
+        mock_edge_tts = MagicMock()
+        mock_edge_tts.generate_tts = MagicMock()
+
+        mock_audio_processor = MagicMock()
+        mock_audio_processor.extract_audio = MagicMock()
+        voiceover_path = video_folder / "voiceover_pl.wav"
+        voiceover_path.touch()
+        mock_audio_processor.generate_voiceover.return_value = voiceover_path
+
+        with (
+            patch(
+                "src.utils.opensubtitles_client.OpenSubtitlesClient",
+                return_value=mock_open_subtitles,
+            ),
+            patch(
+                "src.utils.edge_tts_client.EdgeTTSClient",
+                return_value=mock_edge_tts,
+            ),
+            patch(
+                "src.utils.audio_processor.AudioProcessor",
+                return_value=mock_audio_processor,
+            ),
+            patch.object(pipeline_service, "_get_video_duration", return_value=600000),
+            patch.object(
+                pipeline_service.signals, "pipeline_finished"
+            ) as mock_finished,
+        ):
+            pipeline_service.start_process(video_file_id)
+            pipeline_service.run()
+
+            mock_open_subtitles.download_subtitle.assert_called_once()
+            mock_edge_tts.generate_tts.assert_called_once()
+            mock_audio_processor.generate_voiceover.assert_called_once()
+
+    def test_complete_pipeline_handles_error(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify pipeline sets FAILED state on error."""
+        from unittest.mock import MagicMock, patch
+
+        video_folder = tmp_path
+        video_path = video_folder / "video.mp4"
+        video_file_id = 1
+        subtitle_id = 12345
+
+        video_path.touch()
+
+        mock_db_manager.get_video_file.return_value = {
+            "id": video_file_id,
+            "file_path": str(video_path),
+            "subtitle_id": subtitle_id,
+            "needs_translation": True,
+            "pipeline_state": PipelineState.NONE.value,
+        }
+
+        mock_open_subtitles = MagicMock()
+        mock_open_subtitles.download_subtitle.side_effect = Exception("Network error")
+
+        with (
+            patch(
+                "src.utils.opensubtitles_client.OpenSubtitlesClient",
+                return_value=mock_open_subtitles,
+            ),
+            patch.object(
+                pipeline_service.signals, "pipeline_finished"
+            ) as mock_finished,
+            patch.object(pipeline_service.signals, "error_occurred") as mock_error,
+        ):
+            pipeline_service.start_process(video_file_id)
+            pipeline_service.run()
+
+            mock_finished.emit.assert_called_once_with(video_file_id, False)
+            mock_error.emit.assert_called_once()
+
+            calls = mock_db_manager.update_pipeline_state.call_args_list
+            assert len(calls) > 0, "update_pipeline_state should have been called"
+            last_call_args = calls[-1]
+            assert last_call_args[0][1] == PipelineState.FAILED
+
+    def test_complete_pipeline_cancellation(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify pipeline respects stop() cancellation."""
+        from unittest.mock import MagicMock, patch
+
+        video_folder = tmp_path
+        video_path = video_folder / "video.mp4"
+        video_file_id = 1
+        subtitle_id = 12345
+
+        video_path.touch()
+
+        mock_db_manager.get_video_file.return_value = {
+            "id": video_file_id,
+            "file_path": str(video_path),
+            "subtitle_id": subtitle_id,
+            "needs_translation": True,
+            "pipeline_state": PipelineState.NONE.value,
+        }
+
+        mock_open_subtitles = MagicMock()
+        mock_open_subtitles.download_subtitle = MagicMock()
+
+        mock_gemini = MagicMock()
+        mock_gemini.translate_batch.return_value = []
+
+        with (
+            patch(
+                "src.utils.opensubtitles_client.OpenSubtitlesClient",
+                return_value=mock_open_subtitles,
+            ),
+            patch(
+                "src.utils.gemini_client.GeminiTranslator",
+                return_value=mock_gemini,
+            ),
+            patch.object(
+                pipeline_service.signals, "pipeline_finished"
+            ) as mock_finished,
+        ):
+            pipeline_service.start_process(video_file_id)
+            pipeline_service.stop()
+            pipeline_service.run()
+
+            mock_finished.emit.assert_called_once_with(video_file_id, True)

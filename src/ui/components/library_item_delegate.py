@@ -12,7 +12,7 @@ from PyQt5.QtCore import QModelIndex, QRect, QSize, Qt
 from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
 from PyQt5.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QWidget
 
-from src.config import DownloadState
+from src.config import DownloadState, PipelineState
 from src.ui.styles import (
     ERROR_COLOR,
     FONT_FAMILY,
@@ -70,6 +70,10 @@ class LibraryItemDelegate(QStyledItemDelegate):
         "completed": "\u25b6",  # Play button
         "error": "\u26a0",  # Warning triangle
         "series": "\ud83d\udcfa",  # TV icon
+        "subs_ready": "\ud83d\udcdd",  # Memo/notebook (subtitles ready)
+        "generating_tts": "\ud83c\udfb5",  # Musical note (TTS generation)
+        "voiceover_ready": "\ud83c\udfa4",  # Microphone (voiceover ready)
+        "pipeline_failed": "\u26a0",  # Warning triangle
     }
 
     # Status colors
@@ -79,6 +83,10 @@ class LibraryItemDelegate(QStyledItemDelegate):
         "completed": SUCCESS_COLOR,
         "error": ERROR_COLOR,
         "series": TEXT_SECONDARY,
+        "subs_ready": TEXT_SECONDARY,
+        "generating_tts": WARNING_COLOR,
+        "voiceover_ready": SUCCESS_COLOR,
+        "pipeline_failed": ERROR_COLOR,
     }
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -107,7 +115,9 @@ class LibraryItemDelegate(QStyledItemDelegate):
         self._draw_background(painter, option)
 
         # Calculate areas
-        rect = option.rect.adjusted(ITEM_PADDING, ITEM_PADDING, -ITEM_PADDING, -ITEM_PADDING)
+        rect = option.rect.adjusted(
+            ITEM_PADDING, ITEM_PADDING, -ITEM_PADDING, -ITEM_PADDING
+        )
 
         # Poster area (left)
         poster_rect = QRect(rect.left(), rect.top(), POSTER_WIDTH, POSTER_HEIGHT)
@@ -135,9 +145,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
 
         painter.restore()
 
-    def _draw_background(
-        self, painter: QPainter, option: QStyleOptionViewItem
-    ) -> None:
+    def _draw_background(self, painter: QPainter, option: QStyleOptionViewItem) -> None:
         """Draw the item background.
 
         Args:
@@ -155,9 +163,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
 
         painter.fillRect(rect, color)
 
-    def _draw_poster(
-        self, painter: QPainter, rect: QRect, index: QModelIndex
-    ) -> None:
+    def _draw_poster(self, painter: QPainter, rect: QRect, index: QModelIndex) -> None:
         """Draw the poster image.
 
         Args:
@@ -214,7 +220,9 @@ class LibraryItemDelegate(QStyledItemDelegate):
             rect: Rectangle for metadata.
             index: Model index of the item.
         """
-        title = index.data(LibraryItemRole.TitleRole) or tr("LibraryItemDelegate", "Unknown Title")
+        title = index.data(LibraryItemRole.TitleRole) or tr(
+            "LibraryItemDelegate", "Unknown Title"
+        )
         genres = index.data(LibraryItemRole.GenresRole) or ""
 
         # Build subtitle based on item type
@@ -281,29 +289,41 @@ class LibraryItemDelegate(QStyledItemDelegate):
         if item_type == "series":
             season_count = index.data(LibraryItemRole.SeasonCountRole) or 0
             if season_count == 1:
-                return tr("LibraryItemDelegate", "%n Season").replace("%n", str(season_count))
-            return tr("LibraryItemDelegate", "%n Seasons").replace("%n", str(season_count))
+                return tr("LibraryItemDelegate", "%n Season").replace(
+                    "%n", str(season_count)
+                )
+            return tr("LibraryItemDelegate", "%n Seasons").replace(
+                "%n", str(season_count)
+            )
         elif item_type == "season":
             season_num = index.data(LibraryItemRole.SeasonNumberRole) or 0
             episode_count = index.data(LibraryItemRole.EpisodeCountRole) or 0
-            season_str = tr("LibraryItemDelegate", "Season %n").replace("%n", str(season_num))
+            season_str = tr("LibraryItemDelegate", "Season %n").replace(
+                "%n", str(season_num)
+            )
             if episode_count == 1:
-                episode_str = tr("LibraryItemDelegate", "%n Episode").replace("%n", str(episode_count))
+                episode_str = tr("LibraryItemDelegate", "%n Episode").replace(
+                    "%n", str(episode_count)
+                )
             else:
-                episode_str = tr("LibraryItemDelegate", "%n Episodes").replace("%n", str(episode_count))
+                episode_str = tr("LibraryItemDelegate", "%n Episodes").replace(
+                    "%n", str(episode_count)
+                )
             return f"{season_str} \u2022 {episode_str}"
         elif item_type == "episode":
             ep_num = index.data(LibraryItemRole.EpisodeNumberRole) or 0
             ep_title = index.data(LibraryItemRole.EpisodeTitleRole) or ""
             if ep_title:
-                return tr("LibraryItemDelegate", "Episode %n: %t").replace("%n", str(ep_num)).replace("%t", ep_title)
+                return (
+                    tr("LibraryItemDelegate", "Episode %n: %t")
+                    .replace("%n", str(ep_num))
+                    .replace("%t", ep_title)
+                )
             return tr("LibraryItemDelegate", "Episode %n").replace("%n", str(ep_num))
 
         return ""
 
-    def _draw_status(
-        self, painter: QPainter, rect: QRect, index: QModelIndex
-    ) -> None:
+    def _draw_status(self, painter: QPainter, rect: QRect, index: QModelIndex) -> None:
         """Draw the status icon.
 
         Args:
@@ -313,11 +333,25 @@ class LibraryItemDelegate(QStyledItemDelegate):
         """
         item_type = index.data(LibraryItemRole.TypeRole)
         download_state = index.data(LibraryItemRole.DownloadStateRole)
+        pipeline_state = index.data(LibraryItemRole.PipelineStateRole)
         progress = index.data(LibraryItemRole.DownloadProgressRole) or 0
 
-        # Determine status
+        # Determine status - pipeline states take precedence over download states
         if item_type == "series":
             status = "series"
+        elif pipeline_state == PipelineState.VOICEOVER_READY.value:
+            status = "voiceover_ready"
+        elif pipeline_state in (
+            PipelineState.FETCHING_SUBS.value,
+            PipelineState.TRANSLATING.value,
+            PipelineState.GENERATING_TTS.value,
+            PipelineState.MIXING_AUDIO.value,
+        ):
+            status = "generating_tts"
+        elif pipeline_state == PipelineState.SUBS_READY.value:
+            status = "subs_ready"
+        elif pipeline_state == PipelineState.FAILED.value:
+            status = "pipeline_failed"
         elif download_state == DownloadState.COMPLETED.value:
             status = "completed"
         elif download_state == DownloadState.DOWNLOADING.value:
@@ -345,9 +379,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
             )
             painter.drawText(progress_rect, Qt.AlignCenter, f"{progress}%")
 
-    def sizeHint(
-        self, option: QStyleOptionViewItem, index: QModelIndex
-    ) -> QSize:
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
         """Return the size hint for an item.
 
         Args:

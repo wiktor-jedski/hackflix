@@ -336,11 +336,14 @@ class PipelineService(QRunnable):
             if self._should_stop:
                 return []
 
-            if line.is_sound_effect or not line.text or line.text == "...":
+            line_text = (
+                line.text_translated if line.text_translated else line.text_source
+            )
+            if line.is_sound_effect or not line_text or line_text == "...":
                 continue
 
             audio_path = temp_dir / f"line_{i:03d}.mp3"
-            client.generate_tts(line.text, audio_path)
+            client.generate_tts(line_text, audio_path)
             line.audio_clip_path = str(audio_path)
 
             progress = int((i / len(subtitle_lines)) * 100)
