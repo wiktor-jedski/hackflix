@@ -240,6 +240,9 @@ class LibraryView(QFrame):
             model_item.setData(
                 item_data.get("episode_title"), LibraryItemRole.EpisodeTitleRole
             )
+            model_item.setData(
+                item_data.get("file_id"), LibraryItemRole.FileIdRole
+            )
             model_item.setSizeHint(QSize(-1, ROW_HEIGHT))
 
             self._model.appendRow(model_item)
@@ -359,6 +362,7 @@ class LibraryView(QFrame):
             "season_number": index.data(LibraryItemRole.SeasonNumberRole),
             "episode_number": index.data(LibraryItemRole.EpisodeNumberRole),
             "episode_title": index.data(LibraryItemRole.EpisodeTitleRole),
+            "file_id": index.data(LibraryItemRole.FileIdRole),
         }
 
     def _on_selection_changed(
@@ -396,22 +400,44 @@ class LibraryView(QFrame):
         for row in range(self._model.rowCount()):
             index = self._model.index(row, 0)
             if index.data(LibraryItemRole.IdRole) == item_id:
-                item = self._model.itemFromIndex(index)
-                if item:
-                    if "state" in updates:
-                        item.setData(updates["state"], LibraryItemRole.DownloadStateRole)
-                    if "download_progress" in updates:
-                        item.setData(
-                            updates["download_progress"],
-                            LibraryItemRole.DownloadProgressRole,
-                        )
-                    if "pipeline_state" in updates:
-                        item.setData(
-                            updates["pipeline_state"], LibraryItemRole.PipelineStateRole
-                        )
-                    # Trigger repaint
-                    self._model.dataChanged.emit(index, index)
+                self._apply_updates(index, updates)
                 break
+
+    def update_item_by_file_id(self, file_id: int, updates: dict[str, Any]) -> None:
+        """Update a specific item's data by file_id.
+
+        Args:
+            file_id: File ID of the item to update.
+            updates: Dictionary of field updates.
+        """
+        for row in range(self._model.rowCount()):
+            index = self._model.index(row, 0)
+            if index.data(LibraryItemRole.FileIdRole) == file_id:
+                self._apply_updates(index, updates)
+                break
+
+    def _apply_updates(self, index: QModelIndex, updates: dict[str, Any]) -> None:
+        """Apply updates to an item at the given index.
+
+        Args:
+            index: Model index of the item.
+            updates: Dictionary of field updates.
+        """
+        item = self._model.itemFromIndex(index)
+        if item:
+            if "state" in updates:
+                item.setData(updates["state"], LibraryItemRole.DownloadStateRole)
+            if "download_progress" in updates:
+                item.setData(
+                    updates["download_progress"],
+                    LibraryItemRole.DownloadProgressRole,
+                )
+            if "pipeline_state" in updates:
+                item.setData(
+                    updates["pipeline_state"], LibraryItemRole.PipelineStateRole
+                )
+            # Trigger repaint
+            self._model.dataChanged.emit(index, index)
 
     def clear(self) -> None:
         """Clear all items from the view."""

@@ -412,6 +412,37 @@ class DatabaseManager:
             logger.error("Failed to get seasons: %s", e)
             raise
 
+    def get_season(self, season_id: int) -> dict[str, Any] | None:
+        """Get a single season by ID.
+
+        Args:
+            season_id: ID of the season.
+
+        Returns:
+            Season dictionary or None if not found.
+
+        Raises:
+            sqlite3.Error: If query fails.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                SELECT * FROM seasons
+                WHERE id = ?
+                """,
+                (season_id,),
+            )
+
+            row = cursor.fetchone()
+            self._close_connection(conn)
+            return dict(row) if row else None
+        except sqlite3.Error as e:
+            logger.error("Failed to get season: %s", e)
+            raise
+
     def get_episodes(self, season_id: int) -> list[dict[str, Any]]:
         """Get all episodes for a season.
 

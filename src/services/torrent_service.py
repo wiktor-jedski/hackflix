@@ -122,11 +122,16 @@ class TorrentService(QThread):
             self._init_session()
             self._load_session_state()
             self._load_resume_data()
-            self._start_polling()
 
-            # Keep thread alive
+            # Poll manually since QTimer doesn't work without event loop
+            poll_counter = 0
             while not self._should_stop:
                 self.msleep(100)
+                poll_counter += 1
+                # Poll every 1 second (10 * 100ms)
+                if poll_counter >= 10:
+                    poll_counter = 0
+                    self._poll_progress()
 
             # Cleanup on stop
             self._save_session_state()
@@ -279,20 +284,36 @@ class TorrentService(QThread):
         # Update progress for all handles
         for context_id, handle in list(self._handles.items()):
             if not handle.is_valid():
+                logger.debug("Handle for context %d is invalid", context_id)
                 continue
 
             context = self._contexts.get(context_id)
             if not context:
+                logger.debug("No context for context_id %d", context_id)
                 continue
 
             status = handle.status()
+            state_name = str(status.state)
+            progress = int(status.progress * 100)
+            logger.debug(
+                "Torrent %d: state=%s, progress=%d%%, peers=%d, seeds=%d",
+                context_id,
+                state_name,
+                progress,
+                status.num_peers,
+                status.num_seeds,
+            )
 
             if status.state == lt.torrent_status.states.seeding:  # type: ignore[attr-defined]
                 # Download complete
                 self._on_download_complete(context_id, handle)
-            elif status.state == lt.torrent_status.states.downloading:  # type: ignore[attr-defined]
-                # Emit progress
-                progress = int(status.progress * 100)
+            elif status.state in (
+                lt.torrent_status.states.downloading,  # type: ignore[attr-defined]
+                lt.torrent_status.states.downloading_metadata,  # type: ignore[attr-defined]
+                lt.torrent_status.states.checking_files,  # type: ignore[attr-defined]
+                lt.torrent_status.states.checking_resume_data,  # type: ignore[attr-defined]
+            ):
+                # Emit progress for all active download states
                 self.download_progress.emit(
                     context.id,
                     progress,

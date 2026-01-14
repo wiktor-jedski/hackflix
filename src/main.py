@@ -23,6 +23,7 @@ from src.controllers.app_controller import AppController
 from src.database import DatabaseManager
 from src.services.metadata_service import MetadataService
 from src.services.pipeline_service import PipelineService
+from src.services.player_service import PlayerService
 from src.services.torrent_service import TorrentService
 from src.ui.windows.main_window import MainWindow
 from src.utils.i18n import setup_translations
@@ -153,12 +154,17 @@ def main() -> int:
     )
     torrent_service = TorrentService(db_manager=db_manager)
     pipeline_service = PipelineService(db_manager=db_manager)
+    player_service = PlayerService()
 
     controller.bind_services(
         metadata_service=metadata_service,
         torrent_service=torrent_service,
         pipeline_service=pipeline_service,
+        player_service=player_service,
     )
+
+    # Start the torrent service thread
+    torrent_service.start()
 
     # Bootstrap the controller
     controller.bootstrap()

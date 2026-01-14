@@ -2346,7 +2346,6 @@ class TestTorrentServiceRun:
             mock.patch.object(service, "_init_session") as mock_init,
             mock.patch.object(service, "_load_session_state") as mock_load_state,
             mock.patch.object(service, "_load_resume_data") as mock_load_resume,
-            mock.patch.object(service, "_start_polling") as mock_polling,
             mock.patch.object(service, "_save_session_state") as mock_save_state,
             mock.patch.object(service, "_save_resume_data") as mock_save_resume,
         ):
@@ -2357,7 +2356,7 @@ class TestTorrentServiceRun:
             mock_init.assert_called_once()
             mock_load_state.assert_called_once()
             mock_load_resume.assert_called_once()
-            mock_polling.assert_called_once()
+            # Polling now happens inline in the loop, not via _start_polling
             mock_save_state.assert_called_once()
             mock_save_resume.assert_called_once()
 

@@ -710,6 +710,7 @@ class TestAppControllerAdvanced:
         )
         controller._db_manager.get_video_details = MagicMock(
             return_value={
+                "id": 1,
                 "state": DownloadState.COMPLETED.value,
                 "pipeline_state": None,
                 "download_progress": 100,
@@ -721,6 +722,7 @@ class TestAppControllerAdvanced:
         mock_main_window.library_view.set_items.assert_called_once()
         items = mock_main_window.library_view.set_items.call_args[0][0]
         assert len(items) == 1
+        assert items[0]["file_id"] == 1
         assert items[0]["state"] == DownloadState.COMPLETED.value
 
     def test_refresh_library_with_series(
@@ -1189,9 +1191,9 @@ class TestAppControllerAdvanced:
 
         controller._on_download_progress(1, 50, 1500.0, 100.0)
 
-        mock_main_window.library_view.update_item.assert_called_once()
-        call_args = mock_main_window.library_view.update_item.call_args
-        assert call_args[0][0] == "1"
+        mock_main_window.library_view.update_item_by_file_id.assert_called_once()
+        call_args = mock_main_window.library_view.update_item_by_file_id.call_args
+        assert call_args[0][0] == 1
         assert call_args[0][1]["download_progress"] == 50
 
     def test_on_download_completed(
@@ -1202,7 +1204,7 @@ class TestAppControllerAdvanced:
 
         controller._on_download_completed(1, "/path/to/file.mp4")
 
-        mock_main_window.library_view.update_item.assert_called_once()
+        mock_main_window.library_view.update_item_by_file_id.assert_called_once()
         mock_main_window.show_toast.assert_called()
 
     def test_on_download_error(
@@ -1213,7 +1215,7 @@ class TestAppControllerAdvanced:
 
         controller._on_download_error(1, "Connection failed")
 
-        mock_main_window.library_view.update_item.assert_called_once()
+        mock_main_window.library_view.update_item_by_file_id.assert_called_once()
         assert "Connection failed" in mock_main_window.show_toast.call_args[0][0]
 
     def test_on_item_activated(self, controller: AppController) -> None:

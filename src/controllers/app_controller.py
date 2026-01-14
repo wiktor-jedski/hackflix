@@ -631,6 +631,7 @@ class AppController(QObject):
                     # Get video file state for movies
                     video = self._db_manager.get_video_details(item["id"])
                     if video:
+                        view_item["file_id"] = video["id"]
                         view_item["state"] = video.get(
                             "state", DownloadState.PENDING.value
                         )
@@ -641,6 +642,7 @@ class AppController(QObject):
                     else:
                         view_item["state"] = DownloadState.PENDING.value
 
+                logger.debug("refresh_library view_item: %s", view_item)
                 view_items.append(view_item)
 
             self._main_window.library_view.set_items(view_items)
@@ -705,6 +707,7 @@ class AppController(QObject):
                 view_items.append(
                     {
                         "id": ep["id"],
+                        "file_id": ep["id"],  # For episodes, id is the video_file id
                         "type": "episode",
                         "title": ep.get("episode_title")
                         or f"Episode {ep['episode_number']}",
@@ -731,6 +734,8 @@ class AppController(QObject):
         item = self._main_window.library_view.get_selected_item()
         if not item:
             return
+
+        logger.debug("activate_selected item: %s", item)
 
         item_type = item.get("type")
         item_state = item.get("state")
@@ -796,6 +801,41 @@ class AppController(QObject):
                         f"Failed to start download: {item_title}", "error"
                     )
 
+            elif item_type == "episode":
+                video = self._db_manager.get_video_file(file_id)
+                if not video:
+                    self._main_window.show_toast("Video file not found", "error")
+                    return
+
+                # Episodes belong to a season - get magnet from season
+                season_id = video.get("season_id")
+                if not season_id:
+                    self._main_window.show_toast("Episode has no season", "error")
+                    return
+
+                season = self._db_manager.get_season(season_id)
+                if not season:
+                    self._main_window.show_toast("Season not found", "error")
+                    return
+
+                magnet = season.get("magnet_link")
+                if not magnet:
+                    self._main_window.show_toast("No magnet link available", "error")
+                    return
+
+                from src.services.torrent_service import DownloadContext, DownloadType
+
+                # Download the whole season
+                context = DownloadContext(DownloadType.SEASON, season_id)
+                if self._torrent_service.add_magnet(context, magnet):
+                    self._main_window.show_toast(
+                        f"Starting season download for: {item_title}", "info"
+                    )
+                else:
+                    self._main_window.show_toast(
+                        f"Failed to start download: {item_title}", "error"
+                    )
+
             elif item_type == "season":
                 season_id = item.get("season_id")
                 series_id = item.get("series_id")
@@ -828,7 +868,9 @@ class AppController(QObject):
                     )
 
             else:
-                self._main_window.show_toast(f"Starting download: {item_title}", "info")
+                self._main_window.show_toast(
+                    f"Unknown item type: {item_type}", "error"
+                )
 
     def navigate_back(self) -> None:
         """Navigate back to the previous context."""
@@ -1004,8 +1046,8 @@ class AppController(QObject):
             upload_speed: Upload speed in KB/s.
         """
         if self._main_window:
-            self._main_window.library_view.update_item(
-                str(context_id),
+            self._main_window.library_view.update_item_by_file_id(
+                context_id,
                 {
                     "state": DownloadState.DOWNLOADING.value,
                     "download_progress": percentage,
@@ -1021,8 +1063,8 @@ class AppController(QObject):
             path: Path to the downloaded file.
         """
         if self._main_window:
-            self._main_window.library_view.update_item(
-                str(file_id),
+            self._main_window.library_view.update_item_by_file_id(
+                file_id,
                 {"state": DownloadState.COMPLETED.value, "download_progress": 100},
             )
             self._main_window.show_toast("Download completed", "info")
@@ -1040,8 +1082,8 @@ class AppController(QObject):
             error: Error message.
         """
         if self._main_window:
-            self._main_window.library_view.update_item(
-                str(file_id),
+            self._main_window.library_view.update_item_by_file_id(
+                file_id,
                 {"state": DownloadState.ERROR.value},
             )
             self._main_window.show_toast(f"Download failed: {error}", "error")

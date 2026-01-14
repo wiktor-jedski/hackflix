@@ -52,6 +52,7 @@ class LibraryItemRole:
     SeasonNumberRole = Qt.UserRole + 11  # type: ignore[attr-defined]
     EpisodeNumberRole = Qt.UserRole + 12  # type: ignore[attr-defined]
     EpisodeTitleRole = Qt.UserRole + 13  # type: ignore[attr-defined]
+    FileIdRole = Qt.UserRole + 14  # type: ignore[attr-defined]
 
 
 class LibraryItemDelegate(QStyledItemDelegate):
