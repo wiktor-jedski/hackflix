@@ -24,32 +24,6 @@ uv run pytest --cov=src tests/ --cov-report=term-missing
 
 **Critical Rule:** The UI thread must never perform file I/O or network requests synchronously.
 
-## Project Structure
-
-```
-src/
-├── main.py              # Entry point
-├── config.py            # Constants and settings
-├── database/            # Raw sqlite3 (schema.py, db_manager.py)
-├── controllers/         # AppController
-├── services/            # Background workers (QThreads)
-├── ui/                  # PyQt Views (windows/, components/, input_manager.py)
-└── utils/               # Helpers
-```
-
-## Technology Constraints
-
-| Component | Required | Not Allowed |
-|-----------|----------|-------------|
-| TTS | `edge-tts` (online) | Offline engines |
-| TTS Voice | `pl-PL-MarekNeural` | Other voices |
-
-## Environment Variables
-
-Required in `.env`:
-- `GEMINI_API_KEY` - for translation
-- `OPENSUBTITLES_API_KEY` - for subtitle fetching
-
 ## Key Implementation Rules
 
 1. **Type hints mandatory** on all function signatures
