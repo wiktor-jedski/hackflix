@@ -1,6 +1,6 @@
 """Tests for LibraryItemDelegate component."""
 
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from PyQt5.QtCore import QModelIndex, QRect, QSize, Qt
@@ -14,9 +14,6 @@ from src.ui.components.library_item_delegate import (
 )
 from src.ui.styles import (
     ROW_HEIGHT,
-    SELECTION_COLOR,
-    SURFACE_COLOR,
-    SURFACE_HOVER_COLOR,
 )
 
 

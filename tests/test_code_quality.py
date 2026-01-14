@@ -25,7 +25,7 @@ class TestBareExceptDetection:
                         lineno = node.lineno
                         violations.append(f"{py_file}:{lineno}")
 
-        assert not violations, f"Bare except: blocks found:\n" + "\n".join(violations)
+        assert not violations, "Bare except: blocks found:\n" + "\n".join(violations)
 
     def test_no_bare_except_in_tests(self):
         """Verify no bare except: blocks in test code."""
@@ -43,7 +43,7 @@ class TestBareExceptDetection:
                         lineno = node.lineno
                         violations.append(f"{py_file}:{lineno}")
 
-        assert not violations, f"Bare except: blocks found in tests:\n" + "\n".join(
+        assert not violations, "Bare except: blocks found in tests:\n" + "\n".join(
             violations
         )
 
@@ -75,8 +75,39 @@ class TestExceptionSpecificity:
                                         f"{py_file}:{node.lineno} {exc_name} raised without arguments"
                                     )
 
-        assert not violations, f"Exceptions raised without messages:\n" + "\n".join(
+        assert not violations, "Exceptions raised without messages:\n" + "\n".join(
             violations[:10]
+        )
+
+
+class TestTypeHintsEnforcement:
+    """Tests for type hints enforcement using ty type checker."""
+
+    @pytest.mark.xfail(reason="Existing type errors need to be fixed - 422 diagnostics")
+    def test_type_hints_pass_ty_check(self):
+        """Verify all production code passes ty type checking.
+
+        This test runs the ty type checker on the src/ directory
+        and ensures there are no type errors.
+        """
+        import shutil
+        import subprocess
+
+        uv_path = shutil.which("uv")
+        if uv_path is None:
+            pytest.skip("uv not found in PATH")
+
+        result = subprocess.run(
+            [uv_path, "run", "ty", "check"],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).parent.parent,
+        )
+
+        assert result.returncode == 0, (
+            f"Type checking failed.\n"
+            f"stdout: {result.stdout}\n"
+            f"stderr: {result.stderr}"
         )
 
 

@@ -1,7 +1,6 @@
 """Test error logging to app.log file."""
 
 import logging
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,7 +13,7 @@ class TestErrorLogging:
 
     def test_errors_logged_to_app_log_file(self, tmp_path):
         """Verify errors are written to app.log file."""
-        from src.config import LOG_DIR, setup_logging
+        from src.config import setup_logging
 
         log_file = tmp_path / "app.log"
         with patch("src.config.LOG_DIR", tmp_path):
@@ -36,7 +35,7 @@ class TestErrorLogging:
 
     def test_exceptions_logged_with_traceback(self, tmp_path):
         """Verify exception tracebacks are written to app.log."""
-        from src.config import LOG_DIR, setup_logging
+        from src.config import setup_logging
 
         log_file = tmp_path / "app.log"
         with patch("src.config.LOG_DIR", tmp_path):
@@ -59,7 +58,7 @@ class TestErrorLogging:
 
     def test_pipeline_error_logged_to_file(self, tmp_path, db_manager):
         """Verify pipeline errors appear in app.log."""
-        from src.config import LOG_DIR, PipelineState, setup_logging
+        from src.config import PipelineState, setup_logging
         from src.services.pipeline_service import PipelineService
 
         log_file = tmp_path / "app.log"
@@ -128,7 +127,7 @@ class TestErrorLogging:
 
     def test_download_error_logged_to_file(self, tmp_path):
         """Verify download errors appear in app.log."""
-        from src.config import LOG_DIR, DownloadState, setup_logging
+        from src.config import setup_logging
 
         log_file = tmp_path / "app.log"
         with patch("src.config.LOG_DIR", tmp_path):
@@ -149,7 +148,7 @@ class TestErrorLogging:
 
     def test_database_error_logged_to_file(self, tmp_path):
         """Verify database errors appear in app.log."""
-        from src.config import LOG_DIR, setup_logging
+        from src.config import setup_logging
 
         log_file = tmp_path / "app.log"
         with patch("src.config.LOG_DIR", tmp_path):
@@ -170,7 +169,7 @@ class TestErrorLogging:
 
     def test_warning_logged_to_file(self, tmp_path):
         """Verify warnings are written to app.log."""
-        from src.config import LOG_DIR, setup_logging
+        from src.config import setup_logging
 
         log_file = tmp_path / "app.log"
         with patch("src.config.LOG_DIR", tmp_path):
@@ -190,7 +189,7 @@ class TestErrorLogging:
 
     def test_info_logged_to_file(self, tmp_path):
         """Verify info messages are written to app.log."""
-        from src.config import LOG_DIR, setup_logging
+        from src.config import setup_logging
 
         log_file = tmp_path / "app.log"
         with patch("src.config.LOG_DIR", tmp_path):
@@ -210,7 +209,7 @@ class TestErrorLogging:
 
     def test_log_format_includes_timestamp_and_level(self, tmp_path):
         """Verify log format includes timestamp and log level."""
-        from src.config import LOG_DIR, LOG_DATE_FORMAT, LOG_FORMAT, setup_logging
+        from src.config import setup_logging
 
         log_file = tmp_path / "app.log"
         with patch("src.config.LOG_DIR", tmp_path):

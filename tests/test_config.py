@@ -8,8 +8,6 @@ from src.config import (
     DownloadState,
     LoggingConfig,
     PipelineState,
-    check_required_env_vars,
-    ensure_directories,
     setup_logging,
     TTS_VOICE,
     MAX_TTS_SPEEDUP,

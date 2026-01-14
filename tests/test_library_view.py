@@ -1,8 +1,6 @@
 """Tests for LibraryView component."""
 
 import pytest
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget
 
 from src.config import DownloadState
 from src.ui.components.library_view import LibraryView

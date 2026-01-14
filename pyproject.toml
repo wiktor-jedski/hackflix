@@ -39,3 +39,9 @@ addopts = "-v"
 [tool.coverage.run]
 source = ["src"]
 omit = ["tests/*"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.11",
+    "ty>=0.0.11",
+]

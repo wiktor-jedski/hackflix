@@ -14,7 +14,6 @@ Tests cover:
 
 import json
 import pytest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from src.utils.gemini_client import (
@@ -347,7 +346,6 @@ class TestRateLimitHandling:
                     SubtitleLine(index=1, start_ms=0, end_ms=2000, text_source="Test")
                 ]
 
-                import google.api_core.exceptions
 
                 mock_429 = MagicMock()
                 mock_429.__str__ = MagicMock(return_value="429 Resource exhausted")

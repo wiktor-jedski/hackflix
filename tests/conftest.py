@@ -1,7 +1,6 @@
 """Pytest fixtures for Hackflix tests."""
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 

@@ -628,11 +628,44 @@ def test_resume_multiple_downloads_simultaneously(
 
 ### Task 15: Code Quality - Type Hints Enforcement Test
 
-**Description:** Add test that runs mypy to verify type hints across codebase.
+**Description:** Add test that runs ty to verify type hints across codebase.
 
-**Decision:** NOT PLANNED - Type hints enforcement has been removed from requirements. The codebase does not use mypy and AST-based checks found many functions without type hints that would need to be added.
+**Files modified:**
+- `tests/test_code_quality.py`
 
-**Status:** NOT PLANNED
+**Test implementation:**
+```python
+class TestTypeHintsEnforcement:
+    """Tests for type hints enforcement using ty type checker."""
+
+    @pytest.mark.xfail(reason="Existing type errors need to be fixed - 422 diagnostics")
+    def test_type_hints_pass_ty_check(self):
+        """Verify all production code passes ty type checking."""
+        import shutil
+        import subprocess
+
+        uv_path = shutil.which("uv")
+        if uv_path is None:
+            pytest.skip("uv not found in PATH")
+
+        result = subprocess.run(
+            [uv_path, "run", "ty", "check"],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).parent.parent,
+        )
+
+        assert result.returncode == 0, (
+            f"Type checking failed.\n"
+            f"stdout: {result.stdout}\n"
+            f"stderr: {result.stderr}"
+        )
+```
+
+**Relevant documentation:**
+- `CLAUDE.md`: "Type hints mandatory on all function signatures"
+
+**Status:** COMPLETED (Added `TestTypeHintsEnforcement` class with `test_type_hints_pass_ty_check` in `tests/test_code_quality.py`. Test is marked xfail until existing 422 type errors are fixed.)
 
 ---
 
@@ -888,7 +921,7 @@ setup_logging(debug=config.debug, log_file=config.log_file)
 | MEDIUM | 8-9 | Architecture (View Independence, UI Thread Safety) | COMPLETED (8 tests in `tests/test_architecture.py`) |
 | MEDIUM | 10 | Download state machine - ERROR → Retry Test | COMPLETED (7 tests) |
 | MEDIUM | 11 | Download state machine - Complete Flow Test | COMPLETED (9 tests) |
-| MEDIUM | 15 | Code quality - Type hints enforcement | NOT PLANNED - Type hints not enforced |
+| MEDIUM | 15 | Code quality - Type hints enforcement | COMPLETED (xfail until 422 type errors are fixed) |
 | MEDIUM | 16 | Code quality - Coverage enforcement | COMPLETED (Added `test_coverage_meets_100_percent_target` in `tests/test_code_quality.py`) |
 | LOW | 17-19 | Database thread safety, transactions, FK constraints | COMPLETED (Added 10 tests: 3 thread safety, 3 transaction rollback, 4 FK constraint tests) |
 | LOW | 20 | Error Handling - Bare try/except Detection Test | COMPLETED (Added `tests/test_code_quality.py` with 3 tests) |
@@ -920,7 +953,8 @@ Expected outcome: All tests pass with ≥100% coverage target.
 3. **Task 10** (Auto-resume retry) - COMPLETED - User experience on restart
 4. **Tasks 10-11** (Auto-resume retry, Download state machine) - COMPLETED - User experience on restart and state machine verification
 5. **Tasks 12-14** (Auto-resume flow, persistence, multi-item) - COMPLETED - User experience on restart
-6. **Task 16** (Code quality - Coverage) - COMPLETED - CI enforcement
-7. **Tasks 17-19** (Database) - COMPLETED - Thread safety, transactions, FK constraints
-8. **Task 21** (File Deletion) - COMPLETED - TODO fix from codebase
-9. **Task 22** (Logging Config) - COMPLETED - Configurable logging
+6. **Task 15** (Code quality - Type hints) - COMPLETED - Type checking test infrastructure (xfail until 422 errors fixed)
+7. **Task 16** (Code quality - Coverage) - COMPLETED - CI enforcement
+8. **Tasks 17-19** (Database) - COMPLETED - Thread safety, transactions, FK constraints
+9. **Task 21** (File Deletion) - COMPLETED - TODO fix from codebase
+10. **Task 22** (Logging Config) - COMPLETED - Configurable logging

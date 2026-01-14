@@ -1,6 +1,5 @@
 """Tests for UI enumerations."""
 
-import pytest
 
 from src.ui.enums import Action, AppState, MediaTab
 

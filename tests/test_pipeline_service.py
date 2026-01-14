@@ -14,14 +14,9 @@ Tests cover:
 - Signal emissions (pipeline_update, pipeline_finished)
 """
 
-import logging
-from datetime import datetime
-from pathlib import Path
-from unittest.mock import MagicMock, patch, call
-import sys
+from unittest.mock import MagicMock, patch
 
 import pytest
-from PyQt5.QtCore import QObject
 
 from src.config import PipelineState
 from src.services.pipeline_service import PipelineService, PipelineSignals
@@ -618,7 +613,6 @@ class TestPipelineServiceCancellationAtEachStage:
     ):
         """Verify stop() is respected at each pipeline stage."""
         from unittest.mock import MagicMock, patch
-        from src.utils.subtitle_parser import SubtitleLine
 
         video_folder = tmp_path
         video_path = video_folder / "video.mp4"
@@ -1669,7 +1663,7 @@ class TestPipelineServiceEndToEndIntegration:
         self, pipeline_service, mock_db_manager, tmp_path
     ):
         """Verify pipeline skips when subtitle_id is null."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
 
         video_folder = tmp_path
         video_path = video_folder / "video.mp4"
@@ -1697,7 +1691,7 @@ class TestPipelineServiceEndToEndIntegration:
         self, pipeline_service, mock_db_manager, tmp_path
     ):
         """Verify pipeline skips when voiceover already exists."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
 
         video_folder = tmp_path
         video_path = video_folder / "video.mp4"

@@ -12,6 +12,15 @@ uv run pytest tests/test_database.py
 
 # Run tests with coverage
 uv run pytest --cov=src tests/ --cov-report=term-missing
+
+# Lint
+uv run ruff check .
+
+# Format
+uv run ruff format .
+
+# Type check
+uv run ty check
 ```
 
 ## Architecture

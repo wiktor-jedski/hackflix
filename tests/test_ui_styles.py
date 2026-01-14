@@ -1,6 +1,5 @@
 """Tests for UI styles."""
 
-import pytest
 
 from src.ui import styles
 

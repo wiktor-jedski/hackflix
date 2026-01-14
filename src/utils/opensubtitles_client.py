@@ -5,9 +5,7 @@ using server-specified subtitle IDs.
 """
 
 import logging
-import os
 from pathlib import Path
-from typing import Optional
 
 import requests
 
@@ -83,7 +81,6 @@ class OpenSubtitlesClient:
                 output_path.write_bytes(content)
             else:
                 import gzip
-                import io
 
                 decompressed = gzip.decompress(content)
                 output_path.write_bytes(decompressed)

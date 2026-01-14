@@ -1,11 +1,9 @@
 """Tests for PlayerView component."""
 
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtCore import Qt
 
 from src.ui.components.player_view import (
     AudioTrackOverlay,

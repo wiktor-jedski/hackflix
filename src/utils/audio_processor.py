@@ -8,7 +8,6 @@ import logging
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -188,8 +187,7 @@ class AudioProcessor:
             video_duration_ms: Total video duration for chunk calculations.
         """
         from pydub import AudioSegment
-        from src.config import DUCKING_FADE_MS, DUCKING_LEVEL_DB
-        from src.utils.subtitle_parser import SubtitleLine
+        from src.config import DUCKING_FADE_MS
 
         original = AudioSegment.from_wav(str(original_audio_path))
         total_duration = len(original)

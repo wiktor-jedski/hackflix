@@ -208,7 +208,7 @@ class SearchOverlayBackground(QWidget):
             parent: Parent widget to cover.
         """
         super().__init__(parent)
-        self.setStyleSheet(f"background-color: rgba(0, 0, 0, 0.7);")
+        self.setStyleSheet("background-color: rgba(0, 0, 0, 0.7);")
         self.hide()
 
     def mousePressEvent(self, event: QKeyEvent) -> None:

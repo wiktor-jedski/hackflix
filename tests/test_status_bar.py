@@ -1,7 +1,6 @@
 """Tests for StatusBar component."""
 
 import pytest
-from PyQt5.QtWidgets import QWidget
 
 from src.ui.components.status_bar import StatusBar
 

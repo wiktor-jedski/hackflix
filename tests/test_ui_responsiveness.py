@@ -21,7 +21,6 @@ def main():
     try:
         # Test core functionality without complex UI components
         from PyQt5.QtWidgets import QApplication
-        from PyQt5.QtCore import QTimer
         from src.ui.input_manager import InputManager
         from src.ui.windows.main_window import MainWindow
         from src.controllers.app_controller import AppController

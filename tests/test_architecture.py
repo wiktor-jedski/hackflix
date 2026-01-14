@@ -46,7 +46,7 @@ class TestArchitectureCompliance:
                     ):
                         violations.append(f"{py_file}: imports from {node.module}")
 
-        assert not violations, f"UI components have forbidden imports:\n" + "\n".join(
+        assert not violations, "UI components have forbidden imports:\n" + "\n".join(
             violations
         )
 
@@ -76,7 +76,7 @@ class TestArchitectureCompliance:
                     ):
                         violations.append(f"{py_file}: imports from {node.module}")
 
-        assert not violations, f"UI components have forbidden imports:\n" + "\n".join(
+        assert not violations, "UI components have forbidden imports:\n" + "\n".join(
             violations
         )
 
@@ -106,7 +106,7 @@ class TestArchitectureCompliance:
                         if not in_type_checking:
                             violations.append(f"{py_file}: imports from {node.module}")
 
-        assert not violations, f"UI components have forbidden imports:\n" + "\n".join(
+        assert not violations, "UI components have forbidden imports:\n" + "\n".join(
             violations
         )
 
@@ -163,7 +163,7 @@ class TestArchitectureCompliance:
                         f"{py_file}: controller imports from service/database layer"
                     )
 
-        assert not violations, f"Cross-layer imports found:\n" + "\n".join(violations)
+        assert not violations, "Cross-layer imports found:\n" + "\n".join(violations)
 
 
 BLOCKING_PATTERNS = [

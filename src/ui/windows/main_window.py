@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import QTimer
 from PyQt5.QtGui import QCloseEvent, QResizeEvent, QShowEvent
 from PyQt5.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication
 

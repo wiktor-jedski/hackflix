@@ -3,9 +3,8 @@
 import os
 import sys
 import unittest
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 from src.config import LoggingConfig
 from src.main import check_dependencies, main

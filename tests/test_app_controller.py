@@ -1,7 +1,7 @@
 """Tests for AppController."""
 
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock
 
 from src.config import DownloadState
 from src.controllers.app_controller import (
@@ -13,7 +13,6 @@ from src.controllers.app_controller import (
     SearchOverlayHandler,
     SeriesDrilldownEpisodesHandler,
     SeriesDrilldownSeasonsHandler,
-    StateHandler,
 )
 from src.database.db_manager import DatabaseManager
 from src.ui.enums import Action, AppState, MediaTab
@@ -910,7 +909,6 @@ class TestAppControllerAdvanced:
         self, controller: AppController, mock_main_window: MagicMock
     ) -> None:
         """Test activate_selected with pending movie starts download."""
-        from src.services.torrent_service import DownloadContext, DownloadType
 
         controller._main_window = mock_main_window
         mock_torrent = MagicMock()
@@ -2207,7 +2205,6 @@ class TestErrorRecoveryWorkflows:
     ) -> None:
         """Verify activating a failed movie shows download toast (not play)."""
         from src.config import DownloadState
-        from src.services.torrent_service import DownloadContext, DownloadType
 
         controller._main_window = mock_main_window
         mock_torrent = MagicMock()

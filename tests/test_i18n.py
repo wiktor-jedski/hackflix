@@ -1,6 +1,5 @@
 """Tests for i18n module."""
 
-import pytest
 from pathlib import Path
 from PyQt5.QtWidgets import QApplication
 

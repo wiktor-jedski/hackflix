@@ -10,9 +10,8 @@ Tests cover:
 - Error handling (missing files, invalid formats)
 """
 
-import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -421,7 +420,6 @@ class TestGenerateVoiceover:
 
     def test_concatenate_tts_clips_creates_file_with_audio(self, tmp_path: Path):
         """Verify _concatenate_tts_clips creates output file when subtitles have audio."""
-        from src.utils.subtitle_parser import SubtitleLine
 
         processor = AudioProcessor()
 
@@ -459,7 +457,6 @@ class TestGenerateVoiceover:
 
     def test_generate_voiceover_calls_internal_methods(self, tmp_path: Path):
         """Verify generate_voiceover calls internal helper methods."""
-        from src.utils.subtitle_parser import SubtitleLine
 
         processor = AudioProcessor()
 
@@ -510,7 +507,6 @@ class TestGenerateVoiceover:
 
     def test_generate_voiceover_multiple_chunks(self, tmp_path: Path):
         """Verify generate_voiceover handles multiple chunks correctly."""
-        from src.utils.subtitle_parser import SubtitleLine
 
         processor = AudioProcessor()
 

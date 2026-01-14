@@ -6,8 +6,6 @@ with support for resumable processing and progress tracking.
 
 import json
 import logging
-from pathlib import Path
-from typing import Any
 
 import google.generativeai as genai
 from google.generativeai import GenerationConfig

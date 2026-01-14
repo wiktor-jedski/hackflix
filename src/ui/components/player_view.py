@@ -50,11 +50,11 @@ class OSDWidget(QFrame):
     def _setup_ui(self) -> None:
         """Set up the OSD UI layout."""
         self.setObjectName("OSD")
-        self.setStyleSheet(f"""
-            QFrame#OSD {{
+        self.setStyleSheet("""
+            QFrame#OSD {
                 background-color: rgba(0, 0, 0, 180);
                 border-radius: 8px;
-            }}
+            }
         """)
 
         layout = QHBoxLayout(self)

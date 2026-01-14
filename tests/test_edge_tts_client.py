@@ -15,8 +15,6 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch, AsyncMock
 
-import sys
-from types import ModuleType
 
 from src.utils.edge_tts_client import (
     EdgeTTSClient,

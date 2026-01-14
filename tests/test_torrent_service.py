@@ -2615,7 +2615,6 @@ class TestDownloadStatePersistence:
     ) -> None:
         """Verify download state restored from resume file on service restart."""
         from src.services.torrent_service import (
-            DownloadContext,
             DownloadType,
             TorrentService,
         )
@@ -2719,7 +2718,6 @@ class TestDownloadStatePersistence:
     ) -> None:
         """Verify resume data includes progress information for resuming downloads."""
         from src.services.torrent_service import (
-            DownloadContext,
             DownloadType,
             TorrentService,
         )

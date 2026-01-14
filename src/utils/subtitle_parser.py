@@ -6,9 +6,8 @@ including sound effect detection and timestamp conversion.
 """
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass
