@@ -41,9 +41,6 @@ src/
 
 | Component | Required | Not Allowed |
 |-----------|----------|-------------|
-| Python | 3.11.x | Newer versions |
-| Database | Raw `sqlite3` | SQLAlchemy ORM |
-| Torrent | Embedded `libtorrent` | qbittorrent-api |
 | TTS | `edge-tts` (online) | Offline engines |
 | TTS Voice | `pl-PL-MarekNeural` | Other voices |
 
@@ -95,4 +92,3 @@ If 100% coverage is not achievable, document the specific reason below.
 - Log all errors to `app.log`
 - Failed jobs marked as `Error` in DB for retry
 - Auto-resume incomplete downloads/processing on startup
-- Fail fast if VLC or libtorrent missing
