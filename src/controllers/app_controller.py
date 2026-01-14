@@ -20,6 +20,7 @@ from src.ui.enums import Action, AppState, MediaTab
 
 if TYPE_CHECKING:
     from src.services.metadata_service import MetadataService
+    from src.services.player_service import PlayerService
     from src.services.torrent_service import TorrentService
     from src.ui.windows.main_window import MainWindow
 
@@ -203,19 +204,70 @@ class DialogConfirmHandler(StateHandler):
 
 
 class PlayerActiveHandler(StateHandler):
-    """Handler for PLAYER_ACTIVE state (Phase 4 stub)."""
+    """Handler for PLAYER_ACTIVE state.
+
+    Handles all player-related actions including playback controls,
+    volume adjustments, and audio track cycling.
+    """
 
     def handle_action(self, action: Action, context: dict[str, Any]) -> bool:
-        """Handle actions in player state (stub for Phase 4)."""
+        """Handle actions in player state.
+
+        Args:
+            action: The action to handle.
+            context: Context dictionary from InputManager.
+
+        Returns:
+            True if the action was handled, False otherwise.
+        """
+        # Playback controls
+        if action == Action.TOGGLE_PAUSE:
+            self._controller.player_toggle_pause()
+            return True
+
+        if action == Action.CONFIRM:
+            # Enter also toggles pause in player mode
+            self._controller.player_toggle_pause()
+            return True
+
+        # Seek controls (arrows in player mode)
+        if action == Action.NAVIGATE_RIGHT or action == Action.SEEK_FORWARD:
+            self._controller.player_seek_forward()
+            return True
+
+        if action == Action.NAVIGATE_LEFT or action == Action.SEEK_BACKWARD:
+            self._controller.player_seek_backward()
+            return True
+
+        # Volume controls (arrows in player mode)
+        if action == Action.NAVIGATE_UP or action == Action.VOLUME_UP:
+            self._controller.player_volume_up()
+            return True
+
+        if action == Action.NAVIGATE_DOWN or action == Action.VOLUME_DOWN:
+            self._controller.player_volume_down()
+            return True
+
+        # Mute toggle
+        if action == Action.TOGGLE_MUTE:
+            self._controller.player_toggle_mute()
+            return True
+
+        # Audio track cycling
+        if action == Action.CYCLE_AUDIO:
+            self._controller.player_cycle_audio()
+            return True
+
+        # Exit player
         if action == Action.CANCEL:
-            self._controller.navigate_back()
+            self._controller.stop_player()
             return True
 
         if action == Action.QUIT:
+            self._controller.stop_player()
             self._controller.quit_application()
             return True
 
-        # Player actions will be implemented in Phase 4
         return False
 
 
@@ -243,6 +295,7 @@ class AppController(QObject):
         self._main_window: "MainWindow | None" = None
         self._metadata_service: "MetadataService | None" = None
         self._torrent_service: "TorrentService | None" = None
+        self._player_service: "PlayerService | None" = None
 
         # State machine
         self._current_state = AppState.LIBRARY_ROOT
@@ -264,6 +317,9 @@ class AppController(QObject):
         self._current_series_id: str | None = None
         self._current_season_id: int | None = None
 
+        # Player state
+        self._current_playing_file_id: int | None = None
+
         logger.info("AppController initialized")
 
     def bind_main_window(self, main_window: "MainWindow") -> None:
@@ -280,15 +336,18 @@ class AppController(QObject):
         self,
         metadata_service: "MetadataService | None" = None,
         torrent_service: "TorrentService | None" = None,
+        player_service: "PlayerService | None" = None,
     ) -> None:
         """Bind background services to this controller.
 
         Args:
             metadata_service: Optional MetadataService instance.
             torrent_service: Optional TorrentService instance.
+            player_service: Optional PlayerService instance.
         """
         self._metadata_service = metadata_service
         self._torrent_service = torrent_service
+        self._player_service = player_service
 
         # Connect service signals
         if metadata_service:
@@ -300,6 +359,11 @@ class AppController(QObject):
             torrent_service.download_progress.connect(self._on_download_progress)
             torrent_service.download_completed.connect(self._on_download_completed)
             torrent_service.download_error.connect(self._on_download_error)
+
+        if player_service:
+            player_service.playback_finished.connect(self._on_playback_finished)
+            player_service.time_changed.connect(self._on_time_changed)
+            player_service.error_occurred.connect(self._on_player_error)
 
         logger.debug("Services bound to controller")
 
@@ -347,6 +411,15 @@ class AppController(QObject):
     def shutdown(self) -> None:
         """Clean shutdown of the controller."""
         logger.info("AppController shutdown")
+
+        # Stop player and save position if playing
+        if self._current_state == AppState.PLAYER_ACTIVE:
+            self._save_resume_position()
+
+        # Release player resources
+        if self._player_service:
+            self._player_service.release()
+
         # Stop any running services
         if self._metadata_service and self._metadata_service.isRunning():
             self._metadata_service.stop()
@@ -593,8 +666,9 @@ class AppController(QObject):
             self.transition_to(AppState.SERIES_DRILLDOWN_EPISODES)
 
         elif item_state == DownloadState.COMPLETED.value:
-            # Play the item (Phase 4)
-            self._main_window.show_toast("Player not implemented yet", "info")
+            # Play the item
+            file_id = item.get("file_id") or item.get("id")
+            self.play_media(file_id)
 
         else:
             # Start download
@@ -789,6 +863,239 @@ class AppController(QObject):
                 {"state": DownloadState.ERROR.value},
             )
             self._main_window.show_toast(f"Download failed: {error}", "error")
+
+    # =========================================================================
+    # Player
+    # =========================================================================
+
+    def play_media(self, file_id: int | str) -> None:
+        """Start playing a media file.
+
+        Args:
+            file_id: ID of the video file to play.
+        """
+        if not self._main_window:
+            return
+
+        if not self._player_service:
+            self._main_window.show_toast("Player service not available", "error")
+            logger.error("PlayerService not bound")
+            return
+
+        # Convert to int if needed (from library view item ID)
+        try:
+            video_file_id = int(file_id)
+        except (ValueError, TypeError):
+            # For movies, file_id might be the media_item_id (UUID string)
+            # Look up the video file for this media item
+            video_details = self._db_manager.get_video_details(str(file_id))
+            if not video_details:
+                self._main_window.show_toast("Video file not found", "error")
+                logger.error("No video file found for media_id: %s", file_id)
+                return
+            video_file_id = video_details["id"]
+
+        # Get video file details
+        video = self._db_manager.get_video_file(video_file_id)
+        if not video:
+            self._main_window.show_toast("Video file not found", "error")
+            logger.error("Video file not found: %d", video_file_id)
+            return
+
+        file_path = video.get("file_path")
+        if not file_path:
+            self._main_window.show_toast("Video file path not set", "error")
+            logger.error("Video file has no file_path: %d", video_file_id)
+            return
+
+        # Check for voiceover
+        voiceover = self._db_manager.get_voiceover(video_file_id)
+        voiceover_path = voiceover.get("file_path") if voiceover else None
+
+        # Store current file ID for resume position saving
+        self._current_playing_file_id = video_file_id
+
+        # Push navigation context before playing
+        self.push_navigation()
+
+        # Show player view and transition state
+        self._main_window.show_player()
+        self.transition_to(AppState.PLAYER_ACTIVE)
+
+        try:
+            # Initialize player with video frame
+            frame_id = self._main_window.get_player_frame_id()
+            self._player_service.initialize(frame_id)
+
+            # Load and start playback
+            self._player_service.load_video(file_path, voiceover_path)
+
+            # Resume from saved position if available
+            resume_position = video.get("resume_position_seconds", 0)
+            if resume_position > 0:
+                self._player_service.set_position_seconds(resume_position)
+                logger.info("Resuming playback from %d seconds", resume_position)
+
+            logger.info(
+                "Started playback: %s (file_id=%d)",
+                video.get("media_title", file_path),
+                video_file_id,
+            )
+
+        except FileNotFoundError as e:
+            self._main_window.show_toast(f"File not found: {e}", "error")
+            logger.error("Failed to load video: %s", e)
+            self.stop_player()
+        except Exception as e:
+            self._main_window.show_toast(f"Playback error: {e}", "error")
+            logger.error("Playback error: %s", e)
+            self.stop_player()
+
+    def stop_player(self) -> None:
+        """Stop playback and return to library."""
+        if not self._main_window:
+            return
+
+        # Save resume position
+        self._save_resume_position()
+
+        # Stop playback
+        if self._player_service:
+            self._player_service.stop()
+
+        # Clear current file ID
+        self._current_playing_file_id = None
+
+        # Hide player view
+        self._main_window.hide_player()
+
+        # Navigate back to previous context
+        self.navigate_back()
+
+        logger.info("Player stopped")
+
+    def _save_resume_position(self) -> None:
+        """Save the current playback position for resume."""
+        if not self._player_service or not self._current_playing_file_id:
+            return
+
+        position = self._player_service.get_position_seconds()
+        if position > 0:
+            try:
+                self._db_manager.update_resume_position(
+                    self._current_playing_file_id, position
+                )
+                logger.debug(
+                    "Saved resume position: %d seconds for file %d",
+                    position,
+                    self._current_playing_file_id,
+                )
+            except Exception as e:
+                logger.error("Failed to save resume position: %s", e)
+
+    def player_toggle_pause(self) -> None:
+        """Toggle playback pause state."""
+        if not self._player_service or not self._main_window:
+            return
+
+        self._player_service.toggle_pause()
+        is_paused = not self._player_service.is_playing()
+        self._main_window.player_view.show_pause_indicator(is_paused)
+
+    def player_seek_forward(self) -> None:
+        """Seek forward in playback."""
+        if not self._player_service or not self._main_window:
+            return
+
+        self._player_service.seek_forward()
+        self._main_window.player_view.show_seek_indicator(forward=True)
+
+    def player_seek_backward(self) -> None:
+        """Seek backward in playback."""
+        if not self._player_service or not self._main_window:
+            return
+
+        self._player_service.seek_backward()
+        self._main_window.player_view.show_seek_indicator(forward=False)
+
+    def player_volume_up(self) -> None:
+        """Increase playback volume."""
+        if not self._player_service or not self._main_window:
+            return
+
+        self._player_service.volume_up()
+        # Note: We don't have direct access to volume level, so we show a generic indicator
+        # In a full implementation, PlayerService would expose current volume
+        self._main_window.player_view.show_volume_indicator(100, is_muted=False)
+
+    def player_volume_down(self) -> None:
+        """Decrease playback volume."""
+        if not self._player_service or not self._main_window:
+            return
+
+        self._player_service.volume_down()
+        self._main_window.player_view.show_volume_indicator(50, is_muted=False)
+
+    def player_toggle_mute(self) -> None:
+        """Toggle audio mute state."""
+        if not self._player_service or not self._main_window:
+            return
+
+        self._player_service.toggle_mute()
+        # Assume muted after toggle - PlayerService could expose this state
+        self._main_window.player_view.show_volume_indicator(0, is_muted=True)
+
+    def player_cycle_audio(self) -> None:
+        """Cycle through available audio tracks."""
+        if not self._player_service or not self._main_window:
+            return
+
+        self._player_service.cycle_audio_track()
+        current_track = self._player_service.get_current_audio_track()
+        if current_track:
+            self._main_window.player_view.show_audio_track_indicator(
+                current_track["name"]
+            )
+
+    @pyqtSlot()
+    def _on_playback_finished(self) -> None:
+        """Handle playback finished event."""
+        logger.info("Playback finished")
+
+        # Clear resume position when playback completes
+        if self._current_playing_file_id:
+            try:
+                self._db_manager.update_resume_position(
+                    self._current_playing_file_id, 0
+                )
+            except Exception as e:
+                logger.error("Failed to clear resume position: %s", e)
+
+        # Stop player and return to library
+        self.stop_player()
+
+    @pyqtSlot(int, int)
+    def _on_time_changed(self, current_ms: int, total_ms: int) -> None:
+        """Handle playback time update.
+
+        Args:
+            current_ms: Current playback position in milliseconds.
+            total_ms: Total media duration in milliseconds.
+        """
+        # Could update status bar or progress indicator here
+        pass
+
+    @pyqtSlot(str)
+    def _on_player_error(self, error: str) -> None:
+        """Handle player error event.
+
+        Args:
+            error: Error message.
+        """
+        logger.error("Player error: %s", error)
+        if self._main_window:
+            self._main_window.show_toast(f"Player error: {error}", "error")
+        self.stop_player()
 
     # =========================================================================
     # UI Callbacks

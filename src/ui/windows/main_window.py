@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication
 
 from src.ui.components.confirm_dialog import ConfirmDialog
 from src.ui.components.library_view import LibraryView
+from src.ui.components.player_view import PlayerView
 from src.ui.components.search_overlay import SearchOverlay, SearchOverlayBackground
 from src.ui.components.status_bar import StatusBar
 from src.ui.components.toast_notification import ToastLevel, ToastManager
@@ -65,6 +66,10 @@ class MainWindow(QMainWindow):
         # Library view (main content)
         self._library_view = LibraryView()
         layout.addWidget(self._library_view)
+
+        # Player view (hidden by default, overlays library)
+        self._player_view = PlayerView(central)
+        self._player_view.hide()
 
         # Status bar
         self._status_bar = StatusBar()
@@ -126,9 +131,50 @@ class MainWindow(QMainWindow):
         return self._status_bar
 
     @property
+    def player_view(self) -> PlayerView:
+        """Get the player view component."""
+        return self._player_view
+
+    @property
     def input_manager(self) -> InputManager:
         """Get the input manager."""
         return self._input_manager
+
+    def show_player(self) -> None:
+        """Show the player view in fullscreen mode."""
+        # Hide library and status bar
+        self._library_view.hide()
+        self._status_bar.hide()
+
+        # Position and show player view to fill the central widget
+        self._player_view.setGeometry(self.centralWidget().rect())
+        self._player_view.enter_fullscreen()
+        self._player_view.show()
+        self._player_view.raise_()
+        self._player_view.set_focus()
+
+        logger.debug("Player view shown")
+
+    def hide_player(self) -> None:
+        """Hide the player view and return to library."""
+        # Exit fullscreen mode on player view
+        self._player_view.exit_fullscreen()
+        self._player_view.hide()
+
+        # Show library and status bar
+        self._library_view.show()
+        self._status_bar.show()
+        self._library_view.set_focus()
+
+        logger.debug("Player view hidden")
+
+    def get_player_frame_id(self) -> int:
+        """Get the video frame window ID for VLC binding.
+
+        Returns:
+            The winId of the player view's video frame.
+        """
+        return self._player_view.get_video_frame_id()
 
     def show_search(self, current_filter: str = "") -> None:
         """Show the search overlay.
@@ -234,6 +280,10 @@ class MainWindow(QMainWindow):
             event: The resize event.
         """
         super().resizeEvent(event)
+
+        # Resize player view if visible
+        if self._player_view.isVisible():
+            self._player_view.setGeometry(self.centralWidget().rect())
 
         # Reposition search overlay
         if self._search_overlay.isVisible():

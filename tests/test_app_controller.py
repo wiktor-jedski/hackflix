@@ -337,21 +337,86 @@ class TestPlayerActiveHandler:
         """Create handler instance."""
         return PlayerActiveHandler(controller)
 
-    def test_cancel_navigates_back(
+    def test_cancel_stops_player(
         self, handler: PlayerActiveHandler, controller: MagicMock
     ) -> None:
-        """Test cancel action navigates back from player."""
+        """Test cancel action stops player."""
         result = handler.handle_action(Action.CANCEL, {})
         assert result is True
-        controller.navigate_back.assert_called_once()
+        controller.stop_player.assert_called_once()
 
-    def test_quit_available(
+    def test_quit_stops_player_first(
         self, handler: PlayerActiveHandler, controller: MagicMock
     ) -> None:
-        """Test quit action is available in player."""
+        """Test quit action stops player before quitting."""
         result = handler.handle_action(Action.QUIT, {})
         assert result is True
+        controller.stop_player.assert_called_once()
         controller.quit_application.assert_called_once()
+
+    def test_toggle_pause(
+        self, handler: PlayerActiveHandler, controller: MagicMock
+    ) -> None:
+        """Test toggle pause action."""
+        result = handler.handle_action(Action.TOGGLE_PAUSE, {})
+        assert result is True
+        controller.player_toggle_pause.assert_called_once()
+
+    def test_confirm_toggles_pause(
+        self, handler: PlayerActiveHandler, controller: MagicMock
+    ) -> None:
+        """Test confirm (Enter) toggles pause in player."""
+        result = handler.handle_action(Action.CONFIRM, {})
+        assert result is True
+        controller.player_toggle_pause.assert_called_once()
+
+    def test_seek_forward(
+        self, handler: PlayerActiveHandler, controller: MagicMock
+    ) -> None:
+        """Test seek forward action."""
+        result = handler.handle_action(Action.NAVIGATE_RIGHT, {})
+        assert result is True
+        controller.player_seek_forward.assert_called_once()
+
+    def test_seek_backward(
+        self, handler: PlayerActiveHandler, controller: MagicMock
+    ) -> None:
+        """Test seek backward action."""
+        result = handler.handle_action(Action.NAVIGATE_LEFT, {})
+        assert result is True
+        controller.player_seek_backward.assert_called_once()
+
+    def test_volume_up(
+        self, handler: PlayerActiveHandler, controller: MagicMock
+    ) -> None:
+        """Test volume up action."""
+        result = handler.handle_action(Action.NAVIGATE_UP, {})
+        assert result is True
+        controller.player_volume_up.assert_called_once()
+
+    def test_volume_down(
+        self, handler: PlayerActiveHandler, controller: MagicMock
+    ) -> None:
+        """Test volume down action."""
+        result = handler.handle_action(Action.NAVIGATE_DOWN, {})
+        assert result is True
+        controller.player_volume_down.assert_called_once()
+
+    def test_toggle_mute(
+        self, handler: PlayerActiveHandler, controller: MagicMock
+    ) -> None:
+        """Test toggle mute action."""
+        result = handler.handle_action(Action.TOGGLE_MUTE, {})
+        assert result is True
+        controller.player_toggle_mute.assert_called_once()
+
+    def test_cycle_audio(
+        self, handler: PlayerActiveHandler, controller: MagicMock
+    ) -> None:
+        """Test cycle audio action."""
+        result = handler.handle_action(Action.CYCLE_AUDIO, {})
+        assert result is True
+        controller.player_cycle_audio.assert_called_once()
 
     def test_unhandled_action(
         self, handler: PlayerActiveHandler, controller: MagicMock
@@ -679,10 +744,10 @@ class TestAppControllerAdvanced:
 
         assert controller.current_state == AppState.SERIES_DRILLDOWN_EPISODES
 
-    def test_activate_selected_completed_movie(
+    def test_activate_selected_completed_movie_no_player(
         self, controller: AppController, mock_main_window: MagicMock
     ) -> None:
-        """Test activate_selected with completed movie shows player message."""
+        """Test activate_selected with completed movie shows error when player not bound."""
         controller._main_window = mock_main_window
         mock_main_window.library_view.get_selected_item.return_value = {
             "id": "movie-1",
@@ -694,7 +759,7 @@ class TestAppControllerAdvanced:
         controller.activate_selected()
 
         mock_main_window.show_toast.assert_called_once()
-        assert "Player not implemented" in mock_main_window.show_toast.call_args[0][0]
+        assert "Player service not available" in mock_main_window.show_toast.call_args[0][0]
 
     def test_activate_selected_pending_movie(
         self, controller: AppController, mock_main_window: MagicMock
@@ -1183,3 +1248,600 @@ class TestSeriesDrilldownEpisodesHandlerFull:
         """Test unhandled action."""
         result = handler.handle_action(Action.SEARCH, {})
         assert result is False
+
+
+class TestAppControllerPlayerMethods:
+    """Tests for AppController player-related methods."""
+
+    @pytest.fixture
+    def db_manager(self) -> DatabaseManager:
+        """Create a test database manager."""
+        manager = DatabaseManager(":memory:")
+        manager.initialize()
+        return manager
+
+    @pytest.fixture
+    def controller(self, db_manager: DatabaseManager) -> AppController:
+        """Create an AppController instance."""
+        return AppController(db_manager)
+
+    @pytest.fixture
+    def mock_main_window(self) -> MagicMock:
+        """Create a mock main window."""
+        window = MagicMock()
+        window.library_view.get_current_tab.return_value = MediaTab.MOVIES
+        window.library_view.get_selected_item.return_value = None
+        window.player_view = MagicMock()
+        window.get_player_frame_id.return_value = 12345
+        return window
+
+    @pytest.fixture
+    def mock_player_service(self) -> MagicMock:
+        """Create a mock player service."""
+        service = MagicMock()
+        service.is_playing.return_value = True
+        service.get_position_seconds.return_value = 120
+        service.get_current_audio_track.return_value = {"name": "English"}
+        return service
+
+    # =========================================================================
+    # play_media() tests
+    # =========================================================================
+
+    def test_play_media_no_main_window(
+        self, controller: AppController
+    ) -> None:
+        """Test play_media returns early without main window."""
+        controller.play_media(1)
+        # Should not raise
+
+    def test_play_media_no_player_service(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test play_media shows error without player service."""
+        controller._main_window = mock_main_window
+        controller.play_media(1)
+        mock_main_window.show_toast.assert_called_with(
+            "Player service not available", "error"
+        )
+
+    def test_play_media_invalid_media_id_not_found(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test play_media with invalid media ID that's not found."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller.play_media("nonexistent-uuid")
+        mock_main_window.show_toast.assert_called_with(
+            "Video file not found", "error"
+        )
+
+    def test_play_media_video_file_not_found(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+        db_manager: DatabaseManager,
+    ) -> None:
+        """Test play_media with video file ID not in database."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller.play_media(99999)
+        mock_main_window.show_toast.assert_called_with(
+            "Video file not found", "error"
+        )
+
+    def test_play_media_video_no_file_path(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+        db_manager: DatabaseManager,
+    ) -> None:
+        """Test play_media when video file has no file_path."""
+        # Insert media and video file without file_path
+        db_manager.upsert_content({
+            "items": [{
+                "id": "test-movie",
+                "type": "movie",
+                "title": "Test Movie",
+                "magnet": "magnet:?test",
+                "subtitle_id": None,
+            }]
+        })
+        # Get video and verify it has no file_path
+        video = db_manager.get_video_details("test-movie")
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller.play_media(video["id"])
+        mock_main_window.show_toast.assert_called_with(
+            "Video file path not set", "error"
+        )
+
+    def test_play_media_success_without_voiceover(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+        db_manager: DatabaseManager,
+    ) -> None:
+        """Test successful play_media without voiceover."""
+        # Insert media and video file
+        db_manager.upsert_content({
+            "items": [{
+                "id": "test-movie",
+                "type": "movie",
+                "title": "Test Movie",
+                "magnet": "magnet:?test",
+                "subtitle_id": None,
+            }]
+        })
+        video = db_manager.get_video_details("test-movie")
+        db_manager.update_file_path(video["id"], "/path/to/video.mp4")
+
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller.play_media(video["id"])
+
+        mock_main_window.show_player.assert_called_once()
+        mock_player_service.initialize.assert_called_once_with(12345)
+        mock_player_service.load_video.assert_called_once_with(
+            "/path/to/video.mp4", None
+        )
+
+    def test_play_media_with_resume_position(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+        db_manager: DatabaseManager,
+    ) -> None:
+        """Test play_media resumes from saved position."""
+        # Insert media and video file with resume position
+        db_manager.upsert_content({
+            "items": [{
+                "id": "test-movie",
+                "type": "movie",
+                "title": "Test Movie",
+                "magnet": "magnet:?test",
+                "subtitle_id": None,
+            }]
+        })
+        video = db_manager.get_video_details("test-movie")
+        db_manager.update_file_path(video["id"], "/path/to/video.mp4")
+        db_manager.update_resume_position(video["id"], 300)
+
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller.play_media(video["id"])
+
+        mock_player_service.set_position_seconds.assert_called_once_with(300)
+
+    def test_play_media_file_not_found_error(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+        db_manager: DatabaseManager,
+    ) -> None:
+        """Test play_media handles FileNotFoundError."""
+        db_manager.upsert_content({
+            "items": [{
+                "id": "test-movie",
+                "type": "movie",
+                "title": "Test Movie",
+                "magnet": "magnet:?test",
+                "subtitle_id": None,
+            }]
+        })
+        video = db_manager.get_video_details("test-movie")
+        db_manager.update_file_path(video["id"], "/path/to/video.mp4")
+        mock_player_service.load_video.side_effect = FileNotFoundError("File missing")
+
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller.play_media(video["id"])
+
+        assert "File not found" in mock_main_window.show_toast.call_args[0][0]
+
+    def test_play_media_generic_exception(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+        db_manager: DatabaseManager,
+    ) -> None:
+        """Test play_media handles generic exception."""
+        db_manager.upsert_content({
+            "items": [{
+                "id": "test-movie",
+                "type": "movie",
+                "title": "Test Movie",
+                "magnet": "magnet:?test",
+                "subtitle_id": None,
+            }]
+        })
+        video = db_manager.get_video_details("test-movie")
+        db_manager.update_file_path(video["id"], "/path/to/video.mp4")
+        mock_player_service.load_video.side_effect = Exception("VLC error")
+
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller.play_media(video["id"])
+
+        assert "Playback error" in mock_main_window.show_toast.call_args[0][0]
+
+    # =========================================================================
+    # stop_player() tests
+    # =========================================================================
+
+    def test_stop_player_no_main_window(
+        self, controller: AppController
+    ) -> None:
+        """Test stop_player returns early without main window."""
+        controller.stop_player()
+        # Should not raise
+
+    def test_stop_player_success(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test stop_player stops playback and hides player."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller._current_playing_file_id = 1
+        controller.transition_to(AppState.PLAYER_ACTIVE)
+
+        # Push initial context
+        controller.push_navigation()
+
+        controller.stop_player()
+
+        mock_player_service.stop.assert_called_once()
+        mock_main_window.hide_player.assert_called_once()
+        assert controller._current_playing_file_id is None
+
+    # =========================================================================
+    # _save_resume_position() tests
+    # =========================================================================
+
+    def test_save_resume_position_no_player_service(
+        self, controller: AppController
+    ) -> None:
+        """Test _save_resume_position returns early without player service."""
+        controller._save_resume_position()
+        # Should not raise
+
+    def test_save_resume_position_no_file_id(
+        self,
+        controller: AppController,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test _save_resume_position returns early without file ID."""
+        controller._player_service = mock_player_service
+        controller._current_playing_file_id = None
+        controller._save_resume_position()
+        mock_player_service.get_position_seconds.assert_not_called()
+
+    def test_save_resume_position_success(
+        self,
+        controller: AppController,
+        mock_player_service: MagicMock,
+        db_manager: DatabaseManager,
+    ) -> None:
+        """Test _save_resume_position saves position to database."""
+        db_manager.upsert_content({
+            "items": [{
+                "id": "test-movie",
+                "type": "movie",
+                "title": "Test Movie",
+                "magnet": "magnet:?test",
+                "subtitle_id": None,
+            }]
+        })
+        video = db_manager.get_video_details("test-movie")
+        db_manager.update_file_path(video["id"], "/path/to/video.mp4")
+
+        controller._player_service = mock_player_service
+        controller._current_playing_file_id = video["id"]
+        mock_player_service.get_position_seconds.return_value = 150
+
+        controller._save_resume_position()
+
+        video = db_manager.get_video_file(video["id"])
+        assert video["resume_position_seconds"] == 150
+
+    def test_save_resume_position_zero_position(
+        self,
+        controller: AppController,
+        mock_player_service: MagicMock,
+        db_manager: DatabaseManager,
+    ) -> None:
+        """Test _save_resume_position does not save zero position."""
+        controller._player_service = mock_player_service
+        controller._current_playing_file_id = 1
+        mock_player_service.get_position_seconds.return_value = 0
+
+        controller._save_resume_position()
+        # Should not save anything
+
+    def test_save_resume_position_db_error(
+        self,
+        controller: AppController,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test _save_resume_position handles database error."""
+        controller._player_service = mock_player_service
+        controller._current_playing_file_id = 99999
+        mock_player_service.get_position_seconds.return_value = 100
+        # Database error will occur since video file doesn't exist
+        # Should not raise
+        controller._save_resume_position()
+
+    # =========================================================================
+    # Player control methods tests
+    # =========================================================================
+
+    def test_player_toggle_pause_no_services(
+        self, controller: AppController
+    ) -> None:
+        """Test player_toggle_pause returns early without services."""
+        controller.player_toggle_pause()
+        # Should not raise
+
+    def test_player_toggle_pause_success(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test player_toggle_pause toggles pause and shows indicator."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        mock_player_service.is_playing.return_value = False  # After toggle, paused
+
+        controller.player_toggle_pause()
+
+        mock_player_service.toggle_pause.assert_called_once()
+        mock_main_window.player_view.show_pause_indicator.assert_called_once_with(True)
+
+    def test_player_seek_forward_no_services(
+        self, controller: AppController
+    ) -> None:
+        """Test player_seek_forward returns early without services."""
+        controller.player_seek_forward()
+        # Should not raise
+
+    def test_player_seek_forward_success(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test player_seek_forward seeks and shows indicator."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+
+        controller.player_seek_forward()
+
+        mock_player_service.seek_forward.assert_called_once()
+        mock_main_window.player_view.show_seek_indicator.assert_called_once_with(
+            forward=True
+        )
+
+    def test_player_seek_backward_no_services(
+        self, controller: AppController
+    ) -> None:
+        """Test player_seek_backward returns early without services."""
+        controller.player_seek_backward()
+        # Should not raise
+
+    def test_player_seek_backward_success(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test player_seek_backward seeks and shows indicator."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+
+        controller.player_seek_backward()
+
+        mock_player_service.seek_backward.assert_called_once()
+        mock_main_window.player_view.show_seek_indicator.assert_called_once_with(
+            forward=False
+        )
+
+    def test_player_volume_up_no_services(
+        self, controller: AppController
+    ) -> None:
+        """Test player_volume_up returns early without services."""
+        controller.player_volume_up()
+        # Should not raise
+
+    def test_player_volume_up_success(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test player_volume_up changes volume and shows indicator."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+
+        controller.player_volume_up()
+
+        mock_player_service.volume_up.assert_called_once()
+        mock_main_window.player_view.show_volume_indicator.assert_called_once()
+
+    def test_player_volume_down_no_services(
+        self, controller: AppController
+    ) -> None:
+        """Test player_volume_down returns early without services."""
+        controller.player_volume_down()
+        # Should not raise
+
+    def test_player_volume_down_success(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test player_volume_down changes volume and shows indicator."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+
+        controller.player_volume_down()
+
+        mock_player_service.volume_down.assert_called_once()
+        mock_main_window.player_view.show_volume_indicator.assert_called_once()
+
+    def test_player_toggle_mute_no_services(
+        self, controller: AppController
+    ) -> None:
+        """Test player_toggle_mute returns early without services."""
+        controller.player_toggle_mute()
+        # Should not raise
+
+    def test_player_toggle_mute_success(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test player_toggle_mute toggles mute and shows indicator."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+
+        controller.player_toggle_mute()
+
+        mock_player_service.toggle_mute.assert_called_once()
+        mock_main_window.player_view.show_volume_indicator.assert_called_once_with(
+            0, is_muted=True
+        )
+
+    def test_player_cycle_audio_no_services(
+        self, controller: AppController
+    ) -> None:
+        """Test player_cycle_audio returns early without services."""
+        controller.player_cycle_audio()
+        # Should not raise
+
+    def test_player_cycle_audio_success(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test player_cycle_audio cycles track and shows indicator."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+
+        controller.player_cycle_audio()
+
+        mock_player_service.cycle_audio_track.assert_called_once()
+        mock_main_window.player_view.show_audio_track_indicator.assert_called_once_with(
+            "English"
+        )
+
+    def test_player_cycle_audio_no_track(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test player_cycle_audio when no track info available."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        mock_player_service.get_current_audio_track.return_value = None
+
+        controller.player_cycle_audio()
+
+        mock_player_service.cycle_audio_track.assert_called_once()
+        mock_main_window.player_view.show_audio_track_indicator.assert_not_called()
+
+    # =========================================================================
+    # Player event handler tests
+    # =========================================================================
+
+    def test_on_playback_finished(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+        db_manager: DatabaseManager,
+    ) -> None:
+        """Test _on_playback_finished clears resume and stops player."""
+        db_manager.upsert_content({
+            "items": [{
+                "id": "test-movie",
+                "type": "movie",
+                "title": "Test Movie",
+                "magnet": "magnet:?test",
+                "subtitle_id": None,
+            }]
+        })
+        video = db_manager.get_video_details("test-movie")
+        db_manager.update_file_path(video["id"], "/path/to/video.mp4")
+        db_manager.update_resume_position(video["id"], 300)
+
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller._current_playing_file_id = video["id"]
+        # Return 0 from get_position_seconds so stop_player doesn't overwrite the clear
+        mock_player_service.get_position_seconds.return_value = 0
+
+        controller._on_playback_finished()
+
+        # Resume position should be cleared (set to 0 by _on_playback_finished)
+        video = db_manager.get_video_file(video["id"])
+        assert video["resume_position_seconds"] == 0
+
+    def test_on_playback_finished_db_error(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test _on_playback_finished handles database error."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller._current_playing_file_id = 99999  # Non-existent
+
+        # Should not raise
+        controller._on_playback_finished()
+
+    def test_on_time_changed(
+        self, controller: AppController
+    ) -> None:
+        """Test _on_time_changed does nothing (placeholder)."""
+        # Should not raise
+        controller._on_time_changed(5000, 120000)
+
+    def test_on_player_error(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test _on_player_error shows toast and stops player."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+
+        controller._on_player_error("VLC crashed")
+
+        mock_main_window.show_toast.assert_called_once()
+        assert "VLC crashed" in mock_main_window.show_toast.call_args[0][0]
+
+    def test_on_player_error_no_main_window(
+        self, controller: AppController
+    ) -> None:
+        """Test _on_player_error without main window."""
+        controller._on_player_error("error")
+        # Should not raise
