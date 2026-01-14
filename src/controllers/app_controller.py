@@ -458,6 +458,9 @@ class AppController(QObject):
             logger.warning("Cannot resume download %d: no magnet link", video.get("id"))
             return
 
+        if not self._torrent_service:
+            return
+
         from src.services.torrent_service import DownloadContext, DownloadType
 
         file_id = video["id"]
@@ -747,7 +750,8 @@ class AppController(QObject):
         elif item_state == DownloadState.COMPLETED.value:
             # Play the item
             file_id = item.get("file_id") or item.get("id")
-            self.play_media(file_id)
+            if file_id is not None:
+                self.play_media(file_id)
 
         else:
             # Start download (PENDING, ERROR, QUEUED states)
@@ -838,7 +842,8 @@ class AppController(QObject):
 
         # Restore the view
         if ctx.state == AppState.LIBRARY_ROOT:
-            self._main_window.library_view.set_tab(ctx.tab)
+            if self._main_window:
+                self._main_window.library_view.set_tab(ctx.tab)
             self.refresh_library()
         elif ctx.state == AppState.SERIES_DRILLDOWN_SEASONS and ctx.series_id:
             self.load_seasons(ctx.series_id)

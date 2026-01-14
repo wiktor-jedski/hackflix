@@ -29,7 +29,7 @@ def main():
         from src.ui.enums import Action
 
         # Setup minimal environment
-        setup_logging(debug=False)
+        setup_logging()
         ensure_directories()
 
         app = QApplication([])

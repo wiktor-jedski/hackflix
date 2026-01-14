@@ -86,9 +86,11 @@ class LibraryView(QFrame):
         self._list_view = QListView()
         self._list_view.setObjectName("MediaList")
         self._list_view.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
-        self._list_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._list_view.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff  # type: ignore[attr-defined]
+        )
         self._list_view.setSelectionMode(QAbstractItemView.SingleSelection)
-        self._list_view.setFocusPolicy(Qt.StrongFocus)
+        self._list_view.setFocusPolicy(Qt.StrongFocus)  # type: ignore[attr-defined]
         self._list_view.setUniformItemSizes(True)
         self._list_view.setSpacing(4)
 
@@ -128,13 +130,13 @@ class LibraryView(QFrame):
         # Movies tab
         self._movies_tab = QLabel("Movies")
         self._movies_tab.setObjectName("MoviesTab")
-        self._movies_tab.setCursor(Qt.PointingHandCursor)
+        self._movies_tab.setCursor(Qt.PointingHandCursor)  # type: ignore[attr-defined]
         layout.addWidget(self._movies_tab)
 
         # Series tab
         self._series_tab = QLabel("Series")
         self._series_tab.setObjectName("SeriesTab")
-        self._series_tab.setCursor(Qt.PointingHandCursor)
+        self._series_tab.setCursor(Qt.PointingHandCursor)  # type: ignore[attr-defined]
         layout.addWidget(self._series_tab)
 
         layout.addStretch()

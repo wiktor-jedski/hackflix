@@ -58,7 +58,9 @@ class ConfirmDialog(QDialog):
         self.setModal(True)
 
         # Remove window frame for cleaner look
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setWindowFlags(
+            Qt.Dialog | Qt.FramelessWindowHint  # type: ignore[attr-defined]
+        )
 
         self.setStyleSheet(f"""
             QDialog#ConfirmDialog {{
@@ -84,7 +86,7 @@ class ConfirmDialog(QDialog):
             font-weight: bold;
             color: {WARNING_COLOR};
         """)
-        self._title_label.setAlignment(Qt.AlignCenter)
+        self._title_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
         layout.addWidget(self._title_label)
 
         # Message
@@ -94,7 +96,7 @@ class ConfirmDialog(QDialog):
             color: {TEXT_PRIMARY};
         """)
         self._message_label.setWordWrap(True)
-        self._message_label.setAlignment(Qt.AlignCenter)
+        self._message_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
         layout.addWidget(self._message_label)
 
         # Hint text
@@ -103,7 +105,7 @@ class ConfirmDialog(QDialog):
             font-size: {FONT_SIZE_SMALL}px;
             color: {TEXT_SECONDARY};
         """)
-        self._hint_label.setAlignment(Qt.AlignCenter)
+        self._hint_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
         layout.addWidget(self._hint_label)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
@@ -114,10 +116,10 @@ class ConfirmDialog(QDialog):
         """
         key = event.key()
 
-        if key in (Qt.Key_Return, Qt.Key_Enter):
+        if key in (Qt.Key_Return, Qt.Key_Enter):  # type: ignore[attr-defined]
             self.accept()
             event.accept()
-        elif key == Qt.Key_Escape:
+        elif key == Qt.Key_Escape:  # type: ignore[attr-defined]
             self.reject()
             event.accept()
         else:

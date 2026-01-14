@@ -59,7 +59,7 @@ class SearchOverlay(QFrame):
         self.setFixedWidth(SEARCH_WIDTH)
 
         # Required for QFrame to render background-color from stylesheet
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WA_StyledBackground, True)  # type: ignore[attr-defined]
 
         self.setStyleSheet(f"""
             QFrame#SearchOverlay {{
@@ -83,7 +83,7 @@ class SearchOverlay(QFrame):
             font-weight: bold;
             color: {TEXT_PRIMARY};
         """)
-        self._title_label.setAlignment(Qt.AlignCenter)
+        self._title_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
         layout.addWidget(self._title_label)
 
         # Search input
@@ -119,7 +119,7 @@ class SearchOverlay(QFrame):
             font-size: {FONT_SIZE_SMALL}px;
             color: {TEXT_SECONDARY};
         """)
-        self._hint_label.setAlignment(Qt.AlignCenter)
+        self._hint_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
         layout.addWidget(self._hint_label)
 
         # Compute proper size based on contents
@@ -136,10 +136,10 @@ class SearchOverlay(QFrame):
         """
         key = event.key()
 
-        if key in (Qt.Key_Return, Qt.Key_Enter):
+        if key in (Qt.Key_Return, Qt.Key_Enter):  # type: ignore[attr-defined]
             self._on_return_pressed()
             event.accept()
-        elif key == Qt.Key_Escape:
+        elif key == Qt.Key_Escape:  # type: ignore[attr-defined]
             # Cancel search
             self.search_cancelled.emit()
             self.hide()
@@ -222,7 +222,8 @@ class SearchOverlayBackground(QWidget):
 
     def show_fullscreen(self) -> None:
         """Show the background covering the entire parent."""
-        if self.parent() and isinstance(self.parent(), QWidget):
-            self.setGeometry(self.parent().rect())
+        parent = self.parent()
+        if parent and isinstance(parent, QWidget):
+            self.setGeometry(parent.rect())
         self.show()
         self.raise_()

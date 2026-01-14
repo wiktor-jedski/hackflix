@@ -70,19 +70,19 @@ class StatusBar(QFrame):
         connection_layout.setSpacing(4)
         connection_layout.addWidget(self._connection_indicator)
         connection_layout.addWidget(self._connection_label)
-        layout.addWidget(connection_container, alignment=Qt.AlignLeft)
+        layout.addWidget(connection_container, alignment=Qt.AlignLeft)  # type: ignore[attr-defined]
 
         # Center: Sync status
         self._sync_label = QLabel()
         self._sync_label.setObjectName("SyncLabel")
         self._sync_label.setStyleSheet(f"color: {TEXT_SECONDARY};")
-        layout.addWidget(self._sync_label, alignment=Qt.AlignCenter)
+        layout.addWidget(self._sync_label, alignment=Qt.AlignCenter)  # type: ignore[attr-defined]
 
         # Right: Storage usage
         self._storage_label = QLabel()
         self._storage_label.setObjectName("StorageLabel")
         self._storage_label.setStyleSheet(f"color: {TEXT_SECONDARY};")
-        layout.addWidget(self._storage_label, alignment=Qt.AlignRight)
+        layout.addWidget(self._storage_label, alignment=Qt.AlignRight)  # type: ignore[attr-defined]
 
         # Set initial values
         self.set_connection_status(False)

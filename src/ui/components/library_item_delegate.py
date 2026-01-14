@@ -39,19 +39,19 @@ from src.utils.i18n import tr
 class LibraryItemRole:
     """Custom data roles for library items."""
 
-    IdRole = Qt.UserRole + 1
-    TypeRole = Qt.UserRole + 2
-    TitleRole = Qt.UserRole + 3
-    GenresRole = Qt.UserRole + 4
-    PosterPathRole = Qt.UserRole + 5
-    DownloadStateRole = Qt.UserRole + 6
-    PipelineStateRole = Qt.UserRole + 7
-    DownloadProgressRole = Qt.UserRole + 8
-    SeasonCountRole = Qt.UserRole + 9
-    EpisodeCountRole = Qt.UserRole + 10
-    SeasonNumberRole = Qt.UserRole + 11
-    EpisodeNumberRole = Qt.UserRole + 12
-    EpisodeTitleRole = Qt.UserRole + 13
+    IdRole = Qt.UserRole + 1  # type: ignore[attr-defined]
+    TypeRole = Qt.UserRole + 2  # type: ignore[attr-defined]
+    TitleRole = Qt.UserRole + 3  # type: ignore[attr-defined]
+    GenresRole = Qt.UserRole + 4  # type: ignore[attr-defined]
+    PosterPathRole = Qt.UserRole + 5  # type: ignore[attr-defined]
+    DownloadStateRole = Qt.UserRole + 6  # type: ignore[attr-defined]
+    PipelineStateRole = Qt.UserRole + 7  # type: ignore[attr-defined]
+    DownloadProgressRole = Qt.UserRole + 8  # type: ignore[attr-defined]
+    SeasonCountRole = Qt.UserRole + 9  # type: ignore[attr-defined]
+    EpisodeCountRole = Qt.UserRole + 10  # type: ignore[attr-defined]
+    SeasonNumberRole = Qt.UserRole + 11  # type: ignore[attr-defined]
+    EpisodeNumberRole = Qt.UserRole + 12  # type: ignore[attr-defined]
+    EpisodeTitleRole = Qt.UserRole + 13  # type: ignore[attr-defined]
 
 
 class LibraryItemDelegate(QStyledItemDelegate):
@@ -99,7 +99,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
         self._poster_cache: dict[str, QPixmap] = {}
 
     def paint(
-        self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex
+        self, painter: QPainter | None, option: QStyleOptionViewItem, index: QModelIndex
     ) -> None:
         """Paint a library item.
 
@@ -108,6 +108,8 @@ class LibraryItemDelegate(QStyledItemDelegate):
             option: Style options for the item.
             index: Model index of the item.
         """
+        if painter is None:
+            return
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
 
@@ -154,9 +156,9 @@ class LibraryItemDelegate(QStyledItemDelegate):
         """
         rect = option.rect
 
-        if option.state & QStyle.State_Selected:
+        if option.state & QStyle.State_Selected:  # type: ignore[attr-defined]
             color = QColor(SELECTION_COLOR)
-        elif option.state & QStyle.State_MouseOver:
+        elif option.state & QStyle.State_MouseOver:  # type: ignore[attr-defined]
             color = QColor(SURFACE_HOVER_COLOR)
         else:
             color = QColor(SURFACE_COLOR)
@@ -179,8 +181,8 @@ class LibraryItemDelegate(QStyledItemDelegate):
                 # Scale to fit while maintaining aspect ratio
                 scaled = pixmap.scaled(
                     rect.size(),
-                    Qt.KeepAspectRatio,
-                    Qt.SmoothTransformation,
+                    Qt.KeepAspectRatio,  # type: ignore[attr-defined]
+                    Qt.SmoothTransformation,  # type: ignore[attr-defined]
                 )
                 # Center in rect
                 x = rect.x() + (rect.width() - scaled.width()) // 2
@@ -191,7 +193,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
         # Draw placeholder
         painter.fillRect(rect, QColor(SURFACE_HOVER_COLOR))
         painter.setPen(QColor(TEXT_SECONDARY))
-        painter.drawText(rect, Qt.AlignCenter, tr("LibraryItemDelegate", "No\nImage"))
+        painter.drawText(rect, Qt.AlignCenter, tr("LibraryItemDelegate", "No\nImage"))  # type: ignore[attr-defined]
 
     def _get_cached_poster(self, path: str) -> QPixmap | None:
         """Get a poster pixmap from cache or load it.
@@ -250,8 +252,12 @@ class LibraryItemDelegate(QStyledItemDelegate):
         painter.setFont(title_font)
         painter.setPen(QColor(TEXT_PRIMARY))
         title_rect = QRect(rect.left(), y, rect.width(), title_metrics.height())
-        elided_title = title_metrics.elidedText(title, Qt.ElideRight, rect.width())
-        painter.drawText(title_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_title)
+        elided_title = title_metrics.elidedText(
+            title, Qt.ElideRight, rect.width()  # type: ignore[attr-defined]
+        )
+        painter.drawText(
+            title_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_title  # type: ignore[attr-defined]
+        )
         y += title_metrics.height() + line_spacing
 
         # Draw genres
@@ -259,8 +265,12 @@ class LibraryItemDelegate(QStyledItemDelegate):
             painter.setFont(body_font)
             painter.setPen(QColor(TEXT_SECONDARY))
             genres_rect = QRect(rect.left(), y, rect.width(), body_metrics.height())
-            elided_genres = body_metrics.elidedText(genres, Qt.ElideRight, rect.width())
-            painter.drawText(genres_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_genres)
+            elided_genres = body_metrics.elidedText(
+                genres, Qt.ElideRight, rect.width()  # type: ignore[attr-defined]
+            )
+            painter.drawText(
+                genres_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_genres  # type: ignore[attr-defined]
+            )
             y += body_metrics.height() + line_spacing
 
         # Draw subtitle
@@ -269,10 +279,10 @@ class LibraryItemDelegate(QStyledItemDelegate):
             painter.setPen(QColor(TEXT_SECONDARY))
             subtitle_rect = QRect(rect.left(), y, rect.width(), small_metrics.height())
             elided_subtitle = small_metrics.elidedText(
-                subtitle, Qt.ElideRight, rect.width()
+                subtitle, Qt.ElideRight, rect.width()  # type: ignore[attr-defined]
             )
             painter.drawText(
-                subtitle_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_subtitle
+                subtitle_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_subtitle  # type: ignore[attr-defined]
             )
 
     def _build_subtitle(self, index: QModelIndex) -> str:
@@ -368,7 +378,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
         font = QFont(FONT_FAMILY, STATUS_ICON_SIZE - 8)
         painter.setFont(font)
         painter.setPen(QColor(color))
-        painter.drawText(rect, Qt.AlignCenter, icon)
+        painter.drawText(rect, Qt.AlignCenter, icon)  # type: ignore[attr-defined]
 
         # Draw progress percentage if downloading
         if status == "downloading" and progress > 0:
@@ -377,7 +387,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
             progress_rect = QRect(
                 rect.left(), rect.bottom() + 2, rect.width(), FONT_SIZE_SMALL
             )
-            painter.drawText(progress_rect, Qt.AlignCenter, f"{progress}%")
+            painter.drawText(progress_rect, Qt.AlignCenter, f"{progress}%")  # type: ignore[attr-defined]
 
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
         """Return the size hint for an item.

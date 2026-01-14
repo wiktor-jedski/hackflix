@@ -758,6 +758,8 @@ class DatabaseManager:
             subtitle_id = cursor.lastrowid
             conn.commit()
             self._close_connection(conn)
+            if subtitle_id is None:
+                raise sqlite3.Error("Failed to get lastrowid after insert")
             logger.debug(
                 "Added subtitle %d for video file %d", subtitle_id, video_file_id
             )
@@ -797,6 +799,8 @@ class DatabaseManager:
             voiceover_id = cursor.lastrowid
             conn.commit()
             self._close_connection(conn)
+            if voiceover_id is None:
+                raise sqlite3.Error("Failed to get lastrowid after insert")
             logger.debug(
                 "Added voiceover %d for video file %d", voiceover_id, video_file_id
             )

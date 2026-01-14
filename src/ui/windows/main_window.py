@@ -102,7 +102,9 @@ class MainWindow(QMainWindow):
         self._input_manager.action_triggered.connect(controller.handle_action)
 
         # Install input manager as global event filter now that QApplication exists
-        QApplication.instance().installEventFilter(self._input_manager)
+        app = QApplication.instance()
+        if app:
+            app.installEventFilter(self._input_manager)
 
         # Also install on library view since it has focus
         self._library_view.installEventFilter(self._input_manager)
@@ -147,7 +149,9 @@ class MainWindow(QMainWindow):
         self._status_bar.hide()
 
         # Position and show player view to fill the central widget
-        self._player_view.setGeometry(self.centralWidget().rect())
+        central = self.centralWidget()
+        if central:
+            self._player_view.setGeometry(central.rect())
         self._player_view.enter_fullscreen()
         self._player_view.show()
         self._player_view.raise_()
@@ -183,7 +187,9 @@ class MainWindow(QMainWindow):
             current_filter: Current search filter to pre-populate.
         """
         # Disable global input manager to allow raw text input in the search field
-        QApplication.instance().removeEventFilter(self._input_manager)
+        app = QApplication.instance()
+        if app:
+            app.removeEventFilter(self._input_manager)
         self._library_view.removeEventFilter(self._input_manager)
 
         # Show background
@@ -208,7 +214,9 @@ class MainWindow(QMainWindow):
 
     def _restore_input_manager(self) -> None:
         """Restore the input manager after search overlay is hidden."""
-        QApplication.instance().installEventFilter(self._input_manager)
+        app = QApplication.instance()
+        if app:
+            app.installEventFilter(self._input_manager)
         self._library_view.installEventFilter(self._input_manager)
         self._library_view.set_focus()
         logger.debug("InputManager restored")
@@ -281,17 +289,19 @@ class MainWindow(QMainWindow):
         """
         super().resizeEvent(event)
 
+        central = self.centralWidget()
+
         # Resize player view if visible
-        if self._player_view.isVisible():
-            self._player_view.setGeometry(self.centralWidget().rect())
+        if self._player_view.isVisible() and central:
+            self._player_view.setGeometry(central.rect())
 
         # Reposition search overlay
         if self._search_overlay.isVisible():
             self._search_overlay._center_in_parent()
 
         # Resize search background
-        if self._search_background.isVisible():
-            self._search_background.setGeometry(self.centralWidget().rect())
+        if self._search_background.isVisible() and central:
+            self._search_background.setGeometry(central.rect())
 
     def showEvent(self, event: QShowEvent) -> None:
         """Handle window show event.

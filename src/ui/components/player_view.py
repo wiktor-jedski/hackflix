@@ -94,7 +94,7 @@ class OSDWidget(QFrame):
         """
         label = QLabel()
         label.setObjectName(name)
-        label.setAlignment(Qt.AlignCenter)
+        label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
         label.setStyleSheet(f"""
             QLabel {{
                 color: {TEXT_PRIMARY};
@@ -462,14 +462,14 @@ class PlayerView(QFrame):
     def hide_cursor(self) -> None:
         """Hide the mouse cursor for full-screen experience."""
         if not self._cursor_hidden:
-            self.setCursor(QCursor(Qt.BlankCursor))
+            self.setCursor(QCursor(Qt.BlankCursor))  # type: ignore[attr-defined]
             self._cursor_hidden = True
             logger.debug("Mouse cursor hidden")
 
     def show_cursor(self) -> None:
         """Show the mouse cursor."""
         if self._cursor_hidden:
-            self.setCursor(QCursor(Qt.ArrowCursor))
+            self.setCursor(QCursor(Qt.ArrowCursor))  # type: ignore[attr-defined]
             self._cursor_hidden = False
             logger.debug("Mouse cursor shown")
 

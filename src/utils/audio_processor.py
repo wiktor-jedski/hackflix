@@ -305,7 +305,7 @@ class AudioProcessor:
 
         if concat_segments:
             combined = sum(concat_segments)
-            combined.export(str(output_path), format="wav")
+            combined.export(str(output_path), format="wav")  # type: ignore[union-attr]
         else:
             output_path.touch()
 

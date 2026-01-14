@@ -88,6 +88,8 @@ class EdgeTTSClient:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
+            if self.communicate is None:
+                raise TTSError("Communicate object not initialized")
             await self.communicate.save(str(output_path))
         except Exception as e:
             raise TTSError(f"Async TTS save failed: {e}")

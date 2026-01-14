@@ -99,9 +99,9 @@ class TorrentService(QThread):
         self._download_dir = Path(download_dir) if download_dir else MEDIA_LIBRARY_PATH
         self._poll_interval = poll_interval_ms or TORRENT_POLL_INTERVAL_MS
 
-        self._session: lt.session | None = None
+        self._session: lt.session | None = None  # type: ignore[name-defined]
         self._contexts: dict[int, DownloadContext] = {}  # context_id -> DownloadContext
-        self._handles: dict[int, lt.torrent_handle] = {}  # context_id -> handle
+        self._handles: dict[int, lt.torrent_handle] = {}  # type: ignore[name-defined]
         self._handle_to_context: dict[str, int] = {}  # info_hash hex -> context_id
         self._should_stop = False
         self._poll_timer: QTimer | None = None
@@ -150,12 +150,12 @@ class TorrentService(QThread):
             "enable_upnp": True,
             "enable_natpmp": True,
             "alert_mask": (
-                lt.alert.category_t.error_notification
-                | lt.alert.category_t.status_notification
-                | lt.alert.category_t.storage_notification
+                lt.alert.category_t.error_notification  # type: ignore[attr-defined]
+                | lt.alert.category_t.status_notification  # type: ignore[attr-defined]
+                | lt.alert.category_t.storage_notification  # type: ignore[attr-defined]
             ),
         }
-        self._session = lt.session(settings)
+        self._session = lt.session(settings)  # type: ignore[attr-defined]
         logger.info("Libtorrent session initialized")
 
     def _load_session_state(self) -> None:
@@ -166,7 +166,7 @@ class TorrentService(QThread):
 
         try:
             state_data = state_file.read_bytes()
-            self._session.load_state(lt.bdecode(state_data))
+            self._session.load_state(lt.bdecode(state_data))  # type: ignore[attr-defined]
             logger.info("Session state loaded from %s", state_file)
         except Exception as e:
             logger.warning("Failed to load session state: %s", e)
@@ -178,7 +178,7 @@ class TorrentService(QThread):
         state_file = self._state_dir / self.SESSION_STATE_FILE
         try:
             state_data = self._session.save_state()
-            state_file.write_bytes(lt.bencode(state_data))
+            state_file.write_bytes(lt.bencode(state_data))  # type: ignore[attr-defined]
             logger.info("Session state saved to %s", state_file)
         except Exception as e:
             logger.warning("Failed to save session state: %s", e)
@@ -197,10 +197,10 @@ class TorrentService(QThread):
                 if self._should_stop:
                     return
                 try:
-                    atp = lt.add_torrent_params()
+                    atp = lt.add_torrent_params()  # type: ignore[attr-defined]
                     atp.resume_data = data["resume_data"]
                     atp.save_path = data["save_path"]
-                    handle = self._session.add_torrent(atp)
+                    handle = self._session.add_torrent(atp)  # type: ignore[union-attr]
                     context = DownloadContext(
                         download_type=DownloadType(data["download_type"]),
                         id=data["context_db_id"],
@@ -228,8 +228,8 @@ class TorrentService(QThread):
                 continue
             try:
                 handle.save_resume_data(
-                    lt.torrent_handle.save_info_dict
-                    | lt.torrent_handle.only_if_modified
+                    lt.torrent_handle.save_info_dict  # type: ignore[attr-defined]
+                    | lt.torrent_handle.only_if_modified  # type: ignore[attr-defined]
                 )
             except Exception as e:
                 logger.warning(
@@ -240,14 +240,14 @@ class TorrentService(QThread):
         self._session.wait_for_alert(1000)  # Wait up to 1 second
         alerts = self._session.pop_alerts()
         for alert in alerts:
-            if isinstance(alert, lt.save_resume_data_alert):
+            if isinstance(alert, lt.save_resume_data_alert):  # type: ignore[attr-defined]
                 info_hash = str(alert.handle.info_hash())
                 context_id = self._handle_to_context.get(info_hash)
                 if context_id is not None:
                     context = self._contexts.get(context_id)
                     if context:
                         resume_data[context_id] = {
-                            "resume_data": lt.write_resume_data_buf(alert),
+                            "resume_data": lt.write_resume_data_buf(alert),  # type: ignore[attr-defined]
                             "save_path": alert.handle.status().save_path,
                             "download_type": context.download_type.value,
                             "context_db_id": context.id,
@@ -287,10 +287,10 @@ class TorrentService(QThread):
 
             status = handle.status()
 
-            if status.state == lt.torrent_status.states.seeding:
+            if status.state == lt.torrent_status.states.seeding:  # type: ignore[attr-defined]
                 # Download complete
                 self._on_download_complete(context_id, handle)
-            elif status.state == lt.torrent_status.states.downloading:
+            elif status.state == lt.torrent_status.states.downloading:  # type: ignore[attr-defined]
                 # Emit progress
                 progress = int(status.progress * 100)
                 self.download_progress.emit(
@@ -315,7 +315,7 @@ class TorrentService(QThread):
         Args:
             alert: The alert to process.
         """
-        if isinstance(alert, lt.torrent_error_alert):
+        if isinstance(alert, lt.torrent_error_alert):  # type: ignore[attr-defined]
             context_id = self._get_context_id_from_handle(alert.handle)
             if context_id is not None:
                 context = self._contexts.get(context_id)
@@ -334,7 +334,7 @@ class TorrentService(QThread):
                     self.download_error.emit(context.id, error_msg)
                     self._unregister_handle(context_id)
 
-    def _on_download_complete(self, context_id: int, handle: lt.torrent_handle) -> None:
+    def _on_download_complete(self, context_id: int, handle: Any) -> None:
         """Handle download completion.
 
         Routes to appropriate handler based on download type (movie or season).
@@ -354,11 +354,11 @@ class TorrentService(QThread):
             self._complete_season_download(context, handle)
 
         # Remove from active handles (stop seeding)
-        self._session.remove_torrent(handle)
+        self._session.remove_torrent(handle)  # type: ignore[union-attr]
         self._unregister_handle(context_id)
 
     def _complete_movie_download(
-        self, context: DownloadContext, handle: lt.torrent_handle
+        self, context: DownloadContext, handle: Any
     ) -> None:
         """Handle movie download completion.
 
@@ -383,7 +383,7 @@ class TorrentService(QThread):
             self.download_error.emit(file_id, error_msg)
 
     def _complete_season_download(
-        self, context: DownloadContext, handle: lt.torrent_handle
+        self, context: DownloadContext, handle: Any
     ) -> None:
         """Handle season pack download completion.
 
@@ -438,7 +438,7 @@ class TorrentService(QThread):
         )
 
     def _get_video_files_from_torrent(
-        self, handle: lt.torrent_handle
+        self, handle: Any
     ) -> list[tuple[Path, int]]:
         """Get all video files from a torrent.
 
@@ -540,7 +540,7 @@ class TorrentService(QThread):
 
         return None
 
-    def _find_largest_video(self, handle: lt.torrent_handle) -> Path | None:
+    def _find_largest_video(self, handle: Any) -> Path | None:
         """Find the largest video file in a completed torrent.
 
         Args:
@@ -600,7 +600,7 @@ class TorrentService(QThread):
             return False
 
         try:
-            atp = lt.parse_magnet_uri(magnet_link)
+            atp = lt.parse_magnet_uri(magnet_link)  # type: ignore[attr-defined]
             atp.save_path = str(self._download_dir)
 
             handle = self._session.add_torrent(atp)
@@ -677,7 +677,7 @@ class TorrentService(QThread):
         return list(self._contexts.values())
 
     def _register_handle(
-        self, context_id: int, handle: lt.torrent_handle, context: DownloadContext
+        self, context_id: int, handle: Any, context: DownloadContext
     ) -> None:
         """Register a torrent handle mapping."""
         self._contexts[context_id] = context
@@ -693,7 +693,7 @@ class TorrentService(QThread):
             info_hash = str(handle.info_hash())
             self._handle_to_context.pop(info_hash, None)
 
-    def _get_context_id_from_handle(self, handle: lt.torrent_handle) -> int | None:
+    def _get_context_id_from_handle(self, handle: Any) -> int | None:
         """Get context ID from a torrent handle."""
         info_hash = str(handle.info_hash())
         return self._handle_to_context.get(info_hash)

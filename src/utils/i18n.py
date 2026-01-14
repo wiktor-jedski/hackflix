@@ -19,7 +19,7 @@ _translator: QTranslator | None = None
 
 
 def setup_translations(
-    app: QCoreApplication,
+    app: QCoreApplication | None,
     locale: str = "pl",
     translations_dir: Path | None = None,
 ) -> bool:
@@ -38,6 +38,9 @@ def setup_translations(
         True if translation file was loaded successfully, False otherwise.
     """
     global _translator
+
+    if app is None:
+        return False
 
     # Remove existing translator if any
     if _translator is not None:

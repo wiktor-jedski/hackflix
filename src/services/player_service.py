@@ -98,10 +98,12 @@ class PlayerService(QObject):
             # Set up event manager for end-of-playback detection
             event_manager = self._player.event_manager()
             event_manager.event_attach(
-                vlc.EventType.MediaPlayerEndReached, self._on_end_reached
+                vlc.EventType.MediaPlayerEndReached,  # type: ignore[attr-defined]
+                self._on_end_reached,
             )
             event_manager.event_attach(
-                vlc.EventType.MediaPlayerEncounteredError, self._on_error
+                vlc.EventType.MediaPlayerEncounteredError,  # type: ignore[attr-defined]
+                self._on_error,
             )
 
             # Start time update timer
