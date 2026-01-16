@@ -1024,6 +1024,7 @@ class TestAppControllerAdvanced:
             "id": "movie-1",
             "type": "movie",
             "title": "Test Movie",
+            "state": "COMPLETED",
         }
         mock_main_window.show_confirm.return_value = True
 
@@ -1041,6 +1042,7 @@ class TestAppControllerAdvanced:
             "id": "movie-1",
             "type": "movie",
             "title": "Test Movie",
+            "state": "COMPLETED",
         }
         mock_main_window.show_confirm.return_value = False
 
@@ -1048,6 +1050,23 @@ class TestAppControllerAdvanced:
 
         mock_main_window.show_confirm.assert_called_once()
         mock_main_window.show_toast.assert_not_called()
+
+    def test_delete_selected_not_downloaded(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test delete_selected when item is not downloaded."""
+        controller._main_window = mock_main_window
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": "movie-1",
+            "type": "movie",
+            "title": "Test Movie",
+            "state": "PENDING",
+        }
+
+        controller.delete_selected()
+
+        mock_main_window.show_confirm.assert_not_called()
+        mock_main_window.show_toast.assert_called_once()
 
     def test_delete_selected_no_selection(
         self, controller: AppController, mock_main_window: MagicMock

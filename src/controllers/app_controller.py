@@ -7,6 +7,7 @@ central orchestrator connecting the UI to services and database.
 from __future__ import annotations
 
 import logging
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
@@ -322,6 +323,8 @@ class AppController(QObject):
 
         # Player state
         self._current_playing_file_id: int | None = None
+        self._playback_start_time: float | None = None
+        self._resumed_from_position: int = 0
 
         logger.info("AppController initialized")
 
@@ -793,6 +796,10 @@ class AppController(QObject):
 
                 context = DownloadContext(DownloadType.MOVIE, file_id)
                 if self._torrent_service.add_magnet(context, magnet):
+                    self._main_window.library_view.update_item_by_file_id(
+                        file_id,
+                        {"state": DownloadState.QUEUED.value, "download_progress": 0},
+                    )
                     self._main_window.show_toast(
                         f"Starting download: {item_title}", "info"
                     )
@@ -828,6 +835,8 @@ class AppController(QObject):
                 # Download the whole season
                 context = DownloadContext(DownloadType.SEASON, season_id)
                 if self._torrent_service.add_magnet(context, magnet):
+                    # Reload episodes to show updated QUEUED state
+                    self.load_episodes(season_id)
                     self._main_window.show_toast(
                         f"Starting season download for: {item_title}", "info"
                     )
@@ -837,15 +846,13 @@ class AppController(QObject):
                     )
 
             elif item_type == "season":
-                season_id = item.get("season_id")
-                series_id = item.get("series_id")
-
-                if not season_id or not series_id:
+                # For seasons, id is the season_id
+                season_id = item.get("id")
+                if not season_id:
                     self._main_window.show_toast("Invalid season selection", "error")
                     return
 
-                seasons = self._db_manager.get_seasons(series_id)
-                season = next((s for s in seasons if s["id"] == season_id), None)
+                season = self._db_manager.get_season(season_id)
                 if not season:
                     self._main_window.show_toast("Season not found", "error")
                     return
@@ -859,6 +866,9 @@ class AppController(QObject):
 
                 context = DownloadContext(DownloadType.SEASON, season_id)
                 if self._torrent_service.add_magnet(context, magnet):
+                    # Reload seasons to show updated QUEUED state
+                    if self._current_series_id:
+                        self.load_seasons(self._current_series_id)
                     self._main_window.show_toast(
                         f"Starting download: {item_title}", "info"
                     )
@@ -906,6 +916,14 @@ class AppController(QObject):
             return
 
         title = item.get("title", "this item")
+        item_type = item.get("type")
+
+        # Check if item has a downloaded file
+        item_state = item.get("state")
+        if item_state != DownloadState.COMPLETED.value:
+            self._main_window.show_toast("No downloaded file to delete", "warning")
+            return
+
         confirmed = self._main_window.show_confirm(
             f"Delete {title}?",
             "This will remove the file from disk but keep the catalog entry.",
@@ -917,6 +935,33 @@ class AppController(QObject):
                 self._main_window.show_toast("Failed to delete: invalid item", "error")
                 return
 
+            # Handle episodes differently - they use file_id directly
+            if item_type == "episode":
+                file_id = item.get("file_id")
+                if file_id:
+                    video = self._db_manager.get_video_file(file_id)
+                    if video and video.get("file_path"):
+                        file_path = Path(video["file_path"])
+                        if file_path.exists():
+                            try:
+                                file_path.unlink()
+                                self._db_manager.reset_video_file_state(file_id)
+                                self._main_window.show_toast(
+                                    f"Deleted: {title}", "info"
+                                )
+                            except OSError as e:
+                                self._main_window.show_toast(
+                                    f"Failed to delete: {e}", "error"
+                                )
+                        else:
+                            # File already gone, just reset state
+                            self._db_manager.reset_video_file_state(file_id)
+                    # Reload episodes view
+                    if self._current_season_id:
+                        self.load_episodes(self._current_season_id)
+                return
+
+            # For movies: get all associated files and delete them
             file_paths = self._db_manager.get_media_files(item_id)
             deleted_count = 0
             failed_count = 0
@@ -928,6 +973,9 @@ class AppController(QObject):
                         deleted_count += 1
                     except OSError:
                         failed_count += 1
+
+            # Reset the video file state to PENDING
+            self._db_manager.reset_media_state(item_id)
 
             if failed_count == 0:
                 self._main_window.show_toast(
@@ -1246,6 +1294,8 @@ class AppController(QObject):
 
             # Resume from saved position if available
             resume_position = video.get("resume_position_seconds", 0)
+            self._resumed_from_position = resume_position
+            self._playback_start_time = time.time()
             if resume_position > 0:
                 self._player_service.set_position_seconds(resume_position)
                 logger.info("Resuming playback from %d seconds", resume_position)
@@ -1265,13 +1315,18 @@ class AppController(QObject):
             logger.error("Playback error: %s", e)
             self.stop_player()
 
-    def stop_player(self) -> None:
-        """Stop playback and return to library."""
+    def stop_player(self, save_position: bool = True) -> None:
+        """Stop playback and return to library.
+
+        Args:
+            save_position: Whether to save the current position for resume.
+        """
         if not self._main_window:
             return
 
         # Save resume position
-        self._save_resume_position()
+        if save_position:
+            self._save_resume_position()
 
         # Stop playback
         if self._player_service:
@@ -1373,6 +1428,17 @@ class AppController(QObject):
         """Handle playback finished event."""
         logger.info("Playback finished")
 
+        # Detect invalid resume: if playback finished within 3 seconds of starting
+        # and we had a non-zero resume position, the position was likely invalid
+        elapsed = time.time() - (self._playback_start_time or 0)
+        if elapsed < 3.0 and self._resumed_from_position > 0:
+            logger.warning(
+                "Playback finished too quickly (%.1fs) after resuming from %ds - "
+                "likely invalid resume position, clearing it",
+                elapsed,
+                self._resumed_from_position,
+            )
+
         # Clear resume position when playback completes
         if self._current_playing_file_id:
             try:
@@ -1382,8 +1448,12 @@ class AppController(QObject):
             except Exception as e:
                 logger.error("Failed to clear resume position: %s", e)
 
-        # Stop player and return to library
-        self.stop_player()
+        # Reset tracking variables
+        self._playback_start_time = None
+        self._resumed_from_position = 0
+
+        # Stop player and return to library (skip saving position since we just cleared it)
+        self.stop_player(save_position=False)
 
     @pyqtSlot(int, int)
     def _on_time_changed(self, current_ms: int, total_ms: int) -> None:

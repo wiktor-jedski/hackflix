@@ -33,13 +33,6 @@ class EdgeTTSClient:
         if not self.voice:
             raise TTSError("TTS_VOICE not configured")
 
-        self.communicate = None
-
-    async def _init_communicate(self) -> None:
-        """Initialize the edge-tts communicate object."""
-        if self.communicate is None:
-            self.communicate = edge_tts.Communicate(self.voice)
-
     def generate_tts(self, text: str, output_path: Path) -> Path:
         """Generate TTS audio for the given text.
 
@@ -83,14 +76,11 @@ class EdgeTTSClient:
             text: Text to synthesize.
             output_path: Path for the output MP3 file.
         """
-        await self._init_communicate()
-
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            if self.communicate is None:
-                raise TTSError("Communicate object not initialized")
-            await self.communicate.save(str(output_path))
+            communicate = edge_tts.Communicate(text, self.voice)
+            await communicate.save(str(output_path))
         except Exception as e:
             raise TTSError(f"Async TTS save failed: {e}")
 

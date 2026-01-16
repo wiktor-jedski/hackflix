@@ -116,6 +116,7 @@ class PipelineState(Enum):
 
 # TTS Configuration
 TTS_VOICE = "pl-PL-MarekNeural"
+VOICEOVER_LANGUAGE = "pl"
 MAX_TTS_SPEEDUP = 1.3
 MAX_TIMING_DRIFT_SECONDS = 5.0
 

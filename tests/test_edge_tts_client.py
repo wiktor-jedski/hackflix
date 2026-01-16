@@ -406,72 +406,6 @@ class TestEdgeTTSClientInitializationError:
                 tts_module.EdgeTTSClient.VOICE = original_class_voice
 
 
-class TestEdgeTTSClientInitCommunicate:
-    """Tests for _init_communicate method."""
-
-    def test_init_communicate_creates_communicate_object(self):
-        """Verify _init_communicate creates the edge_tts.Communicate object."""
-        with patch.dict("sys.modules", {"edge_tts": MagicMock()}):
-            import src.utils.edge_tts_client as tts_module
-
-            original_voice = tts_module.TTS_VOICE
-            tts_module.TTS_VOICE = "pl-PL-MarekNeural"
-            try:
-                client = tts_module.EdgeTTSClient()
-                assert client.communicate is None
-
-                mock_communicate = MagicMock()
-                tts_module.edge_tts.Communicate = MagicMock(
-                    return_value=mock_communicate
-                )
-
-                import asyncio
-
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(client._init_communicate())
-                finally:
-                    loop.close()
-
-                assert client.communicate is not None
-                tts_module.edge_tts.Communicate.assert_called_once_with(
-                    "pl-PL-MarekNeural"
-                )
-            finally:
-                tts_module.TTS_VOICE = original_voice
-
-    def test_init_communicate_only_creates_once(self):
-        """Verify _init_communicate only creates Communicate object once."""
-        with patch.dict("sys.modules", {"edge_tts": MagicMock()}):
-            import src.utils.edge_tts_client as tts_module
-
-            original_voice = tts_module.TTS_VOICE
-            tts_module.TTS_VOICE = "pl-PL-MarekNeural"
-            try:
-                client = tts_module.EdgeTTSClient()
-
-                mock_communicate = MagicMock()
-                tts_module.edge_tts.Communicate = MagicMock(
-                    return_value=mock_communicate
-                )
-
-                import asyncio
-
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(client._init_communicate())
-                    loop.run_until_complete(client._init_communicate())
-                    loop.run_until_complete(client._init_communicate())
-                finally:
-                    loop.close()
-
-                assert tts_module.edge_tts.Communicate.call_count == 1
-            finally:
-                tts_module.TTS_VOICE = original_voice
-
-
 class TestEdgeTTSClientGenerateAsync:
     """Tests for _generate_async method."""
 
@@ -490,7 +424,9 @@ class TestEdgeTTSClientGenerateAsync:
 
                 mock_communicate = MagicMock()
                 mock_communicate.save = AsyncMock()
-                client.communicate = mock_communicate
+                tts_module.edge_tts.Communicate = MagicMock(
+                    return_value=mock_communicate
+                )
 
                 import asyncio
 
@@ -503,6 +439,9 @@ class TestEdgeTTSClientGenerateAsync:
                 finally:
                     loop.close()
 
+                tts_module.edge_tts.Communicate.assert_called_once_with(
+                    "Test text", "pl-PL-MarekNeural"
+                )
                 mock_communicate.save.assert_called_once_with(str(output_path))
             finally:
                 tts_module.TTS_VOICE = original_voice
@@ -522,7 +461,9 @@ class TestEdgeTTSClientGenerateAsync:
 
                 mock_communicate = MagicMock()
                 mock_communicate.save = AsyncMock(side_effect=Exception("FFmpeg error"))
-                client.communicate = mock_communicate
+                tts_module.edge_tts.Communicate = MagicMock(
+                    return_value=mock_communicate
+                )
 
                 import asyncio
 

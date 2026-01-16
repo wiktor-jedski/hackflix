@@ -925,6 +925,102 @@ class TestDatabaseManagerErrorHandling:
             with pytest.raises(sqlite3.Error, match="Query failed"):
                 db_manager.get_voiceover(1)
 
+    def test_reset_media_state_error(self, db_manager: DatabaseManager) -> None:
+        """Test reset_media_state raises on sqlite3 error."""
+        with mock.patch.object(db_manager, "_get_connection") as mock_conn:
+            mock_conn.side_effect = sqlite3.Error("Update failed")
+
+            with pytest.raises(sqlite3.Error, match="Update failed"):
+                db_manager.reset_media_state("movie-1")
+
+    def test_reset_video_file_state_error(self, db_manager: DatabaseManager) -> None:
+        """Test reset_video_file_state raises on sqlite3 error."""
+        with mock.patch.object(db_manager, "_get_connection") as mock_conn:
+            mock_conn.side_effect = sqlite3.Error("Update failed")
+
+            with pytest.raises(sqlite3.Error, match="Update failed"):
+                db_manager.reset_video_file_state(1)
+
+
+class TestResetState:
+    """Tests for reset state methods."""
+
+    def test_reset_media_state(self, db_manager: DatabaseManager) -> None:
+        """Test resetting media state after file deletion."""
+        content = {
+            "items": [
+                {
+                    "id": "movie-test",
+                    "type": "movie",
+                    "title": "Test Movie",
+                    "magnet": "magnet:?test",
+                    "subtitle_id": 123,
+                }
+            ]
+        }
+        db_manager.upsert_content(content)
+
+        # Get the video file ID
+        video = db_manager.get_video_details("movie-test")
+        assert video is not None
+        file_id = video["id"]
+
+        # Set completed state with file path
+        db_manager.update_file_state(file_id, DownloadState.COMPLETED, 100)
+        db_manager.update_file_path(file_id, "/path/to/movie.mp4")
+        db_manager.update_pipeline_state(file_id, PipelineState.VOICEOVER_READY)
+
+        # Verify completed state
+        video = db_manager.get_video_file(file_id)
+        assert video["state"] == "COMPLETED"
+        assert video["file_path"] == "/path/to/movie.mp4"
+        assert video["pipeline_state"] == "VOICEOVER_READY"
+
+        # Reset state
+        db_manager.reset_media_state("movie-test")
+
+        # Verify reset state
+        video = db_manager.get_video_file(file_id)
+        assert video["state"] == "PENDING"
+        assert video["file_path"] is None
+        assert video["pipeline_state"] == "NONE"
+        assert video["download_progress"] == 0
+
+    def test_reset_video_file_state(self, db_manager: DatabaseManager) -> None:
+        """Test resetting individual video file state."""
+        content = {
+            "items": [
+                {
+                    "id": "movie-test",
+                    "type": "movie",
+                    "title": "Test Movie",
+                    "magnet": "magnet:?test",
+                    "subtitle_id": 123,
+                }
+            ]
+        }
+        db_manager.upsert_content(content)
+
+        # Get the video file ID
+        video = db_manager.get_video_details("movie-test")
+        assert video is not None
+        file_id = video["id"]
+
+        # Set completed state with file path
+        db_manager.update_file_state(file_id, DownloadState.COMPLETED, 100)
+        db_manager.update_file_path(file_id, "/path/to/movie.mp4")
+        db_manager.update_pipeline_state(file_id, PipelineState.SUBS_READY)
+
+        # Reset state
+        db_manager.reset_video_file_state(file_id)
+
+        # Verify reset state
+        video = db_manager.get_video_file(file_id)
+        assert video["state"] == "PENDING"
+        assert video["file_path"] is None
+        assert video["pipeline_state"] == "NONE"
+        assert video["download_progress"] == 0
+
 
 class TestDatabaseThreadSafety:
     """Tests for database thread safety behavior.

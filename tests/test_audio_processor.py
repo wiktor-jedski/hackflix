@@ -455,6 +455,57 @@ class TestGenerateVoiceover:
 
             mock_segment.from_mp3.assert_called()
 
+    def test_concatenate_tts_clips_adds_silence_gaps(self, tmp_path: Path):
+        """Verify _concatenate_tts_clips adds silence between clips for correct timing."""
+
+        processor = AudioProcessor()
+
+        tts_clip = tmp_path / "tts.mp3"
+        tts_clip.write_bytes(b"fake mp3 data")
+
+        subtitle_lines = [
+            SubtitleLine(
+                index=1,
+                start_ms=5000,
+                end_ms=7000,
+                text_source="First line",
+                audio_clip_path=str(tts_clip),
+                is_sound_effect=False,
+            ),
+            SubtitleLine(
+                index=2,
+                start_ms=15000,
+                end_ms=17000,
+                text_source="Second line",
+                audio_clip_path=str(tts_clip),
+                is_sound_effect=False,
+            ),
+        ]
+
+        output_path = tmp_path / "concatenated.wav"
+
+        with patch("pydub.AudioSegment") as mock_segment:
+            mock_audio = MagicMock()
+            mock_audio.__len__ = MagicMock(return_value=2000)
+            mock_silence = MagicMock()
+            mock_silence.__len__ = MagicMock(return_value=5000)
+            mock_segment.from_mp3.return_value = mock_audio
+            mock_segment.silent.return_value = mock_silence
+
+            processor._concatenate_tts_clips(
+                subtitle_lines,
+                chunk_start=0,
+                chunk_duration=600000,
+                output_path=output_path,
+            )
+
+            silent_calls = mock_segment.silent.call_args_list
+            assert len(silent_calls) >= 2
+            first_gap = silent_calls[0][1]["duration"]
+            assert first_gap == 5000
+            second_gap = silent_calls[1][1]["duration"]
+            assert second_gap == 8000
+
     def test_generate_voiceover_calls_internal_methods(self, tmp_path: Path):
         """Verify generate_voiceover calls internal helper methods."""
 

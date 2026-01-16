@@ -954,3 +954,65 @@ class DatabaseManager:
         except sqlite3.Error as e:
             logger.error("Failed to get media files: %s", e)
             raise
+
+    def reset_media_state(self, media_id: str) -> None:
+        """Reset download and pipeline state for all video files of a media item.
+
+        Called after deleting files from disk to reset the state to PENDING.
+
+        Args:
+            media_id: UUID of the media item.
+
+        Raises:
+            sqlite3.Error: If update fails.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                UPDATE video_files
+                SET state = ?, pipeline_state = ?, file_path = NULL, download_progress = 0
+                WHERE media_item_id = ?
+                """,
+                (DownloadState.PENDING.value, PipelineState.NONE.value, media_id),
+            )
+
+            conn.commit()
+            self._close_connection(conn)
+            logger.debug("Reset state for media item %s", media_id)
+        except sqlite3.Error as e:
+            logger.error("Failed to reset media state: %s", e)
+            raise
+
+    def reset_video_file_state(self, file_id: int) -> None:
+        """Reset download and pipeline state for a single video file.
+
+        Called after deleting a file from disk to reset the state to PENDING.
+
+        Args:
+            file_id: ID of the video file.
+
+        Raises:
+            sqlite3.Error: If update fails.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                UPDATE video_files
+                SET state = ?, pipeline_state = ?, file_path = NULL, download_progress = 0
+                WHERE id = ?
+                """,
+                (DownloadState.PENDING.value, PipelineState.NONE.value, file_id),
+            )
+
+            conn.commit()
+            self._close_connection(conn)
+            logger.debug("Reset state for video file %d", file_id)
+        except sqlite3.Error as e:
+            logger.error("Failed to reset video file state: %s", e)
+            raise

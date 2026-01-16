@@ -24,7 +24,7 @@ from typing import Optional
 
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
-from src.config import PipelineState
+from src.config import PipelineState, VOICEOVER_LANGUAGE
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +183,9 @@ class PipelineService(QThread):
             )
 
             if voiceover_path and voiceover_path.exists():
-                self.db_manager.add_voiceover(self._video_file_id, str(voiceover_path))
+                self.db_manager.add_voiceover(
+                    self._video_file_id, VOICEOVER_LANGUAGE, str(voiceover_path)
+                )
                 self._update_pipeline_state(PipelineState.VOICEOVER_READY)
                 logger.info(
                     "Pipeline completed successfully for video_file_id=%d",
@@ -320,7 +322,7 @@ class PipelineService(QThread):
         """
         self._emit_update(PipelineState.GENERATING_TTS, "Generating voice clips...")
 
-        from src.utils.edge_tts_client import EdgeTTSClient
+        from src.utils.edge_tts_client import EdgeTTSClient, TTSError
 
         client = EdgeTTSClient()
         temp_dir = video_folder / "temp_tts"
@@ -333,12 +335,16 @@ class PipelineService(QThread):
             line_text = (
                 line.text_translated if line.text_translated else line.text_source
             )
-            if line.is_sound_effect or not line_text or line_text == "...":
+            if line.is_sound_effect or not client.text_needs_tts(line_text):
                 continue
 
             audio_path = temp_dir / f"line_{i:03d}.mp3"
-            client.generate_tts(line_text, audio_path)
-            line.audio_clip_path = str(audio_path)
+            try:
+                client.generate_tts(line_text, audio_path)
+                line.audio_clip_path = str(audio_path)
+            except TTSError as e:
+                logger.warning("TTS failed for line %d, skipping: %s", i, e)
+                continue
 
             progress = int((i / len(subtitle_lines)) * 100)
             self._emit_update(

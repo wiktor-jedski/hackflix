@@ -266,6 +266,7 @@ class AudioProcessor:
         """
         from pydub import AudioSegment
 
+        current_position_ms = 0
         concat_segments: list[AudioSegment] = []
 
         for line in subtitle_lines:
@@ -293,11 +294,13 @@ class AudioProcessor:
                     )
                     tts_audio = tts_audio + silence
 
-                if line_start > len(concat_segments) * 1000 * 3600:
-                    gap_duration = line_start - len(concat_segments) * 1000 * 3600
+                if line_start > current_position_ms:
+                    gap_duration = line_start - current_position_ms
                     concat_segments.append(AudioSegment.silent(duration=gap_duration))
+                    current_position_ms += gap_duration
 
                 concat_segments.append(tts_audio)
+                current_position_ms += len(tts_audio)
             except Exception as e:
                 logger.warning(
                     "Failed to load TTS clip %s: %s", line.audio_clip_path, e
@@ -306,8 +309,6 @@ class AudioProcessor:
         if concat_segments:
             combined = sum(concat_segments)
             combined.export(str(output_path), format="wav")  # type: ignore[union-attr]
-        else:
-            output_path.touch()
 
     def _concatenate_chunks(self, chunk_paths: list[Path], output_path: Path) -> None:
         """Concatenate multiple audio chunks using FFmpeg concat filter.

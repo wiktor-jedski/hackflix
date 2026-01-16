@@ -910,6 +910,7 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
         """Verify _generate_tts_clips creates audio files for subtitle lines."""
         from unittest.mock import MagicMock, patch
         from src.utils.subtitle_parser import SubtitleLine
+        from src.utils.edge_tts_client import EdgeTTSClient
 
         video_folder = tmp_path
         pipeline_service._video_file_id = 1
@@ -933,6 +934,7 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
 
         mock_client = MagicMock()
         mock_client.generate_tts = MagicMock()
+        mock_client.text_needs_tts = lambda text: EdgeTTSClient.text_needs_tts(mock_client, text)
 
         with patch(
             "src.utils.edge_tts_client.EdgeTTSClient",
@@ -950,6 +952,7 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
         """Verify _generate_tts_clips skips sound effect lines."""
         from unittest.mock import MagicMock, patch
         from src.utils.subtitle_parser import SubtitleLine
+        from src.utils.edge_tts_client import EdgeTTSClient
 
         video_folder = tmp_path
         pipeline_service._video_file_id = 1
@@ -973,6 +976,7 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
 
         mock_client = MagicMock()
         mock_client.generate_tts = MagicMock()
+        mock_client.text_needs_tts = lambda text: EdgeTTSClient.text_needs_tts(mock_client, text)
 
         with patch(
             "src.utils.edge_tts_client.EdgeTTSClient",
@@ -989,6 +993,7 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
         """Verify _generate_tts_clips skips empty lines and '...'."""
         from unittest.mock import MagicMock, patch
         from src.utils.subtitle_parser import SubtitleLine
+        from src.utils.edge_tts_client import EdgeTTSClient
 
         video_folder = tmp_path
         pipeline_service._video_file_id = 1
@@ -1019,6 +1024,7 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
 
         mock_client = MagicMock()
         mock_client.generate_tts = MagicMock()
+        mock_client.text_needs_tts = lambda text: EdgeTTSClient.text_needs_tts(mock_client, text)
 
         with patch(
             "src.utils.edge_tts_client.EdgeTTSClient",
@@ -1034,6 +1040,7 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
         """Verify _generate_tts_clips updates state with progress percentage."""
         from unittest.mock import MagicMock, patch
         from src.utils.subtitle_parser import SubtitleLine
+        from src.utils.edge_tts_client import EdgeTTSClient
 
         video_folder = tmp_path
         pipeline_service._video_file_id = 1
@@ -1057,6 +1064,7 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
 
         mock_client = MagicMock()
         mock_client.generate_tts = MagicMock()
+        mock_client.text_needs_tts = lambda text: EdgeTTSClient.text_needs_tts(mock_client, text)
 
         with patch(
             "src.utils.edge_tts_client.EdgeTTSClient",
@@ -1068,6 +1076,61 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
                 pipeline_service._generate_tts_clips(subtitle_lines, video_folder)
                 calls = mock_signal.emit.call_args_list
                 assert len(calls) >= 2
+
+    def test_generate_tts_continues_on_failure(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _generate_tts_clips skips lines that fail TTS instead of crashing."""
+        from unittest.mock import MagicMock, patch
+        from src.utils.subtitle_parser import SubtitleLine
+        from src.utils.edge_tts_client import EdgeTTSClient, TTSError
+
+        video_folder = tmp_path
+        pipeline_service._video_file_id = 1
+
+        subtitle_lines = [
+            SubtitleLine(
+                index=1,
+                start_ms=1000,
+                end_ms=2000,
+                text_source="Line 1",
+                is_sound_effect=False,
+            ),
+            SubtitleLine(
+                index=2,
+                start_ms=3000,
+                end_ms=4000,
+                text_source="Line 2 fails",
+                is_sound_effect=False,
+            ),
+            SubtitleLine(
+                index=3,
+                start_ms=5000,
+                end_ms=6000,
+                text_source="Line 3",
+                is_sound_effect=False,
+            ),
+        ]
+
+        mock_client = MagicMock()
+
+        def generate_tts_side_effect(text, path):
+            if "fails" in text:
+                raise TTSError("No audio received")
+
+        mock_client.generate_tts = MagicMock(side_effect=generate_tts_side_effect)
+        mock_client.text_needs_tts = lambda text: EdgeTTSClient.text_needs_tts(mock_client, text)
+
+        with patch(
+            "src.utils.edge_tts_client.EdgeTTSClient",
+            return_value=mock_client,
+        ):
+            result = pipeline_service._generate_tts_clips(subtitle_lines, video_folder)
+
+        assert mock_client.generate_tts.call_count == 3
+        assert subtitle_lines[0].audio_clip_path
+        assert not subtitle_lines[1].audio_clip_path
+        assert subtitle_lines[2].audio_clip_path
 
 
 class TestPipelineServiceExtractAudioIntegration:

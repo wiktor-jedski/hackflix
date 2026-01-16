@@ -236,7 +236,19 @@ class MainWindow(QMainWindow):
         Returns:
             True if confirmed, False if cancelled.
         """
-        return ConfirmDialog.confirm(title, message, self)
+        # Suspend input manager to allow dialog to receive key events
+        app = QApplication.instance()
+        if app:
+            app.removeEventFilter(self._input_manager)
+        self._library_view.removeEventFilter(self._input_manager)
+
+        try:
+            return ConfirmDialog.confirm(title, message, self)
+        finally:
+            # Restore input manager after dialog closes
+            if app:
+                app.installEventFilter(self._input_manager)
+            self._library_view.installEventFilter(self._input_manager)
 
     def show_toast(
         self,
