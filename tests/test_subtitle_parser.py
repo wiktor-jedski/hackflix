@@ -19,6 +19,7 @@ from src.utils.subtitle_parser import (
     _parse_timestamp,
     _format_timestamp,
     _is_sound_effect,
+    _strip_html_tags,
 )
 
 
@@ -162,6 +163,52 @@ class TestIsSoundEffect:
         """Verify whitespace is stripped before checking."""
         assert _is_sound_effect("  [Sound effect]  ") is True
         assert _is_sound_effect("  Normal text  ") is False
+
+
+class TestStripHtmlTags:
+    """Tests for _strip_html_tags function."""
+
+    def test_strip_italic_tags(self):
+        """Verify italic tags are removed."""
+        assert _strip_html_tags("<i>Hello</i>") == "Hello"
+        assert _strip_html_tags("<i>Multiple</i> <i>tags</i>") == "Multiple tags"
+
+    def test_strip_bold_tags(self):
+        """Verify bold tags are removed."""
+        assert _strip_html_tags("<b>Bold text</b>") == "Bold text"
+
+    def test_strip_underline_tags(self):
+        """Verify underline tags are removed."""
+        assert _strip_html_tags("<u>Underlined</u>") == "Underlined"
+
+    def test_strip_font_tags(self):
+        """Verify font tags with attributes are removed."""
+        assert _strip_html_tags('<font color="red">Colored</font>') == "Colored"
+        assert _strip_html_tags('<font face="Arial" size="12">Styled</font>') == "Styled"
+
+    def test_strip_nested_tags(self):
+        """Verify nested tags are all removed."""
+        assert _strip_html_tags("<i><b>Nested</b></i>") == "Nested"
+
+    def test_no_tags_unchanged(self):
+        """Verify text without tags is unchanged."""
+        assert _strip_html_tags("Plain text") == "Plain text"
+        assert _strip_html_tags("") == ""
+
+    def test_multiline_with_tags(self):
+        """Verify multiline text with tags is handled."""
+        text = "<i>Line one</i>\n<b>Line two</b>"
+        assert _strip_html_tags(text) == "Line one\nLine two"
+
+    def test_preserves_single_angle_bracket(self):
+        """Verify single angle brackets are preserved."""
+        assert _strip_html_tags("5 < 10") == "5 < 10"
+        assert _strip_html_tags("10 > 5") == "10 > 5"
+
+    def test_strip_self_closing_tags(self):
+        """Verify self-closing tags are removed."""
+        assert _strip_html_tags("Line<br/>break") == "Linebreak"
+        assert _strip_html_tags("Line<br />break") == "Linebreak"
 
 
 class TestParseSrtFile:
@@ -317,6 +364,45 @@ Second subtitle
         result = parse_srt_file(srt_file)
 
         assert len(result) == 2
+
+    def test_parse_strips_html_tags(self, tmp_path: Path):
+        """Verify HTML tags are stripped from subtitle text."""
+        srt_content = """1
+00:00:01,000 --> 00:00:04,000
+<i>Italic text</i>
+
+2
+00:00:05,000 --> 00:00:08,000
+<b>Bold</b> and <u>underlined</u>
+
+3
+00:00:09,000 --> 00:00:12,000
+<font color="yellow">Colored text</font>
+"""
+        srt_file = tmp_path / "test.srt"
+        srt_file.write_text(srt_content)
+
+        result = parse_srt_file(srt_file)
+
+        assert len(result) == 3
+        assert result[0].text_source == "Italic text"
+        assert result[1].text_source == "Bold and underlined"
+        assert result[2].text_source == "Colored text"
+
+    def test_parse_unexpected_end_of_file(self, tmp_path: Path):
+        """Verify error when file ends after index without timestamp."""
+        srt_content = """1
+00:00:01,000 --> 00:00:04,000
+First subtitle
+
+2"""
+        srt_file = tmp_path / "test.srt"
+        srt_file.write_text(srt_content)
+
+        with pytest.raises(SubtitleParseError) as exc_info:
+            parse_srt_file(srt_file)
+
+        assert "Unexpected end of file" in str(exc_info.value)
 
 
 class TestWriteSrtFile:

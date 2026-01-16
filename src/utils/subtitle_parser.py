@@ -96,6 +96,21 @@ def _is_sound_effect(text: str) -> bool:
     )
 
 
+def _strip_html_tags(text: str) -> str:
+    """Remove HTML tags from subtitle text.
+
+    SRT files may contain HTML formatting tags like <i>, <b>, <u>, <font>, etc.
+    These tags break TTS processing and should be stripped.
+
+    Args:
+        text: Subtitle text potentially containing HTML tags.
+
+    Returns:
+        Text with all HTML tags removed.
+    """
+    return re.sub(r"<[^>]+>", "", text)
+
+
 def parse_srt_file(path: Path) -> list[SubtitleLine]:
     """Parse an SRT subtitle file into a list of SubtitleLine objects.
 
@@ -162,7 +177,7 @@ def parse_srt_file(path: Path) -> list[SubtitleLine]:
             text_lines.append(text_line.rstrip("\r"))
             j += 1
 
-        text = "\n".join(text_lines)
+        text = _strip_html_tags("\n".join(text_lines))
         is_effect = _is_sound_effect(text)
 
         subtitles.append(
