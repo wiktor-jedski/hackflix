@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS voiceovers (
     video_file_id INTEGER NOT NULL,
     language_code TEXT NOT NULL,
     file_path TEXT NOT NULL,
+    muxed_video_path TEXT,
     FOREIGN KEY (video_file_id) REFERENCES video_files(id) ON DELETE CASCADE
 );
 
@@ -111,6 +112,22 @@ def get_schema_sql() -> str:
     return SCHEMA_SQL
 
 
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    """Run database migrations for schema updates.
+
+    Args:
+        conn: Active database connection.
+    """
+    cursor = conn.cursor()
+
+    # Migration: Add muxed_video_path column to voiceovers table
+    cursor.execute("PRAGMA table_info(voiceovers)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if "muxed_video_path" not in columns:
+        logger.info("Migrating: Adding muxed_video_path column to voiceovers")
+        cursor.execute("ALTER TABLE voiceovers ADD COLUMN muxed_video_path TEXT")
+
+
 def initialize_database(db_path: str | Path) -> None:
     """Create database tables if they don't exist.
 
@@ -132,6 +149,7 @@ def initialize_database(db_path: str | Path) -> None:
         conn = sqlite3.connect(str(db_path))
         conn.execute("PRAGMA foreign_keys = ON")
         conn.executescript(SCHEMA_SQL)
+        _run_migrations(conn)
         conn.commit()
         conn.close()
         logger.info("Database initialized successfully")

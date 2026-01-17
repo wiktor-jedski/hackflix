@@ -111,6 +111,65 @@ def _strip_html_tags(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text)
 
 
+def merge_close_subtitles(
+    subtitles: list[SubtitleLine], max_gap_ms: int = 1000
+) -> list[SubtitleLine]:
+    """Merge consecutive subtitles that have less than max_gap_ms between them.
+
+    This improves TTS generation by creating longer, more natural speech segments
+    instead of many short clips with tiny gaps.
+
+    Args:
+        subtitles: List of SubtitleLine objects to process.
+        max_gap_ms: Maximum gap in milliseconds to trigger merging (default 1000ms).
+
+    Returns:
+        New list of SubtitleLine objects with close subtitles merged.
+    """
+    if not subtitles:
+        return []
+
+    result: list[SubtitleLine] = []
+    current = subtitles[0]
+
+    for next_line in subtitles[1:]:
+        gap = next_line.start_ms - current.end_ms
+
+        if gap < max_gap_ms:
+            # Merge: extend current line to include next_line
+            merged_source = current.text_source + " " + next_line.text_source
+            merged_translated = ""
+            if current.text_translated or next_line.text_translated:
+                merged_translated = (
+                    (current.text_translated or current.text_source)
+                    + " "
+                    + (next_line.text_translated or next_line.text_source)
+                )
+
+            current = SubtitleLine(
+                index=current.index,
+                start_ms=current.start_ms,
+                end_ms=next_line.end_ms,
+                text_source=merged_source,
+                text_translated=merged_translated,
+                audio_clip_path="",
+                is_sound_effect=current.is_sound_effect and next_line.is_sound_effect,
+            )
+        else:
+            # Gap is large enough, keep current and move to next
+            result.append(current)
+            current = next_line
+
+    # Don't forget the last subtitle
+    result.append(current)
+
+    # Reindex subtitles sequentially
+    for i, sub in enumerate(result, start=1):
+        sub.index = i
+
+    return result
+
+
 def parse_srt_file(path: Path) -> list[SubtitleLine]:
     """Parse an SRT subtitle file into a list of SubtitleLine objects.
 

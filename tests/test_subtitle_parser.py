@@ -16,6 +16,7 @@ from src.utils.subtitle_parser import (
     SubtitleParseError,
     parse_srt_file,
     write_srt_file,
+    merge_close_subtitles,
     _parse_timestamp,
     _format_timestamp,
     _is_sound_effect,
@@ -595,3 +596,199 @@ class TestSubtitleParseError:
         """Verify error message is preserved."""
         error = SubtitleParseError("Custom error message")
         assert "Custom error message" in str(error)
+
+
+class TestMergeCloseSubtitles:
+    """Tests for merge_close_subtitles function."""
+
+    def test_merge_empty_list(self):
+        """Verify merging empty list returns empty list."""
+        result = merge_close_subtitles([])
+        assert result == []
+
+    def test_merge_single_subtitle(self):
+        """Verify single subtitle is returned unchanged."""
+        subtitles = [
+            SubtitleLine(index=1, start_ms=0, end_ms=1000, text_source="Hello")
+        ]
+        result = merge_close_subtitles(subtitles)
+        assert len(result) == 1
+        assert result[0].text_source == "Hello"
+
+    def test_no_merge_when_gap_exceeds_threshold(self):
+        """Verify subtitles with large gap are not merged."""
+        subtitles = [
+            SubtitleLine(index=1, start_ms=0, end_ms=1000, text_source="First"),
+            SubtitleLine(index=2, start_ms=3000, end_ms=4000, text_source="Second"),
+        ]
+        result = merge_close_subtitles(subtitles)
+        assert len(result) == 2
+        assert result[0].text_source == "First"
+        assert result[1].text_source == "Second"
+
+    def test_merge_when_gap_below_threshold(self):
+        """Verify subtitles with small gap are merged."""
+        subtitles = [
+            SubtitleLine(index=1, start_ms=0, end_ms=1000, text_source="First"),
+            SubtitleLine(index=2, start_ms=1500, end_ms=2500, text_source="Second"),
+        ]
+        result = merge_close_subtitles(subtitles)
+        assert len(result) == 1
+        assert result[0].text_source == "First Second"
+        assert result[0].start_ms == 0
+        assert result[0].end_ms == 2500
+
+    def test_merge_exactly_at_threshold(self):
+        """Verify subtitles with gap equal to threshold are not merged."""
+        subtitles = [
+            SubtitleLine(index=1, start_ms=0, end_ms=1000, text_source="First"),
+            SubtitleLine(index=2, start_ms=2000, end_ms=3000, text_source="Second"),
+        ]
+        result = merge_close_subtitles(subtitles, max_gap_ms=1000)
+        assert len(result) == 2
+
+    def test_merge_multiple_consecutive(self):
+        """Verify multiple consecutive close subtitles are merged."""
+        subtitles = [
+            SubtitleLine(index=1, start_ms=0, end_ms=1000, text_source="First"),
+            SubtitleLine(index=2, start_ms=1200, end_ms=2000, text_source="Second"),
+            SubtitleLine(index=3, start_ms=2300, end_ms=3000, text_source="Third"),
+        ]
+        result = merge_close_subtitles(subtitles)
+        assert len(result) == 1
+        assert result[0].text_source == "First Second Third"
+        assert result[0].start_ms == 0
+        assert result[0].end_ms == 3000
+
+    def test_merge_reindexes_subtitles(self):
+        """Verify merged subtitles are reindexed sequentially."""
+        subtitles = [
+            SubtitleLine(index=5, start_ms=0, end_ms=1000, text_source="First"),
+            SubtitleLine(index=6, start_ms=1200, end_ms=2000, text_source="Second"),
+            SubtitleLine(index=7, start_ms=5000, end_ms=6000, text_source="Third"),
+        ]
+        result = merge_close_subtitles(subtitles)
+        assert len(result) == 2
+        assert result[0].index == 1
+        assert result[1].index == 2
+
+    def test_merge_preserves_translated_text(self):
+        """Verify translated text is merged when present."""
+        subtitles = [
+            SubtitleLine(
+                index=1,
+                start_ms=0,
+                end_ms=1000,
+                text_source="Hello",
+                text_translated="Cześć",
+            ),
+            SubtitleLine(
+                index=2,
+                start_ms=1200,
+                end_ms=2000,
+                text_source="World",
+                text_translated="Świat",
+            ),
+        ]
+        result = merge_close_subtitles(subtitles)
+        assert len(result) == 1
+        assert result[0].text_source == "Hello World"
+        assert result[0].text_translated == "Cześć Świat"
+
+    def test_merge_uses_source_when_translation_missing(self):
+        """Verify source text is used when translation is missing for one line."""
+        subtitles = [
+            SubtitleLine(
+                index=1,
+                start_ms=0,
+                end_ms=1000,
+                text_source="Hello",
+                text_translated="Cześć",
+            ),
+            SubtitleLine(
+                index=2,
+                start_ms=1200,
+                end_ms=2000,
+                text_source="World",
+                text_translated="",
+            ),
+        ]
+        result = merge_close_subtitles(subtitles)
+        assert len(result) == 1
+        assert result[0].text_translated == "Cześć World"
+
+    def test_merge_sound_effects_only_if_both_are(self):
+        """Verify is_sound_effect is True only if both lines are sound effects."""
+        # Both are sound effects
+        subtitles_both = [
+            SubtitleLine(
+                index=1, start_ms=0, end_ms=1000, text_source="[Door]", is_sound_effect=True
+            ),
+            SubtitleLine(
+                index=2, start_ms=1200, end_ms=2000, text_source="[Slam]", is_sound_effect=True
+            ),
+        ]
+        result_both = merge_close_subtitles(subtitles_both)
+        assert result_both[0].is_sound_effect is True
+
+        # Only one is sound effect
+        subtitles_one = [
+            SubtitleLine(
+                index=1, start_ms=0, end_ms=1000, text_source="[Door]", is_sound_effect=True
+            ),
+            SubtitleLine(
+                index=2, start_ms=1200, end_ms=2000, text_source="Hello", is_sound_effect=False
+            ),
+        ]
+        result_one = merge_close_subtitles(subtitles_one)
+        assert result_one[0].is_sound_effect is False
+
+    def test_merge_custom_gap_threshold(self):
+        """Verify custom max_gap_ms parameter works."""
+        subtitles = [
+            SubtitleLine(index=1, start_ms=0, end_ms=1000, text_source="First"),
+            SubtitleLine(index=2, start_ms=1400, end_ms=2000, text_source="Second"),
+        ]
+        # With default 1000ms, should merge (gap is 400ms)
+        result_default = merge_close_subtitles(subtitles)
+        assert len(result_default) == 1
+
+        # With 300ms threshold, should not merge
+        result_small = merge_close_subtitles(subtitles, max_gap_ms=300)
+        assert len(result_small) == 2
+
+    def test_merge_clears_audio_clip_path(self):
+        """Verify merged subtitle has empty audio_clip_path."""
+        subtitles = [
+            SubtitleLine(
+                index=1,
+                start_ms=0,
+                end_ms=1000,
+                text_source="First",
+                audio_clip_path="/path/to/clip1.mp3",
+            ),
+            SubtitleLine(
+                index=2,
+                start_ms=1200,
+                end_ms=2000,
+                text_source="Second",
+                audio_clip_path="/path/to/clip2.mp3",
+            ),
+        ]
+        result = merge_close_subtitles(subtitles)
+        assert result[0].audio_clip_path == ""
+
+    def test_merge_mixed_gaps(self):
+        """Verify correct behavior with mix of small and large gaps."""
+        subtitles = [
+            SubtitleLine(index=1, start_ms=0, end_ms=1000, text_source="A"),
+            SubtitleLine(index=2, start_ms=1200, end_ms=2000, text_source="B"),  # merge with A
+            SubtitleLine(index=3, start_ms=5000, end_ms=6000, text_source="C"),  # new group
+            SubtitleLine(index=4, start_ms=6300, end_ms=7000, text_source="D"),  # merge with C
+            SubtitleLine(index=5, start_ms=10000, end_ms=11000, text_source="E"),  # standalone
+        ]
+        result = merge_close_subtitles(subtitles)
+        assert len(result) == 3
+        assert result[0].text_source == "A B"
+        assert result[1].text_source == "C D"
+        assert result[2].text_source == "E"

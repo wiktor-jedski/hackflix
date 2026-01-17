@@ -7,7 +7,9 @@ and mixing for the PipelineService.
 import logging
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,52 @@ class AudioProcessor:
 
         logger.info("Extracted audio from %s to %s", video_path, output_path)
 
+    DUCKING_DB = -6  # Volume reduction during voiceover
+
+    def _create_fade(
+        self,
+        segment: Any,
+        start_db: float,
+        end_db: float,
+    ) -> Any:
+        """Create a linear volume fade from start_db to end_db.
+
+        Args:
+            segment: Audio segment to apply fade to.
+            start_db: Starting volume adjustment in dB.
+            end_db: Ending volume adjustment in dB.
+
+        Returns:
+            New AudioSegment with fade applied.
+        """
+        from pydub import AudioSegment
+
+        if len(segment) == 0:
+            return segment
+
+        # Create fade by splitting into small chunks and adjusting volume
+        chunk_ms = 10  # 10ms chunks for smooth fade
+        num_chunks = max(1, len(segment) // chunk_ms)
+        result_parts: list[AudioSegment] = []
+
+        for i in range(num_chunks):
+            chunk_start = i * chunk_ms
+            chunk_end = min((i + 1) * chunk_ms, len(segment))
+            chunk = segment[chunk_start:chunk_end]
+
+            # Linear interpolation of dB level
+            progress = i / max(num_chunks - 1, 1)
+            db_adjustment = start_db + (end_db - start_db) * progress
+            result_parts.append(chunk + db_adjustment)
+
+        # Handle any remaining samples
+        remaining_start = num_chunks * chunk_ms
+        if remaining_start < len(segment):
+            remaining = segment[remaining_start:]
+            result_parts.append(remaining + end_db)
+
+        return sum(result_parts, AudioSegment.empty())
+
     def apply_ducking(
         self,
         audio_path: Path,
@@ -83,19 +131,38 @@ class AudioProcessor:
             start_ms = max(0, start_ms)
             end_ms = min(len(audio), end_ms)
 
-            fade_down = min(fade_ms, (end_ms - start_ms) // 2)
-            fade_up = min(self.FADE_UP_MS, (end_ms - start_ms) - fade_down)
+            interval_duration = end_ms - start_ms
+            fade_down = min(fade_ms, interval_duration // 2)
+            fade_up = min(self.FADE_UP_MS, interval_duration - fade_down)
 
             before = audio[:start_ms]
-            during = audio[start_ms:end_ms]
             after = audio[end_ms:]
 
-            ducked = during - 6
-            if fade_down > 0:
-                ducked = ducked.fade_out(fade_down)
-            if fade_up > 0:
-                ducked = ducked.fade_in(fade_up)
+            # Split the ducked region into: fade_down + middle + fade_up
+            fade_down_end = start_ms + fade_down
+            fade_up_start = end_ms - fade_up
 
+            # Fade down: transition from 0dB to DUCKING_DB
+            fade_down_segment = audio[start_ms:fade_down_end]
+            if len(fade_down_segment) > 0:
+                fade_down_segment = self._create_fade(
+                    fade_down_segment, 0, self.DUCKING_DB
+                )
+
+            # Middle: constant DUCKING_DB
+            middle_segment = audio[fade_down_end:fade_up_start]
+            if len(middle_segment) > 0:
+                middle_segment = middle_segment + self.DUCKING_DB
+
+            # Fade up: transition from DUCKING_DB to 0dB
+            fade_up_segment = audio[fade_up_start:end_ms]
+            if len(fade_up_segment) > 0:
+                fade_up_segment = self._create_fade(
+                    fade_up_segment, self.DUCKING_DB, 0
+                )
+
+            # Reconstruct audio
+            ducked = fade_down_segment + middle_segment + fade_up_segment
             audio = before + ducked + after
 
         audio.export(str(output_path), format="wav")
@@ -285,19 +352,50 @@ class AudioProcessor:
 
             try:
                 tts_audio = AudioSegment.from_mp3(line.audio_clip_path)
+                tts_duration = len(tts_audio)
 
-                if len(tts_audio) > line_duration:
-                    tts_audio = tts_audio[:line_duration]
-                elif len(tts_audio) < line_duration:
+                if tts_duration > line_duration:
+                    # Speed up audio to fit, max 1.3x
+                    required_speedup = tts_duration / line_duration
+                    actual_speedup = min(required_speedup, 1.3)
+
+                    if actual_speedup > 1.0:
+                        with tempfile.NamedTemporaryFile(
+                            suffix=".wav", delete=False
+                        ) as tmp:
+                            stretched_path = Path(tmp.name)
+
+                        try:
+                            self.stretch_audio(
+                                Path(line.audio_clip_path),
+                                actual_speedup,
+                                stretched_path,
+                            )
+                            tts_audio = AudioSegment.from_wav(str(stretched_path))
+                            logger.debug(
+                                "Sped up TTS from %dms to %dms (%.2fx) for %dms slot",
+                                tts_duration,
+                                len(tts_audio),
+                                actual_speedup,
+                                line_duration,
+                            )
+                        finally:
+                            stretched_path.unlink(missing_ok=True)
+                    # Note: if still longer than line_duration after 1.3x speedup,
+                    # we allow overflow - the next clip will be delayed accordingly
+                elif tts_duration < line_duration:
+                    # Pad shorter clips with silence to maintain timing
                     silence = AudioSegment.silent(
-                        duration=line_duration - len(tts_audio)
+                        duration=line_duration - tts_duration
                     )
                     tts_audio = tts_audio + silence
 
+                # Add gap if clip should start after current position
+                # (accounts for drift from previous overflows)
                 if line_start > current_position_ms:
                     gap_duration = line_start - current_position_ms
                     concat_segments.append(AudioSegment.silent(duration=gap_duration))
-                    current_position_ms += gap_duration
+                    current_position_ms = line_start
 
                 concat_segments.append(tts_audio)
                 current_position_ms += len(tts_audio)
@@ -347,3 +445,56 @@ class AudioProcessor:
             )
 
         logger.info("Concatenated %d chunks to %s", len(chunk_paths), output_path)
+
+    def mux_voiceover_into_video(
+        self,
+        video_path: Path,
+        voiceover_path: Path,
+        output_path: Path,
+    ) -> None:
+        """Mux voiceover audio into video file as an additional audio track.
+
+        Creates a new video file with the original video stream, original audio
+        as track 1, and voiceover as track 2. This enables proper seeking support
+        unlike VLC's input-slave option.
+
+        Args:
+            video_path: Path to the original video file.
+            voiceover_path: Path to the voiceover WAV file.
+            output_path: Path for the output video with embedded voiceover.
+
+        Raises:
+            AudioProcessingError: If FFmpeg muxing fails.
+        """
+        cmd = [
+            "ffmpeg",
+            "-i",
+            str(video_path),
+            "-i",
+            str(voiceover_path),
+            "-map",
+            "0:v",  # Video from first input
+            "-map",
+            "0:a",  # Original audio from first input
+            "-map",
+            "1:a",  # Voiceover from second input
+            "-c:v",
+            "copy",  # Copy video stream (no re-encoding)
+            "-c:a",
+            "copy",  # Copy audio streams
+            "-metadata:s:a:1",
+            "title=Voiceover (Polish)",
+            "-metadata:s:a:1",
+            "language=pol",
+            str(output_path),
+            "-y",
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            raise AudioProcessingError(
+                f"FFmpeg voiceover muxing failed: {result.stderr}"
+            )
+
+        logger.info("Muxed voiceover into video at %s", output_path)

@@ -479,3 +479,128 @@ class TestEdgeTTSClientGenerateAsync:
                     loop.close()
             finally:
                 tts_module.TTS_VOICE = original_voice
+
+
+class TestGenerateTTSBatch:
+    """Tests for generate_tts_batch method."""
+
+    def test_generate_tts_batch_empty_list(self, tmp_path: Path):
+        """Verify batch generation with empty list returns empty list."""
+        with patch.dict("sys.modules", {"edge_tts": MagicMock()}):
+            import src.utils.edge_tts_client as tts_module
+
+            original_voice = tts_module.TTS_VOICE
+            tts_module.TTS_VOICE = "pl-PL-MarekNeural"
+            try:
+                client = tts_module.EdgeTTSClient()
+                results = client.generate_tts_batch([])
+                assert results == []
+            finally:
+                tts_module.TTS_VOICE = original_voice
+
+    def test_generate_tts_batch_success(self, tmp_path: Path):
+        """Verify successful batch TTS generation."""
+        with patch.dict("sys.modules", {"edge_tts": MagicMock()}):
+            import src.utils.edge_tts_client as tts_module
+
+            original_voice = tts_module.TTS_VOICE
+            tts_module.TTS_VOICE = "pl-PL-MarekNeural"
+            try:
+                client = tts_module.EdgeTTSClient()
+
+                # Create test items
+                items = [
+                    ("Hello", tmp_path / "hello.mp3"),
+                    ("World", tmp_path / "world.mp3"),
+                ]
+
+                # Create output files to simulate successful generation
+                for _, path in items:
+                    path.touch()
+                    path.write_bytes(b"fake audio")
+
+                with patch.object(client, "_generate_async", new_callable=AsyncMock):
+                    results = client.generate_tts_batch(items)
+
+                # All items should succeed
+                assert len(results) == 2
+                successful = [r for r in results if r[1] is not None]
+                assert len(successful) == 2
+            finally:
+                tts_module.TTS_VOICE = original_voice
+
+    def test_generate_tts_batch_partial_failure(self, tmp_path: Path):
+        """Verify batch handles partial failures gracefully."""
+        with patch.dict("sys.modules", {"edge_tts": MagicMock()}):
+            import src.utils.edge_tts_client as tts_module
+
+            original_voice = tts_module.TTS_VOICE
+            tts_module.TTS_VOICE = "pl-PL-MarekNeural"
+            try:
+                client = tts_module.EdgeTTSClient()
+
+                items = [
+                    ("Hello", tmp_path / "hello.mp3"),
+                    ("World", tmp_path / "world.mp3"),
+                ]
+
+                # Only first file exists (second will fail)
+                items[0][1].touch()
+                items[0][1].write_bytes(b"fake audio")
+
+                call_count = [0]
+
+                async def mock_generate(text, path):
+                    call_count[0] += 1
+                    if call_count[0] == 2:
+                        raise Exception("Network error")
+
+                with patch.object(client, "_generate_async", side_effect=mock_generate):
+                    results = client.generate_tts_batch(items)
+
+                assert len(results) == 2
+                # One success, one failure
+                errors = [r for r in results if r[2] is not None]
+                assert len(errors) == 1
+            finally:
+                tts_module.TTS_VOICE = original_voice
+
+    def test_generate_tts_batch_calls_progress_callback(self, tmp_path: Path):
+        """Verify progress callback is called during batch generation."""
+        with patch.dict("sys.modules", {"edge_tts": MagicMock()}):
+            import src.utils.edge_tts_client as tts_module
+
+            original_voice = tts_module.TTS_VOICE
+            tts_module.TTS_VOICE = "pl-PL-MarekNeural"
+            try:
+                client = tts_module.EdgeTTSClient()
+
+                items = [
+                    ("One", tmp_path / "one.mp3"),
+                    ("Two", tmp_path / "two.mp3"),
+                    ("Three", tmp_path / "three.mp3"),
+                ]
+
+                for _, path in items:
+                    path.touch()
+                    path.write_bytes(b"fake audio")
+
+                progress_calls = []
+
+                def progress_callback(completed, total):
+                    progress_calls.append((completed, total))
+
+                with patch.object(client, "_generate_async", new_callable=AsyncMock):
+                    client.generate_tts_batch(items, progress_callback)
+
+                # Callback should be called for each completed item
+                assert len(progress_calls) == 3
+                assert progress_calls[-1] == (3, 3)  # Final call should be (3, 3)
+            finally:
+                tts_module.TTS_VOICE = original_voice
+
+    def test_max_concurrent_tts_constant(self):
+        """Verify MAX_CONCURRENT_TTS constant is set."""
+        from src.utils.edge_tts_client import MAX_CONCURRENT_TTS
+
+        assert MAX_CONCURRENT_TTS == 10

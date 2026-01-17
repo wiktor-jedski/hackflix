@@ -800,7 +800,11 @@ class DatabaseManager:
             raise
 
     def add_voiceover(
-        self, video_file_id: int, language_code: str, file_path: str
+        self,
+        video_file_id: int,
+        language_code: str,
+        file_path: str,
+        muxed_video_path: str | None = None,
     ) -> int:
         """Add a voiceover record.
 
@@ -808,6 +812,7 @@ class DatabaseManager:
             video_file_id: ID of the video file.
             language_code: Language code (e.g., 'pl').
             file_path: Path to the voiceover audio file.
+            muxed_video_path: Path to video with embedded voiceover track.
 
         Returns:
             ID of the new voiceover record.
@@ -821,10 +826,11 @@ class DatabaseManager:
 
             cursor.execute(
                 """
-                INSERT INTO voiceovers (video_file_id, language_code, file_path)
-                VALUES (?, ?, ?)
+                INSERT INTO voiceovers
+                    (video_file_id, language_code, file_path, muxed_video_path)
+                VALUES (?, ?, ?, ?)
                 """,
-                (video_file_id, language_code, file_path),
+                (video_file_id, language_code, file_path, muxed_video_path),
             )
 
             voiceover_id = cursor.lastrowid

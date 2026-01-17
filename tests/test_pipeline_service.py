@@ -718,12 +718,15 @@ class TestPipelineServiceDatabasePersistence:
         """Verify voiceover is added to database on successful completion."""
         file_id = 1
         voiceover_path = tmp_path / "voiceover_pl.wav"
+        muxed_video_path = tmp_path / "video_voiceover.mkv"
 
         pipeline_service._video_file_id = file_id
-        pipeline_service.db_manager.add_voiceover(file_id, str(voiceover_path))
+        pipeline_service.db_manager.add_voiceover(
+            file_id, "pl", str(voiceover_path), str(muxed_video_path)
+        )
 
         mock_db_manager.add_voiceover.assert_called_once_with(
-            file_id, str(voiceover_path)
+            file_id, "pl", str(voiceover_path), str(muxed_video_path)
         )
 
     def test_updates_pipeline_state(self, pipeline_service, mock_db_manager):
@@ -933,16 +936,31 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
         ]
 
         mock_client = MagicMock()
-        mock_client.generate_tts = MagicMock()
-        mock_client.text_needs_tts = lambda text: EdgeTTSClient.text_needs_tts(mock_client, text)
+        mock_client.text_needs_tts = lambda text: EdgeTTSClient.text_needs_tts(
+            mock_client, text
+        )
+
+        # Mock batch TTS to return success for all items
+        def mock_batch(items, progress_callback=None):
+            results = []
+            for i, (text, path) in enumerate(items):
+                path.touch()
+                path.write_bytes(b"fake audio")
+                results.append((i, path, None))
+            return results
+
+        mock_client.generate_tts_batch = MagicMock(side_effect=mock_batch)
 
         with patch(
             "src.utils.edge_tts_client.EdgeTTSClient",
             return_value=mock_client,
         ):
-            result = pipeline_service._generate_tts_clips(subtitle_lines, video_folder)
+            pipeline_service._generate_tts_clips(subtitle_lines, video_folder)
 
-        assert mock_client.generate_tts.call_count == 2
+        # Batch should be called once with 2 items
+        mock_client.generate_tts_batch.assert_called_once()
+        batch_items = mock_client.generate_tts_batch.call_args[0][0]
+        assert len(batch_items) == 2
         assert subtitle_lines[0].audio_clip_path is not None
         assert subtitle_lines[1].audio_clip_path is not None
 
@@ -975,16 +993,31 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
         ]
 
         mock_client = MagicMock()
-        mock_client.generate_tts = MagicMock()
-        mock_client.text_needs_tts = lambda text: EdgeTTSClient.text_needs_tts(mock_client, text)
+        mock_client.text_needs_tts = lambda text: EdgeTTSClient.text_needs_tts(
+            mock_client, text
+        )
+
+        # Mock batch TTS to return success for all items
+        def mock_batch(items, progress_callback=None):
+            results = []
+            for i, (text, path) in enumerate(items):
+                path.touch()
+                path.write_bytes(b"fake audio")
+                results.append((i, path, None))
+            return results
+
+        mock_client.generate_tts_batch = MagicMock(side_effect=mock_batch)
 
         with patch(
             "src.utils.edge_tts_client.EdgeTTSClient",
             return_value=mock_client,
         ):
-            result = pipeline_service._generate_tts_clips(subtitle_lines, video_folder)
+            pipeline_service._generate_tts_clips(subtitle_lines, video_folder)
 
-        assert mock_client.generate_tts.call_count == 1
+        # Batch should be called once with only 1 item (sound effect skipped)
+        mock_client.generate_tts_batch.assert_called_once()
+        batch_items = mock_client.generate_tts_batch.call_args[0][0]
+        assert len(batch_items) == 1
         assert subtitle_lines[1].audio_clip_path is not None
 
     def test_generate_tts_skips_empty_lines(
@@ -1023,16 +1056,31 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
         ]
 
         mock_client = MagicMock()
-        mock_client.generate_tts = MagicMock()
-        mock_client.text_needs_tts = lambda text: EdgeTTSClient.text_needs_tts(mock_client, text)
+        mock_client.text_needs_tts = lambda text: EdgeTTSClient.text_needs_tts(
+            mock_client, text
+        )
+
+        # Mock batch TTS to return success for all items
+        def mock_batch(items, progress_callback=None):
+            results = []
+            for i, (text, path) in enumerate(items):
+                path.touch()
+                path.write_bytes(b"fake audio")
+                results.append((i, path, None))
+            return results
+
+        mock_client.generate_tts_batch = MagicMock(side_effect=mock_batch)
 
         with patch(
             "src.utils.edge_tts_client.EdgeTTSClient",
             return_value=mock_client,
         ):
-            result = pipeline_service._generate_tts_clips(subtitle_lines, video_folder)
+            pipeline_service._generate_tts_clips(subtitle_lines, video_folder)
 
-        assert mock_client.generate_tts.call_count == 1
+        # Batch should be called once with only 1 item (empty and ... skipped)
+        mock_client.generate_tts_batch.assert_called_once()
+        batch_items = mock_client.generate_tts_batch.call_args[0][0]
+        assert len(batch_items) == 1
 
     def test_generate_tts_updates_progress(
         self, pipeline_service, mock_db_manager, tmp_path
@@ -1063,8 +1111,22 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
         ]
 
         mock_client = MagicMock()
-        mock_client.generate_tts = MagicMock()
-        mock_client.text_needs_tts = lambda text: EdgeTTSClient.text_needs_tts(mock_client, text)
+        mock_client.text_needs_tts = lambda text: EdgeTTSClient.text_needs_tts(
+            mock_client, text
+        )
+
+        # Mock batch generation to call progress callback and return success
+        def mock_batch(items, progress_callback=None):
+            results = []
+            for i, (text, path) in enumerate(items):
+                path.touch()
+                path.write_bytes(b"fake audio")
+                results.append((i, path, None))
+                if progress_callback:
+                    progress_callback(i + 1, len(items))
+            return results
+
+        mock_client.generate_tts_batch = MagicMock(side_effect=mock_batch)
 
         with patch(
             "src.utils.edge_tts_client.EdgeTTSClient",
@@ -1075,6 +1137,7 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
             ) as mock_signal:
                 pipeline_service._generate_tts_clips(subtitle_lines, video_folder)
                 calls = mock_signal.emit.call_args_list
+                # Initial call + progress updates from batch
                 assert len(calls) >= 2
 
     def test_generate_tts_continues_on_failure(
@@ -1083,7 +1146,7 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
         """Verify _generate_tts_clips skips lines that fail TTS instead of crashing."""
         from unittest.mock import MagicMock, patch
         from src.utils.subtitle_parser import SubtitleLine
-        from src.utils.edge_tts_client import EdgeTTSClient, TTSError
+        from src.utils.edge_tts_client import EdgeTTSClient
 
         video_folder = tmp_path
         pipeline_service._video_file_id = 1
@@ -1113,21 +1176,31 @@ class TestPipelineServiceGenerateTTSClipsIntegration:
         ]
 
         mock_client = MagicMock()
+        mock_client.text_needs_tts = lambda text: EdgeTTSClient.text_needs_tts(
+            mock_client, text
+        )
 
-        def generate_tts_side_effect(text, path):
-            if "fails" in text:
-                raise TTSError("No audio received")
+        # Mock batch generation with one failure
+        def mock_batch(items, progress_callback=None):
+            results = []
+            for i, (text, path) in enumerate(items):
+                if "fails" in text:
+                    results.append((i, None, "No audio received"))
+                else:
+                    path.touch()
+                    path.write_bytes(b"fake audio")
+                    results.append((i, path, None))
+            return results
 
-        mock_client.generate_tts = MagicMock(side_effect=generate_tts_side_effect)
-        mock_client.text_needs_tts = lambda text: EdgeTTSClient.text_needs_tts(mock_client, text)
+        mock_client.generate_tts_batch = MagicMock(side_effect=mock_batch)
 
         with patch(
             "src.utils.edge_tts_client.EdgeTTSClient",
             return_value=mock_client,
         ):
-            result = pipeline_service._generate_tts_clips(subtitle_lines, video_folder)
+            pipeline_service._generate_tts_clips(subtitle_lines, video_folder)
 
-        assert mock_client.generate_tts.call_count == 3
+        mock_client.generate_tts_batch.assert_called_once()
         assert subtitle_lines[0].audio_clip_path
         assert not subtitle_lines[1].audio_clip_path
         assert subtitle_lines[2].audio_clip_path
@@ -1176,6 +1249,93 @@ class TestPipelineServiceExtractAudioIntegration:
             return_value=mock_processor,
         ):
             pipeline_service._extract_original_audio(video_path, video_folder)
+
+        assert pipeline_service._current_state == PipelineState.MIXING_AUDIO
+
+
+class TestPipelineServiceMuxVoiceoverIntoVideo:
+    """Integration tests for _mux_voiceover_into_video method."""
+
+    def test_mux_voiceover_success(self, pipeline_service, mock_db_manager, tmp_path):
+        """Verify _mux_voiceover_into_video creates muxed video file."""
+        from unittest.mock import MagicMock, patch
+
+        video_folder = tmp_path
+        video_path = video_folder / "video.mp4"
+        voiceover_path = video_folder / "voiceover_pl.wav"
+        pipeline_service._video_file_id = 1
+
+        video_path.touch()
+        voiceover_path.touch()
+
+        mock_processor = MagicMock()
+        mock_processor.mux_voiceover_into_video = MagicMock()
+
+        with patch(
+            "src.utils.audio_processor.AudioProcessor",
+            return_value=mock_processor,
+        ):
+            result = pipeline_service._mux_voiceover_into_video(
+                video_path, voiceover_path, video_folder
+            )
+
+        mock_processor.mux_voiceover_into_video.assert_called_once()
+        assert result == video_folder / "video_voiceover.mkv"
+
+    def test_mux_voiceover_returns_none_on_failure(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _mux_voiceover_into_video returns None when muxing fails."""
+        from unittest.mock import MagicMock, patch
+        from src.utils.audio_processor import AudioProcessingError
+
+        video_folder = tmp_path
+        video_path = video_folder / "video.mp4"
+        voiceover_path = video_folder / "voiceover_pl.wav"
+        pipeline_service._video_file_id = 1
+
+        video_path.touch()
+        voiceover_path.touch()
+
+        mock_processor = MagicMock()
+        mock_processor.mux_voiceover_into_video.side_effect = AudioProcessingError(
+            "FFmpeg muxing failed"
+        )
+
+        with patch(
+            "src.utils.audio_processor.AudioProcessor",
+            return_value=mock_processor,
+        ):
+            result = pipeline_service._mux_voiceover_into_video(
+                video_path, voiceover_path, video_folder
+            )
+
+        assert result is None
+
+    def test_mux_voiceover_updates_state(
+        self, pipeline_service, mock_db_manager, tmp_path
+    ):
+        """Verify _mux_voiceover_into_video updates state to MIXING_AUDIO."""
+        from unittest.mock import MagicMock, patch
+
+        video_folder = tmp_path
+        video_path = video_folder / "video.mp4"
+        voiceover_path = video_folder / "voiceover_pl.wav"
+        pipeline_service._video_file_id = 1
+
+        video_path.touch()
+        voiceover_path.touch()
+
+        mock_processor = MagicMock()
+        mock_processor.mux_voiceover_into_video = MagicMock()
+
+        with patch(
+            "src.utils.audio_processor.AudioProcessor",
+            return_value=mock_processor,
+        ):
+            pipeline_service._mux_voiceover_into_video(
+                video_path, voiceover_path, video_folder
+            )
 
         assert pipeline_service._current_state == PipelineState.MIXING_AUDIO
 
@@ -1680,7 +1840,13 @@ class TestPipelineServiceEndToEndIntegration:
         ]
 
         mock_edge_tts = MagicMock()
-        mock_edge_tts.generate_tts = MagicMock()
+        # Mock batch TTS to return success for all items
+        mock_edge_tts.generate_tts_batch = MagicMock(
+            side_effect=lambda items, cb=None: [
+                (i, path, None) for i, (_, path) in enumerate(items)
+            ]
+        )
+        mock_edge_tts.text_needs_tts = MagicMock(return_value=True)
 
         mock_audio_processor = MagicMock()
         mock_audio_processor.extract_audio = MagicMock()
@@ -1715,7 +1881,7 @@ class TestPipelineServiceEndToEndIntegration:
 
             mock_open_subtitles.download_subtitle.assert_called_once()
             mock_gemini.translate_batch.assert_called_once()
-            mock_edge_tts.generate_tts.assert_called_once()
+            mock_edge_tts.generate_tts_batch.assert_called_once()
             mock_audio_processor.extract_audio.assert_called_once()
             mock_audio_processor.generate_voiceover.assert_called_once()
             mock_db_manager.add_subtitle.assert_called()
@@ -1806,7 +1972,13 @@ class TestPipelineServiceEndToEndIntegration:
         mock_open_subtitles.download_subtitle = MagicMock()
 
         mock_edge_tts = MagicMock()
-        mock_edge_tts.generate_tts = MagicMock()
+        # Mock batch TTS to return success for all items
+        mock_edge_tts.generate_tts_batch = MagicMock(
+            side_effect=lambda items, cb=None: [
+                (i, path, None) for i, (_, path) in enumerate(items)
+            ]
+        )
+        mock_edge_tts.text_needs_tts = MagicMock(return_value=True)
 
         mock_audio_processor = MagicMock()
         mock_audio_processor.extract_audio = MagicMock()
@@ -1836,7 +2008,7 @@ class TestPipelineServiceEndToEndIntegration:
             pipeline_service.wait()
 
             mock_open_subtitles.download_subtitle.assert_called_once()
-            mock_edge_tts.generate_tts.assert_called_once()
+            mock_edge_tts.generate_tts_batch.assert_called_once()
             mock_audio_processor.generate_voiceover.assert_called_once()
 
     def test_complete_pipeline_handles_error(

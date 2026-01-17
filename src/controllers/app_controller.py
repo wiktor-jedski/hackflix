@@ -1255,9 +1255,16 @@ class AppController(QObject):
             logger.error("Video file has no file_path: %d", video_file_id)
             return
 
-        # Check for voiceover
+        # Check for voiceover - prefer muxed video for proper seek support
         voiceover = self._db_manager.get_voiceover(video_file_id)
-        voiceover_path = voiceover.get("file_path") if voiceover else None
+        muxed_video_path = voiceover.get("muxed_video_path") if voiceover else None
+        if muxed_video_path and Path(muxed_video_path).exists():
+            # Use muxed video with embedded voiceover track
+            file_path = muxed_video_path
+            voiceover_path = None  # No input-slave needed
+        else:
+            # Fall back to input-slave approach
+            voiceover_path = voiceover.get("file_path") if voiceover else None
 
         # Check for subtitles (prefer Polish, fallback to English)
         subtitles = self._db_manager.get_subtitles(video_file_id)

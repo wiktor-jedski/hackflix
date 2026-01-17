@@ -111,6 +111,36 @@ class TestExtractAudio:
             assert "FFmpeg audio extraction failed" in str(exc_info.value)
 
 
+class TestCreateFade:
+    """Tests for _create_fade helper method."""
+
+    def test_create_fade_empty_segment(self):
+        """Verify _create_fade handles empty segments."""
+        from pydub import AudioSegment
+
+        processor = AudioProcessor()
+        empty = AudioSegment.empty()
+        result = processor._create_fade(empty, 0, -6)
+        assert len(result) == 0
+
+    def test_create_fade_returns_audio_segment(self):
+        """Verify _create_fade returns an AudioSegment."""
+        processor = AudioProcessor()
+
+        with patch("pydub.AudioSegment") as mock_segment:
+            mock_audio = MagicMock()
+            mock_audio.__len__ = MagicMock(return_value=100)
+            mock_chunk = MagicMock()
+            mock_chunk.__add__ = MagicMock(return_value=mock_chunk)
+            mock_audio.__getitem__ = MagicMock(return_value=mock_chunk)
+            mock_segment.empty.return_value = mock_chunk
+
+            processor._create_fade(mock_audio, 0, -6)
+
+            # Verify segment was sliced for fade chunks
+            assert mock_audio.__getitem__.called
+
+
 class TestApplyDucking:
     """Tests for apply_ducking method."""
 
@@ -129,6 +159,7 @@ class TestApplyDucking:
             mock_audio.__getitem__ = MagicMock(return_value=MagicMock())
             mock_audio.__add__ = MagicMock(return_value=MagicMock())
             mock_audio_segment.from_wav.return_value = mock_audio
+            mock_audio_segment.empty.return_value = MagicMock()
 
             processor = AudioProcessor()
             processor.apply_ducking(audio_path, duck_intervals, output_path)
@@ -150,6 +181,7 @@ class TestApplyDucking:
             mock_audio.__getitem__ = MagicMock(return_value=MagicMock())
             mock_audio.__add__ = MagicMock(return_value=MagicMock())
             mock_audio_segment.from_wav.return_value = mock_audio
+            mock_audio_segment.empty.return_value = MagicMock()
 
             processor = AudioProcessor()
             processor.apply_ducking(audio_path, duck_intervals, output_path)
@@ -171,6 +203,7 @@ class TestApplyDucking:
             mock_audio.__getitem__ = MagicMock(return_value=MagicMock())
             mock_audio.__add__ = MagicMock(return_value=MagicMock())
             mock_audio_segment.from_wav.return_value = mock_audio
+            mock_audio_segment.empty.return_value = MagicMock()
 
             processor = AudioProcessor()
             processor.apply_ducking(audio_path, duck_intervals, output_path)
@@ -192,11 +225,17 @@ class TestApplyDucking:
             mock_audio.__getitem__ = MagicMock(return_value=MagicMock())
             mock_audio.__add__ = MagicMock(return_value=MagicMock())
             mock_audio_segment.from_wav.return_value = mock_audio
+            mock_audio_segment.empty.return_value = MagicMock()
 
             processor = AudioProcessor()
             processor.apply_ducking(audio_path, duck_intervals, output_path)
 
             mock_audio_segment.from_wav.assert_called_once()
+
+    def test_apply_ducking_uses_correct_db_level(self, tmp_path: Path):
+        """Verify ducking uses DUCKING_DB constant for volume reduction."""
+        processor = AudioProcessor()
+        assert processor.DUCKING_DB == -6
 
 
 class TestStretchAudio:
@@ -506,6 +545,176 @@ class TestGenerateVoiceover:
             second_gap = silent_calls[1][1]["duration"]
             assert second_gap == 8000
 
+    def test_concatenate_tts_clips_speeds_up_long_audio(self, tmp_path: Path):
+        """Verify TTS longer than subtitle duration is sped up (up to 1.3x)."""
+
+        processor = AudioProcessor()
+
+        tts_clip = tmp_path / "tts.mp3"
+        tts_clip.write_bytes(b"fake mp3 data")
+
+        subtitle_lines = [
+            SubtitleLine(
+                index=1,
+                start_ms=0,
+                end_ms=2000,
+                text_source="Test",
+                audio_clip_path=str(tts_clip),
+                is_sound_effect=False,
+            ),
+        ]
+
+        output_path = tmp_path / "concatenated.wav"
+
+        with (
+            patch("pydub.AudioSegment") as mock_segment,
+            patch.object(processor, "stretch_audio") as mock_stretch,
+        ):
+            mock_audio = MagicMock()
+            # TTS is 2500ms, subtitle slot is 2000ms -> needs 1.25x speedup
+            mock_audio.__len__ = MagicMock(return_value=2500)
+            mock_segment.from_mp3.return_value = mock_audio
+
+            mock_stretched = MagicMock()
+            mock_stretched.__len__ = MagicMock(return_value=2000)
+            mock_segment.from_wav.return_value = mock_stretched
+
+            processor._concatenate_tts_clips(
+                subtitle_lines,
+                chunk_start=0,
+                chunk_duration=600000,
+                output_path=output_path,
+            )
+
+            mock_stretch.assert_called_once()
+            call_args = mock_stretch.call_args
+            speedup_factor = call_args[0][1]
+            assert speedup_factor == pytest.approx(1.25, rel=0.01)
+
+    def test_concatenate_tts_clips_caps_speedup_at_1_3x(self, tmp_path: Path):
+        """Verify speedup is capped at 1.3x even for very long TTS."""
+
+        processor = AudioProcessor()
+
+        tts_clip = tmp_path / "tts.mp3"
+        tts_clip.write_bytes(b"fake mp3 data")
+
+        subtitle_lines = [
+            SubtitleLine(
+                index=1,
+                start_ms=0,
+                end_ms=2000,
+                text_source="Test",
+                audio_clip_path=str(tts_clip),
+                is_sound_effect=False,
+            ),
+        ]
+
+        output_path = tmp_path / "concatenated.wav"
+
+        with (
+            patch("pydub.AudioSegment") as mock_segment,
+            patch.object(processor, "stretch_audio") as mock_stretch,
+        ):
+            mock_audio = MagicMock()
+            # TTS is 4000ms, subtitle slot is 2000ms -> needs 2.0x but caps at 1.3x
+            mock_audio.__len__ = MagicMock(return_value=4000)
+            mock_segment.from_mp3.return_value = mock_audio
+
+            # After 1.3x speedup, TTS is ~3077ms (still longer than 2000ms slot)
+            mock_stretched = MagicMock()
+            mock_stretched.__len__ = MagicMock(return_value=3077)
+            mock_segment.from_wav.return_value = mock_stretched
+
+            processor._concatenate_tts_clips(
+                subtitle_lines,
+                chunk_start=0,
+                chunk_duration=600000,
+                output_path=output_path,
+            )
+
+            mock_stretch.assert_called_once()
+            call_args = mock_stretch.call_args
+            speedup_factor = call_args[0][1]
+            assert speedup_factor == 1.3
+
+    def test_concatenate_tts_clips_allows_overflow_delays_next(self, tmp_path: Path):
+        """Verify overflow from one clip delays the next clip (no truncation)."""
+
+        processor = AudioProcessor()
+
+        tts_clip = tmp_path / "tts.mp3"
+        tts_clip.write_bytes(b"fake mp3 data")
+
+        subtitle_lines = [
+            SubtitleLine(
+                index=1,
+                start_ms=0,
+                end_ms=2000,
+                text_source="First",
+                audio_clip_path=str(tts_clip),
+                is_sound_effect=False,
+            ),
+            SubtitleLine(
+                index=2,
+                start_ms=3000,
+                end_ms=5000,
+                text_source="Second",
+                audio_clip_path=str(tts_clip),
+                is_sound_effect=False,
+            ),
+        ]
+
+        output_path = tmp_path / "concatenated.wav"
+        segments_appended = []
+
+        with (
+            patch("pydub.AudioSegment") as mock_segment,
+            patch.object(processor, "stretch_audio"),
+        ):
+            # First TTS is 4000ms, slot is 2000ms -> after 1.3x = 3077ms
+            # Second TTS is 2000ms, slot is 2000ms -> no speedup needed
+            call_count = [0]
+
+            def from_mp3_side_effect(path):
+                call_count[0] += 1
+                m = MagicMock()
+                if call_count[0] == 1:
+                    m.__len__ = MagicMock(return_value=4000)
+                else:
+                    m.__len__ = MagicMock(return_value=2000)
+                return m
+
+            mock_segment.from_mp3.side_effect = from_mp3_side_effect
+
+            mock_stretched = MagicMock()
+            mock_stretched.__len__ = MagicMock(return_value=3077)
+            mock_segment.from_wav.return_value = mock_stretched
+
+            mock_silence = MagicMock()
+
+            def silent_side_effect(duration):
+                segments_appended.append(("silence", duration))
+                return mock_silence
+
+            mock_segment.silent.side_effect = silent_side_effect
+
+            processor._concatenate_tts_clips(
+                subtitle_lines,
+                chunk_start=0,
+                chunk_duration=600000,
+                output_path=output_path,
+            )
+
+            # First clip starts at 0, takes 3077ms (overflow of 1077ms)
+            # Second clip should start at 3000ms but current_position is 3077ms
+            # So NO gap should be added before second clip (it starts immediately)
+            # Only the initial silence before first clip (if any) should be added
+            # Since first clip starts at 0, no initial gap needed
+            # After first clip (3077ms), second clip starts at 3000ms
+            # Since 3000 < 3077, no gap is added - clip starts immediately
+            assert mock_segment.silent.call_count == 0
+
     def test_generate_voiceover_calls_internal_methods(self, tmp_path: Path):
         """Verify generate_voiceover calls internal helper methods."""
 
@@ -681,3 +890,102 @@ class TestConcatenateChunks:
                 processor._concatenate_chunks([chunk1, chunk2], output_path)
 
             assert "FFmpeg chunk concatenation failed" in str(exc_info.value)
+
+
+class TestMuxVoiceoverIntoVideo:
+    """Tests for mux_voiceover_into_video method."""
+
+    def test_mux_voiceover_success(self, tmp_path: Path):
+        """Verify successful muxing of voiceover into video."""
+        video_path = tmp_path / "video.mkv"
+        voiceover_path = tmp_path / "voiceover.wav"
+        output_path = tmp_path / "video_with_voiceover.mkv"
+
+        video_path.touch()
+        voiceover_path.touch()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="", stdout="")
+
+            processor = AudioProcessor()
+            processor.mux_voiceover_into_video(video_path, voiceover_path, output_path)
+
+            mock_run.assert_called_once()
+            args = mock_run.call_args[0][0]
+            assert args[0] == "ffmpeg"
+            assert "-i" in args
+            assert str(video_path) in args
+            assert str(voiceover_path) in args
+            assert "-map" in args
+            assert "0:v" in args
+            assert "0:a" in args
+            assert "1:a" in args
+            assert "-c:v" in args
+            assert "copy" in args
+            assert str(output_path) in args
+
+    def test_mux_voiceover_preserves_video_stream(self, tmp_path: Path):
+        """Verify video stream is copied (not re-encoded)."""
+        video_path = tmp_path / "video.mkv"
+        voiceover_path = tmp_path / "voiceover.wav"
+        output_path = tmp_path / "video_with_voiceover.mkv"
+
+        video_path.touch()
+        voiceover_path.touch()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="", stdout="")
+
+            processor = AudioProcessor()
+            processor.mux_voiceover_into_video(video_path, voiceover_path, output_path)
+
+            args = mock_run.call_args[0][0]
+            # Find -c:v and verify it's followed by "copy"
+            cv_idx = args.index("-c:v")
+            assert args[cv_idx + 1] == "copy"
+
+    def test_mux_voiceover_adds_metadata(self, tmp_path: Path):
+        """Verify metadata is added to voiceover audio track."""
+        video_path = tmp_path / "video.mkv"
+        voiceover_path = tmp_path / "voiceover.wav"
+        output_path = tmp_path / "video_with_voiceover.mkv"
+
+        video_path.touch()
+        voiceover_path.touch()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="", stdout="")
+
+            processor = AudioProcessor()
+            processor.mux_voiceover_into_video(video_path, voiceover_path, output_path)
+
+            args = mock_run.call_args[0][0]
+            assert "-metadata:s:a:1" in args
+            # Check for language metadata
+            lang_idx = [i for i, a in enumerate(args) if a == "-metadata:s:a:1"]
+            assert len(lang_idx) >= 1
+
+    def test_mux_voiceover_ffmpeg_failure(self, tmp_path: Path):
+        """Verify error when ffmpeg muxing fails."""
+        video_path = tmp_path / "video.mkv"
+        voiceover_path = tmp_path / "voiceover.wav"
+        output_path = tmp_path / "video_with_voiceover.mkv"
+
+        video_path.touch()
+        voiceover_path.touch()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1,
+                stderr="Muxing error occurred",
+                stdout="",
+            )
+
+            processor = AudioProcessor()
+
+            with pytest.raises(AudioProcessingError) as exc_info:
+                processor.mux_voiceover_into_video(
+                    video_path, voiceover_path, output_path
+                )
+
+            assert "FFmpeg voiceover muxing failed" in str(exc_info.value)

@@ -183,8 +183,16 @@ class PipelineService(QThread):
             )
 
             if voiceover_path and voiceover_path.exists():
+                # Mux voiceover into video for proper seek support
+                muxed_video_path = self._mux_voiceover_into_video(
+                    video_path, voiceover_path, video_folder
+                )
+
                 self.db_manager.add_voiceover(
-                    self._video_file_id, VOICEOVER_LANGUAGE, str(voiceover_path)
+                    self._video_file_id,
+                    VOICEOVER_LANGUAGE,
+                    str(voiceover_path),
+                    str(muxed_video_path) if muxed_video_path else None,
                 )
                 self._update_pipeline_state(PipelineState.VOICEOVER_READY)
                 logger.info(
@@ -303,15 +311,18 @@ class PipelineService(QThread):
         Returns:
             List of SubtitleLine objects ready for TTS.
         """
-        from src.utils.subtitle_parser import parse_srt_file
+        from src.utils.subtitle_parser import parse_srt_file, merge_close_subtitles
 
         translated_srt = video_folder / "pl.srt"
         if translated_srt.exists():
-            return parse_srt_file(translated_srt)
-        return parse_srt_file(video_folder / "original.srt")
+            subtitles = parse_srt_file(translated_srt)
+        else:
+            subtitles = parse_srt_file(video_folder / "original.srt")
+
+        return merge_close_subtitles(subtitles)
 
     def _generate_tts_clips(self, subtitle_lines: list, video_folder: Path) -> list:
-        """Generate TTS audio clips for subtitle lines.
+        """Generate TTS audio clips for subtitle lines in parallel.
 
         Args:
             subtitle_lines: List of SubtitleLine objects.
@@ -322,11 +333,14 @@ class PipelineService(QThread):
         """
         self._emit_update(PipelineState.GENERATING_TTS, "Generating voice clips...")
 
-        from src.utils.edge_tts_client import EdgeTTSClient, TTSError
+        from src.utils.edge_tts_client import EdgeTTSClient
 
         client = EdgeTTSClient()
         temp_dir = video_folder / "temp_tts"
         temp_dir.mkdir(exist_ok=True)
+
+        # Collect items that need TTS generation
+        tts_items: list[tuple[int, str, Path]] = []  # (line_index, text, output_path)
 
         for i, line in enumerate(subtitle_lines):
             if self._should_stop:
@@ -339,19 +353,39 @@ class PipelineService(QThread):
                 continue
 
             audio_path = temp_dir / f"line_{i:03d}.mp3"
-            try:
-                client.generate_tts(line_text, audio_path)
-                line.audio_clip_path = str(audio_path)
-            except TTSError as e:
-                logger.warning("TTS failed for line %d, skipping: %s", i, e)
-                continue
+            tts_items.append((i, line_text, audio_path))
 
-            progress = int((i / len(subtitle_lines)) * 100)
+        if not tts_items:
+            logger.info("No TTS items to generate")
+            return subtitle_lines
+
+        # Progress callback to update UI
+        def on_progress(completed: int, total: int) -> None:
+            if self._should_stop:
+                return
+            progress = int((completed / total) * 100)
             self._emit_update(
                 PipelineState.GENERATING_TTS, f"Generating voice clips... {progress}%"
             )
 
-        logger.info("TTS generation complete for %d lines", len(subtitle_lines))
+        # Generate all TTS clips in parallel
+        batch_items = [(text, path) for _, text, path in tts_items]
+        results = client.generate_tts_batch(batch_items, on_progress)
+
+        # Map results back to subtitle lines
+        index_to_line_idx = {i: line_idx for i, (line_idx, _, _) in enumerate(tts_items)}
+
+        for batch_idx, output_path, error in results:
+            line_idx = index_to_line_idx[batch_idx]
+            if output_path and not error:
+                subtitle_lines[line_idx].audio_clip_path = str(output_path)
+            else:
+                logger.warning("TTS failed for line %d: %s", line_idx, error)
+
+        successful = sum(1 for _, path, _ in results if path is not None)
+        logger.info(
+            "TTS generation complete: %d/%d successful", successful, len(tts_items)
+        )
         return subtitle_lines
 
     def _extract_original_audio(self, video_path: Path, video_folder: Path) -> Path:
@@ -435,6 +469,45 @@ class PipelineService(QThread):
 
         logger.info("Voiceover generated at %s", voiceover_path)
         return voiceover_path
+
+    def _mux_voiceover_into_video(
+        self,
+        video_path: Path,
+        voiceover_path: Path,
+        video_folder: Path,
+    ) -> Optional[Path]:
+        """Mux voiceover into video file as an additional audio track.
+
+        This creates a new video file with the voiceover embedded, which
+        fixes seeking issues that occur with VLC's input-slave option.
+
+        Args:
+            video_path: Path to the original video file.
+            voiceover_path: Path to the voiceover WAV file.
+            video_folder: Working folder for output.
+
+        Returns:
+            Path to the muxed video file, or None if muxing fails.
+        """
+        from src.utils.audio_processor import AudioProcessor, AudioProcessingError
+
+        self._emit_update(PipelineState.MIXING_AUDIO, "Embedding voiceover track...")
+
+        # Generate output filename: original_name_voiceover.mkv
+        original_stem = video_path.stem
+        muxed_video_path = video_folder / f"{original_stem}_voiceover.mkv"
+
+        try:
+            processor = AudioProcessor()
+            processor.mux_voiceover_into_video(
+                video_path, voiceover_path, muxed_video_path
+            )
+            logger.info("Muxed video created at %s", muxed_video_path)
+            return muxed_video_path
+        except AudioProcessingError as e:
+            logger.error("Failed to mux voiceover into video: %s", e)
+            # Return None to fall back to input-slave approach
+            return None
 
     def _cleanup_temp_files(self, video_folder: Path) -> None:
         """Clean up temporary TTS and chunk files.
