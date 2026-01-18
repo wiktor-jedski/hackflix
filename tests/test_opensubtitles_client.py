@@ -127,7 +127,9 @@ class TestDownloadSubtitle:
             output_path = tmp_path / "subtitle.srt"
 
             with patch.object(client.session, "post") as mock_post:
-                mock_post.side_effect = requests.exceptions.Timeout("Connection timeout")
+                mock_post.side_effect = requests.exceptions.Timeout(
+                    "Connection timeout"
+                )
 
                 with pytest.raises(OpenSubtitlesError) as exc_info:
                     client.download_subtitle(12345, output_path)
@@ -257,9 +259,7 @@ class TestDownloadSubtitle:
 
             with (
                 patch.object(client.session, "post", return_value=mock_post_response),
-                patch(
-                    "src.utils.opensubtitles_client.requests.get"
-                ) as mock_get,
+                patch("src.utils.opensubtitles_client.requests.get") as mock_get,
             ):
                 mock_get.side_effect = requests.exceptions.Timeout("Download timeout")
 

@@ -12,7 +12,9 @@ from PyQt5.QtCore import QCoreApplication, QLocale, QTranslator
 logger = logging.getLogger(__name__)
 
 # Default translations directory relative to this file
-_DEFAULT_TRANSLATIONS_DIR = Path(__file__).parent.parent.parent / "assets" / "translations"
+_DEFAULT_TRANSLATIONS_DIR = (
+    Path(__file__).parent.parent.parent / "assets" / "translations"
+)
 
 # Global translator instance
 _translator: QTranslator | None = None

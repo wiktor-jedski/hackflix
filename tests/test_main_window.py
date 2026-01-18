@@ -267,7 +267,7 @@ class TestMainWindowEventHandlers:
         # Window should be in fullscreen mode
         # Note: In test environment, fullscreen may not fully apply
         # but the method should be called
-        assert hasattr(main_window, 'showFullScreen')
+        assert hasattr(main_window, "showFullScreen")
 
     def test_show_confirm_creates_dialog(self, main_window: MainWindow, qtbot) -> None:
         """Test show_confirm creates and shows dialog."""
@@ -276,6 +276,7 @@ class TestMainWindowEventHandlers:
 
         def accept_dialog():
             from PyQt5.QtWidgets import QApplication
+
             for widget in QApplication.topLevelWidgets():
                 if isinstance(widget, ConfirmDialog):
                     widget.accept()
@@ -293,7 +294,9 @@ class TestMainWindowEventHandlers:
         QTimer.singleShot(10, run_confirm)
         qtbot.wait(200)
 
-    def test_close_event_without_controller(self, main_window: MainWindow, qtbot) -> None:
+    def test_close_event_without_controller(
+        self, main_window: MainWindow, qtbot
+    ) -> None:
         """Test close event when no controller is bound."""
         # Should not raise
         main_window.close()
@@ -348,6 +351,7 @@ class TestMainWindowFullscreen:
 
         # Trigger showEvent
         from PyQt5.QtGui import QShowEvent
+
         event = QShowEvent()
         main_window.showEvent(event)
 

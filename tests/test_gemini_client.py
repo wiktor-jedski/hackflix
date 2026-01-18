@@ -346,7 +346,6 @@ class TestRateLimitHandling:
                     SubtitleLine(index=1, start_ms=0, end_ms=2000, text_source="Test")
                 ]
 
-
                 mock_429 = MagicMock()
                 mock_429.__str__ = MagicMock(return_value="429 Resource exhausted")
 

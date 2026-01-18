@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS video_files (
     magnet_link TEXT,
     state TEXT DEFAULT 'PENDING' CHECK(state IN ('PENDING', 'QUEUED', 'DOWNLOADING', 'COMPLETED', 'ERROR')),
     download_progress INTEGER DEFAULT 0,
-    pipeline_state TEXT DEFAULT 'NONE' CHECK(pipeline_state IN ('NONE', 'FETCHING_SUBS', 'TRANSLATING', 'SUBS_READY', 'GENERATING_TTS', 'MIXING_AUDIO', 'VOICEOVER_READY', 'FAILED')),
+    pipeline_state TEXT DEFAULT 'NONE' CHECK(pipeline_state IN ('NONE', 'FETCHING_SUBS', 'TRANSLATING', 'SUBS_READY', 'FAILED')),
     resume_position_seconds INTEGER DEFAULT 0,
     FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
     FOREIGN KEY (season_id) REFERENCES seasons(id) ON DELETE CASCADE
@@ -70,16 +70,6 @@ CREATE TABLE IF NOT EXISTS subtitles (
     language_code TEXT NOT NULL,
     is_translated BOOLEAN DEFAULT 0,
     file_path TEXT NOT NULL,
-    FOREIGN KEY (video_file_id) REFERENCES video_files(id) ON DELETE CASCADE
-);
-
--- Voiceovers table: Generated audio tracks
-CREATE TABLE IF NOT EXISTS voiceovers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    video_file_id INTEGER NOT NULL,
-    language_code TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    muxed_video_path TEXT,
     FOREIGN KEY (video_file_id) REFERENCES video_files(id) ON DELETE CASCADE
 );
 
@@ -99,7 +89,6 @@ CREATE INDEX IF NOT EXISTS idx_video_files_state ON video_files(state);
 CREATE INDEX IF NOT EXISTS idx_video_files_pipeline_state ON video_files(pipeline_state);
 CREATE INDEX IF NOT EXISTS idx_seasons_media_item ON seasons(media_item_id);
 CREATE INDEX IF NOT EXISTS idx_subtitles_video_file ON subtitles(video_file_id);
-CREATE INDEX IF NOT EXISTS idx_voiceovers_video_file ON voiceovers(video_file_id);
 """
 
 
@@ -120,12 +109,27 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     """
     cursor = conn.cursor()
 
-    # Migration: Add muxed_video_path column to voiceovers table
-    cursor.execute("PRAGMA table_info(voiceovers)")
-    columns = [row[1] for row in cursor.fetchall()]
-    if "muxed_video_path" not in columns:
-        logger.info("Migrating: Adding muxed_video_path column to voiceovers")
-        cursor.execute("ALTER TABLE voiceovers ADD COLUMN muxed_video_path TEXT")
+    # Migration: Convert removed voiceover pipeline states to SUBS_READY
+    cursor.execute(
+        """
+        UPDATE video_files
+        SET pipeline_state = 'SUBS_READY'
+        WHERE pipeline_state IN ('GENERATING_TTS', 'MIXING_AUDIO', 'VOICEOVER_READY')
+        """
+    )
+    if cursor.rowcount > 0:
+        logger.info(
+            "Migrating: Converted %d voiceover pipeline states to SUBS_READY",
+            cursor.rowcount,
+        )
+
+    # Migration: Drop voiceovers table if it exists (no longer used)
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='voiceovers'"
+    )
+    if cursor.fetchone():
+        logger.info("Migrating: Dropping voiceovers table (no longer used)")
+        cursor.execute("DROP TABLE voiceovers")
 
 
 def initialize_database(db_path: str | Path) -> None:

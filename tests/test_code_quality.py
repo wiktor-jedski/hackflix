@@ -104,9 +104,7 @@ class TestTypeHintsEnforcement:
         )
 
         assert result.returncode == 0, (
-            f"Type checking failed.\n"
-            f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}"
+            f"Type checking failed.\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
 
 

@@ -79,7 +79,9 @@ class TestLibraryView:
 
         assert library_view.get_current_tab() == MediaTab.SERIES
 
-    def test_set_items(self, library_view: LibraryView, sample_items: list[dict]) -> None:
+    def test_set_items(
+        self, library_view: LibraryView, sample_items: list[dict]
+    ) -> None:
         """Test setting items in the view."""
         library_view.set_items(sample_items)
         assert len(library_view.get_items()) == 3
@@ -189,9 +191,7 @@ class TestLibraryView:
 
         assert blocker.args[0]["id"] == "movie-2"
 
-    def test_clear(
-        self, library_view: LibraryView, sample_items: list[dict]
-    ) -> None:
+    def test_clear(self, library_view: LibraryView, sample_items: list[dict]) -> None:
         """Test clearing the view."""
         library_view.set_items(sample_items)
         library_view.clear()
@@ -202,16 +202,17 @@ class TestLibraryView:
     ) -> None:
         """Test updating an item's data."""
         library_view.set_items(sample_items)
-        library_view.update_item("movie-1", {
-            "state": DownloadState.DOWNLOADING.value,
-            "download_progress": 50,
-        })
+        library_view.update_item(
+            "movie-1",
+            {
+                "state": DownloadState.DOWNLOADING.value,
+                "download_progress": 50,
+            },
+        )
         # The update should not raise an exception
         # Visual verification would require rendering
 
-    def test_refresh(
-        self, library_view: LibraryView, sample_items: list[dict]
-    ) -> None:
+    def test_refresh(self, library_view: LibraryView, sample_items: list[dict]) -> None:
         """Test refresh triggers viewport update."""
         library_view.set_items(sample_items)
         library_view.refresh()  # Should not raise
@@ -280,6 +281,7 @@ class TestLibraryView:
 
         # Simulate selection change to invalid index
         from PyQt5.QtCore import QModelIndex
+
         library_view._on_selection_changed(QModelIndex(), QModelIndex())
 
         assert len(received) == 1
@@ -290,9 +292,12 @@ class TestLibraryView:
     ) -> None:
         """Test updating an item's pipeline state."""
         library_view.set_items(sample_items)
-        library_view.update_item("movie-1", {
-            "pipeline_state": "TRANSLATING",
-        })
+        library_view.update_item(
+            "movie-1",
+            {
+                "pipeline_state": "TRANSLATING",
+            },
+        )
         # The update should not raise an exception
 
     def test_update_item_nonexistent(

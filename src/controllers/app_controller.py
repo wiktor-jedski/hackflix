@@ -878,9 +878,7 @@ class AppController(QObject):
                     )
 
             else:
-                self._main_window.show_toast(
-                    f"Unknown item type: {item_type}", "error"
-                )
+                self._main_window.show_toast(f"Unknown item type: {item_type}", "error")
 
     def navigate_back(self) -> None:
         """Navigate back to the previous context."""
@@ -1187,9 +1185,9 @@ class AppController(QObject):
         """
         if self._main_window:
             if success:
-                self._main_window.show_toast("Voiceover ready", "info")
+                self._main_window.show_toast("Subtitles ready", "info")
             else:
-                self._main_window.show_toast("Voiceover generation failed", "error")
+                self._main_window.show_toast("Subtitle processing failed", "error")
             self._main_window.library_view.update_item(
                 str(file_id),
                 {"pipeline_state": "completed" if success else "failed"},
@@ -1255,17 +1253,6 @@ class AppController(QObject):
             logger.error("Video file has no file_path: %d", video_file_id)
             return
 
-        # Check for voiceover - prefer muxed video for proper seek support
-        voiceover = self._db_manager.get_voiceover(video_file_id)
-        muxed_video_path = voiceover.get("muxed_video_path") if voiceover else None
-        if muxed_video_path and Path(muxed_video_path).exists():
-            # Use muxed video with embedded voiceover track
-            file_path = muxed_video_path
-            voiceover_path = None  # No input-slave needed
-        else:
-            # Fall back to input-slave approach
-            voiceover_path = voiceover.get("file_path") if voiceover else None
-
         # Check for subtitles (prefer Polish, fallback to English)
         subtitles = self._db_manager.get_subtitles(video_file_id)
         subtitle_path = None
@@ -1293,7 +1280,7 @@ class AppController(QObject):
             self._player_service.initialize(frame_id)
 
             # Load and start playback
-            self._player_service.load_video(file_path, voiceover_path)
+            self._player_service.load_video(file_path)
 
             # Load subtitle if available
             if subtitle_path:

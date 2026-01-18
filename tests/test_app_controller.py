@@ -1538,14 +1538,14 @@ class TestAppControllerPlayerMethods:
             "Video file path not set", "error"
         )
 
-    def test_play_media_success_without_voiceover(
+    def test_play_media_success(
         self,
         controller: AppController,
         mock_main_window: MagicMock,
         mock_player_service: MagicMock,
         db_manager: DatabaseManager,
     ) -> None:
-        """Test successful play_media without voiceover."""
+        """Test successful play_media."""
         # Insert media and video file
         db_manager.upsert_content(
             {
@@ -1569,9 +1569,7 @@ class TestAppControllerPlayerMethods:
 
         mock_main_window.show_player.assert_called_once()
         mock_player_service.initialize.assert_called_once_with(12345)
-        mock_player_service.load_video.assert_called_once_with(
-            "/path/to/video.mp4", None
-        )
+        mock_player_service.load_video.assert_called_once_with("/path/to/video.mp4")
 
     def test_play_media_with_resume_position(
         self,

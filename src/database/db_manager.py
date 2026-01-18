@@ -717,7 +717,7 @@ class DatabaseManager:
         """Get all video files with incomplete pipeline processing for auto-resume.
 
         Returns:
-            List of video files in active pipeline states (not NONE, VOICEOVER_READY, or FAILED).
+            List of video files in active pipeline states (not NONE, SUBS_READY, or FAILED).
 
         Raises:
             sqlite3.Error: If query fails.
@@ -730,9 +730,6 @@ class DatabaseManager:
             active_states = [
                 PipelineState.FETCHING_SUBS.value,
                 PipelineState.TRANSLATING.value,
-                PipelineState.SUBS_READY.value,
-                PipelineState.GENERATING_TTS.value,
-                PipelineState.MIXING_AUDIO.value,
             ]
 
             placeholders = ",".join("?" * len(active_states))
@@ -799,53 +796,6 @@ class DatabaseManager:
             logger.error("Failed to add subtitle: %s", e)
             raise
 
-    def add_voiceover(
-        self,
-        video_file_id: int,
-        language_code: str,
-        file_path: str,
-        muxed_video_path: str | None = None,
-    ) -> int:
-        """Add a voiceover record.
-
-        Args:
-            video_file_id: ID of the video file.
-            language_code: Language code (e.g., 'pl').
-            file_path: Path to the voiceover audio file.
-            muxed_video_path: Path to video with embedded voiceover track.
-
-        Returns:
-            ID of the new voiceover record.
-
-        Raises:
-            sqlite3.Error: If insert fails.
-        """
-        try:
-            conn = self._get_connection()
-            cursor = conn.cursor()
-
-            cursor.execute(
-                """
-                INSERT INTO voiceovers
-                    (video_file_id, language_code, file_path, muxed_video_path)
-                VALUES (?, ?, ?, ?)
-                """,
-                (video_file_id, language_code, file_path, muxed_video_path),
-            )
-
-            voiceover_id = cursor.lastrowid
-            conn.commit()
-            self._close_connection(conn)
-            if voiceover_id is None:
-                raise sqlite3.Error("Failed to get lastrowid after insert")
-            logger.debug(
-                "Added voiceover %d for video file %d", voiceover_id, video_file_id
-            )
-            return voiceover_id
-        except sqlite3.Error as e:
-            logger.error("Failed to add voiceover: %s", e)
-            raise
-
     def get_subtitles(self, video_file_id: int) -> list[dict[str, Any]]:
         """Get all subtitles for a video file.
 
@@ -872,34 +822,6 @@ class DatabaseManager:
             return [dict(row) for row in rows]
         except sqlite3.Error as e:
             logger.error("Failed to get subtitles: %s", e)
-            raise
-
-    def get_voiceover(self, video_file_id: int) -> dict[str, Any] | None:
-        """Get voiceover for a video file.
-
-        Args:
-            video_file_id: ID of the video file.
-
-        Returns:
-            Voiceover dictionary or None if not found.
-
-        Raises:
-            sqlite3.Error: If query fails.
-        """
-        try:
-            conn = self._get_connection()
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "SELECT * FROM voiceovers WHERE video_file_id = ?",
-                (video_file_id,),
-            )
-
-            row = cursor.fetchone()
-            self._close_connection(conn)
-            return dict(row) if row else None
-        except sqlite3.Error as e:
-            logger.error("Failed to get voiceover: %s", e)
             raise
 
     def get_media_files(self, media_id: str) -> list[str]:
@@ -935,18 +857,6 @@ class DatabaseManager:
                 """
                 SELECT s.file_path FROM subtitles s
                 JOIN video_files vf ON s.video_file_id = vf.id
-                WHERE vf.media_item_id = ?
-                """,
-                (media_id,),
-            )
-            for row in cursor.fetchall():
-                if row[0]:
-                    file_paths.append(row[0])
-
-            cursor.execute(
-                """
-                SELECT v.file_path FROM voiceovers v
-                JOIN video_files vf ON v.video_file_id = vf.id
                 WHERE vf.media_item_id = ?
                 """,
                 (media_id,),

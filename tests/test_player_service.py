@@ -188,45 +188,6 @@ class TestPlayerServiceLoadVideo:
         mock_vlc_module._mock_player.set_media.assert_called_once()
         mock_vlc_module._mock_player.play.assert_called_once()
 
-    def test_load_video_with_voiceover(
-        self,
-        mock_vlc_module: mock.MagicMock,
-        initialized_service: Any,
-        tmp_path: Path,
-    ) -> None:
-        """Test video loading with external voiceover track."""
-        video_file = tmp_path / "test.mp4"
-        video_file.touch()
-        voiceover_file = tmp_path / "voiceover.mp3"
-        voiceover_file.touch()
-
-        initialized_service.load_video(str(video_file), str(voiceover_file))
-
-        # Verify input-slave option was added
-        mock_vlc_module._mock_media.add_option.assert_called_once()
-        call_args = mock_vlc_module._mock_media.add_option.call_args[0][0]
-        assert ":input-slave=" in call_args
-        assert str(voiceover_file) in call_args
-
-        # Verify external audio path stored
-        assert initialized_service._external_audio_path == str(voiceover_file)
-
-    def test_load_video_voiceover_not_found(
-        self,
-        mock_vlc_module: mock.MagicMock,
-        initialized_service: Any,
-        tmp_path: Path,
-    ) -> None:
-        """Test video loading when voiceover file doesn't exist."""
-        video_file = tmp_path / "test.mp4"
-        video_file.touch()
-
-        initialized_service.load_video(str(video_file), "/nonexistent/voiceover.mp3")
-
-        # Should not add option for missing voiceover
-        mock_vlc_module._mock_media.add_option.assert_not_called()
-        assert initialized_service._external_audio_path is None
-
     def test_load_video_file_not_found(
         self,
         mock_vlc_module: mock.MagicMock,

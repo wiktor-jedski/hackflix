@@ -68,6 +68,7 @@ class TestStatusBar:
     def test_fixed_height(self, status_bar: StatusBar) -> None:
         """Test that StatusBar has fixed height."""
         from src.ui.styles import STATUS_BAR_HEIGHT
+
         assert status_bar.height() == STATUS_BAR_HEIGHT
 
     def test_initial_state_is_offline(self, status_bar: StatusBar) -> None:

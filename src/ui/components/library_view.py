@@ -240,9 +240,7 @@ class LibraryView(QFrame):
             model_item.setData(
                 item_data.get("episode_title"), LibraryItemRole.EpisodeTitleRole
             )
-            model_item.setData(
-                item_data.get("file_id"), LibraryItemRole.FileIdRole
-            )
+            model_item.setData(item_data.get("file_id"), LibraryItemRole.FileIdRole)
             model_item.setSizeHint(QSize(-1, ROW_HEIGHT))
 
             self._model.appendRow(model_item)

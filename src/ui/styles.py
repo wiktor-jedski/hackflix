@@ -98,6 +98,7 @@ DEBOUNCE_MS = 300  # Debounce time for action keys
 # QSS Stylesheet
 # =============================================================================
 
+
 def get_stylesheet() -> str:
     """Generate the main application stylesheet.
 

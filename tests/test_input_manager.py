@@ -121,9 +121,12 @@ class TestInputManager:
         result = input_manager._check_debounce(Qt.Key_S)
         assert result is True
 
-    def test_build_context_empty_for_non_widget(self, input_manager: InputManager) -> None:
+    def test_build_context_empty_for_non_widget(
+        self, input_manager: InputManager
+    ) -> None:
         """Test that build_context returns empty dict for non-widget."""
         from PyQt5.QtCore import QObject
+
         obj = QObject()
         context = input_manager._build_context(obj)
         assert isinstance(context, dict)
@@ -160,6 +163,7 @@ class TestInputManager:
     ) -> None:
         """Test that event filter ignores non-key events."""
         from PyQt5.QtCore import QEvent
+
         event = QEvent(QEvent.None_)
         result = input_manager.eventFilter(widget, event)
         assert result is False
@@ -239,7 +243,12 @@ class TestInputManager:
         auto_repeat_event.isAutoRepeat.return_value = True
 
         # Patch isinstance to return True for QKeyEvent
-        with patch('src.ui.input_manager.isinstance', side_effect=lambda obj, cls: True if cls == QKeyEvent else isinstance(obj, cls)):
+        with patch(
+            "src.ui.input_manager.isinstance",
+            side_effect=lambda obj, cls: True
+            if cls == QKeyEvent
+            else isinstance(obj, cls),
+        ):
             result = input_manager.eventFilter(widget, auto_repeat_event)
 
         # Auto-repeat should be blocked (return True to consume event)

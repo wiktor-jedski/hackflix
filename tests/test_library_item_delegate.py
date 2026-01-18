@@ -271,9 +271,7 @@ class TestLibraryItemDelegateBuildSubtitle:
 
         assert "Episode 7" in subtitle
 
-    def test_build_subtitle_movie_empty(
-        self, delegate: LibraryItemDelegate
-    ) -> None:
+    def test_build_subtitle_movie_empty(self, delegate: LibraryItemDelegate) -> None:
         """Test subtitle for movie returns empty string."""
         index = MagicMock(spec=QModelIndex)
         index.data.side_effect = lambda role: {
@@ -320,7 +318,10 @@ class TestLibraryItemDelegateGetCachedPoster:
     @patch("src.ui.components.library_item_delegate.Path")
     @patch("src.ui.components.library_item_delegate.QPixmap")
     def test_get_cached_poster_loads_existing_file(
-        self, mock_qpixmap: MagicMock, mock_path: MagicMock, delegate: LibraryItemDelegate
+        self,
+        mock_qpixmap: MagicMock,
+        mock_path: MagicMock,
+        delegate: LibraryItemDelegate,
     ) -> None:
         """Test that existing file is loaded and cached."""
         mock_path.return_value.exists.return_value = True
@@ -335,7 +336,10 @@ class TestLibraryItemDelegateGetCachedPoster:
     @patch("src.ui.components.library_item_delegate.Path")
     @patch("src.ui.components.library_item_delegate.QPixmap")
     def test_get_cached_poster_missing_file(
-        self, mock_qpixmap: MagicMock, mock_path: MagicMock, delegate: LibraryItemDelegate
+        self,
+        mock_qpixmap: MagicMock,
+        mock_path: MagicMock,
+        delegate: LibraryItemDelegate,
     ) -> None:
         """Test that missing file returns empty pixmap."""
         mock_path.return_value.exists.return_value = False

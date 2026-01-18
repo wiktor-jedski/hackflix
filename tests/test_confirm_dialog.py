@@ -20,7 +20,9 @@ class TestConfirmDialog:
     @pytest.fixture
     def dialog(self, parent_widget: QWidget, qtbot) -> ConfirmDialog:
         """Create a ConfirmDialog instance."""
-        dialog = ConfirmDialog("Delete File?", "This action cannot be undone.", parent_widget)
+        dialog = ConfirmDialog(
+            "Delete File?", "This action cannot be undone.", parent_widget
+        )
         qtbot.addWidget(dialog)
         return dialog
 
@@ -62,6 +64,7 @@ class TestConfirmDialog:
     def test_fixed_width(self, dialog: ConfirmDialog) -> None:
         """Test that dialog has fixed width."""
         from src.ui.styles import DIALOG_WIDTH
+
         assert dialog.width() == DIALOG_WIDTH
 
     def test_has_hint_label(self, dialog: ConfirmDialog) -> None:
@@ -103,6 +106,7 @@ class TestConfirmDialogStaticMethod:
                     return
             # Check application-level dialogs
             from PyQt5.QtWidgets import QApplication
+
             for widget in QApplication.topLevelWidgets():
                 if isinstance(widget, ConfirmDialog):
                     widget.accept()
@@ -124,6 +128,7 @@ class TestConfirmDialogStaticMethod:
 
         def reject_dialog():
             from PyQt5.QtWidgets import QApplication
+
             for widget in QApplication.topLevelWidgets():
                 if isinstance(widget, ConfirmDialog):
                     widget.reject()

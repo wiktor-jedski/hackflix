@@ -76,11 +76,13 @@ class TestToastNotification:
     def test_default_timeout(self, toast: ToastNotification) -> None:
         """Test that default timeout is used from config."""
         from src.config import TOAST_TIMEOUT_MS
+
         assert toast._timeout_ms == TOAST_TIMEOUT_MS
 
     def test_fixed_width(self, toast: ToastNotification) -> None:
         """Test that toast has fixed width."""
         from src.ui.styles import TOAST_WIDTH
+
         assert toast.width() == TOAST_WIDTH
 
 

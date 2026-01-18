@@ -185,7 +185,9 @@ class TestStripHtmlTags:
     def test_strip_font_tags(self):
         """Verify font tags with attributes are removed."""
         assert _strip_html_tags('<font color="red">Colored</font>') == "Colored"
-        assert _strip_html_tags('<font face="Arial" size="12">Styled</font>') == "Styled"
+        assert (
+            _strip_html_tags('<font face="Arial" size="12">Styled</font>') == "Styled"
+        )
 
     def test_strip_nested_tags(self):
         """Verify nested tags are all removed."""
@@ -722,10 +724,18 @@ class TestMergeCloseSubtitles:
         # Both are sound effects
         subtitles_both = [
             SubtitleLine(
-                index=1, start_ms=0, end_ms=1000, text_source="[Door]", is_sound_effect=True
+                index=1,
+                start_ms=0,
+                end_ms=1000,
+                text_source="[Door]",
+                is_sound_effect=True,
             ),
             SubtitleLine(
-                index=2, start_ms=1200, end_ms=2000, text_source="[Slam]", is_sound_effect=True
+                index=2,
+                start_ms=1200,
+                end_ms=2000,
+                text_source="[Slam]",
+                is_sound_effect=True,
             ),
         ]
         result_both = merge_close_subtitles(subtitles_both)
@@ -734,10 +744,18 @@ class TestMergeCloseSubtitles:
         # Only one is sound effect
         subtitles_one = [
             SubtitleLine(
-                index=1, start_ms=0, end_ms=1000, text_source="[Door]", is_sound_effect=True
+                index=1,
+                start_ms=0,
+                end_ms=1000,
+                text_source="[Door]",
+                is_sound_effect=True,
             ),
             SubtitleLine(
-                index=2, start_ms=1200, end_ms=2000, text_source="Hello", is_sound_effect=False
+                index=2,
+                start_ms=1200,
+                end_ms=2000,
+                text_source="Hello",
+                is_sound_effect=False,
             ),
         ]
         result_one = merge_close_subtitles(subtitles_one)
@@ -782,10 +800,18 @@ class TestMergeCloseSubtitles:
         """Verify correct behavior with mix of small and large gaps."""
         subtitles = [
             SubtitleLine(index=1, start_ms=0, end_ms=1000, text_source="A"),
-            SubtitleLine(index=2, start_ms=1200, end_ms=2000, text_source="B"),  # merge with A
-            SubtitleLine(index=3, start_ms=5000, end_ms=6000, text_source="C"),  # new group
-            SubtitleLine(index=4, start_ms=6300, end_ms=7000, text_source="D"),  # merge with C
-            SubtitleLine(index=5, start_ms=10000, end_ms=11000, text_source="E"),  # standalone
+            SubtitleLine(
+                index=2, start_ms=1200, end_ms=2000, text_source="B"
+            ),  # merge with A
+            SubtitleLine(
+                index=3, start_ms=5000, end_ms=6000, text_source="C"
+            ),  # new group
+            SubtitleLine(
+                index=4, start_ms=6300, end_ms=7000, text_source="D"
+            ),  # merge with C
+            SubtitleLine(
+                index=5, start_ms=10000, end_ms=11000, text_source="E"
+            ),  # standalone
         ]
         result = merge_close_subtitles(subtitles)
         assert len(result) == 3

@@ -59,7 +59,9 @@ class TestSearchOverlay:
         overlay.clear()
         assert overlay._search_input.text() == ""
 
-    def test_search_committed_signal_on_enter(self, overlay: SearchOverlay, qtbot) -> None:
+    def test_search_committed_signal_on_enter(
+        self, overlay: SearchOverlay, qtbot
+    ) -> None:
         """Test that Enter key emits search_committed signal."""
         overlay.show_search()
         overlay._search_input.setText("test query")
@@ -69,7 +71,9 @@ class TestSearchOverlay:
 
         assert blocker.args == ["test query"]
 
-    def test_search_cancelled_signal_on_escape(self, overlay: SearchOverlay, qtbot) -> None:
+    def test_search_cancelled_signal_on_escape(
+        self, overlay: SearchOverlay, qtbot
+    ) -> None:
         """Test that Escape key emits search_cancelled signal."""
         overlay.show_search()
 
@@ -95,6 +99,7 @@ class TestSearchOverlay:
     def test_fixed_width(self, overlay: SearchOverlay) -> None:
         """Test that overlay has fixed width."""
         from src.ui.styles import SEARCH_WIDTH
+
         assert overlay.width() == SEARCH_WIDTH
 
 

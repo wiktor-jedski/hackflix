@@ -29,7 +29,6 @@ class TestSchema:
             "seasons",
             "video_files",
             "subtitles",
-            "voiceovers",
             "translation_progress",
         ]
         for table in required_tables:
@@ -56,7 +55,6 @@ class TestSchema:
             "seasons",
             "video_files",
             "subtitles",
-            "voiceovers",
             "translation_progress",
         }
         assert expected_tables.issubset(tables)
@@ -563,7 +561,7 @@ class TestDatabaseManager:
         v1 = db_manager.get_video_details("movie-1")
         v2 = db_manager.get_video_details("movie-2")
 
-        db_manager.update_pipeline_state(v1["id"], PipelineState.VOICEOVER_READY)
+        db_manager.update_pipeline_state(v1["id"], PipelineState.SUBS_READY)
         db_manager.update_pipeline_state(v2["id"], PipelineState.TRANSLATING)
 
         incomplete = db_manager.get_incomplete_pipelines()
@@ -604,36 +602,6 @@ class TestDatabaseManager:
 
         assert en_sub["is_translated"] == 0
         assert pl_sub["is_translated"] == 1
-
-    def test_add_and_get_voiceover(self, db_manager: DatabaseManager) -> None:
-        """Test adding and retrieving voiceover."""
-        content = {
-            "items": [
-                {
-                    "id": "movie-test",
-                    "type": "movie",
-                    "title": "Test Movie",
-                    "magnet": "magnet:?test",
-                    "subtitle_id": 123,
-                }
-            ]
-        }
-        db_manager.upsert_content(content)
-
-        video = db_manager.get_video_details("movie-test")
-
-        # Initially no voiceover
-        vo = db_manager.get_voiceover(video["id"])
-        assert vo is None
-
-        # Add voiceover
-        vo_id = db_manager.add_voiceover(video["id"], "pl", "/path/to/voiceover.wav")
-
-        # Get voiceover
-        vo = db_manager.get_voiceover(video["id"])
-        assert vo is not None
-        assert vo["language_code"] == "pl"
-        assert vo["file_path"] == "/path/to/voiceover.wav"
 
     def test_update_file_path(self, db_manager: DatabaseManager) -> None:
         """Test updating video file path after download."""
@@ -713,11 +681,6 @@ class TestDatabaseManager:
     ) -> None:
         """Test get_translation_progress returns None for nonexistent file ID."""
         result = db_manager.get_translation_progress(99999)
-        assert result is None
-
-    def test_get_voiceover_nonexistent(self, db_manager: DatabaseManager) -> None:
-        """Test get_voiceover returns None for nonexistent file ID."""
-        result = db_manager.get_voiceover(99999)
         assert result is None
 
     def test_get_seasons_empty(self, db_manager: DatabaseManager) -> None:
@@ -901,14 +864,6 @@ class TestDatabaseManagerErrorHandling:
             with pytest.raises(sqlite3.Error, match="Insert failed"):
                 db_manager.add_subtitle(1, "en", "/path/to/sub.srt")
 
-    def test_add_voiceover_error(self, db_manager: DatabaseManager) -> None:
-        """Test add_voiceover raises on sqlite3 error."""
-        with mock.patch.object(db_manager, "_get_connection") as mock_conn:
-            mock_conn.side_effect = sqlite3.Error("Insert failed")
-
-            with pytest.raises(sqlite3.Error, match="Insert failed"):
-                db_manager.add_voiceover(1, "pl", "/path/to/vo.wav")
-
     def test_get_subtitles_error(self, db_manager: DatabaseManager) -> None:
         """Test get_subtitles raises on sqlite3 error."""
         with mock.patch.object(db_manager, "_get_connection") as mock_conn:
@@ -916,14 +871,6 @@ class TestDatabaseManagerErrorHandling:
 
             with pytest.raises(sqlite3.Error, match="Query failed"):
                 db_manager.get_subtitles(1)
-
-    def test_get_voiceover_error(self, db_manager: DatabaseManager) -> None:
-        """Test get_voiceover raises on sqlite3 error."""
-        with mock.patch.object(db_manager, "_get_connection") as mock_conn:
-            mock_conn.side_effect = sqlite3.Error("Query failed")
-
-            with pytest.raises(sqlite3.Error, match="Query failed"):
-                db_manager.get_voiceover(1)
 
     def test_reset_media_state_error(self, db_manager: DatabaseManager) -> None:
         """Test reset_media_state raises on sqlite3 error."""
@@ -968,13 +915,13 @@ class TestResetState:
         # Set completed state with file path
         db_manager.update_file_state(file_id, DownloadState.COMPLETED, 100)
         db_manager.update_file_path(file_id, "/path/to/movie.mp4")
-        db_manager.update_pipeline_state(file_id, PipelineState.VOICEOVER_READY)
+        db_manager.update_pipeline_state(file_id, PipelineState.SUBS_READY)
 
         # Verify completed state
         video = db_manager.get_video_file(file_id)
         assert video["state"] == "COMPLETED"
         assert video["file_path"] == "/path/to/movie.mp4"
-        assert video["pipeline_state"] == "VOICEOVER_READY"
+        assert video["pipeline_state"] == "SUBS_READY"
 
         # Reset state
         db_manager.reset_media_state("movie-test")

@@ -349,9 +349,13 @@ class TorrentService(QThread):
                         error_msg,
                     )
                     if context.download_type == DownloadType.MOVIE:
-                        self._db_manager.update_file_state(context.id, DownloadState.ERROR)
+                        self._db_manager.update_file_state(
+                            context.id, DownloadState.ERROR
+                        )
                     else:
-                        self._db_manager.update_season_state(context.id, DownloadState.ERROR)
+                        self._db_manager.update_season_state(
+                            context.id, DownloadState.ERROR
+                        )
                     self.download_error.emit(context.id, error_msg)
                     self._unregister_handle(context_id)
 
@@ -378,9 +382,7 @@ class TorrentService(QThread):
         self._session.remove_torrent(handle)  # type: ignore[union-attr]
         self._unregister_handle(context_id)
 
-    def _complete_movie_download(
-        self, context: DownloadContext, handle: Any
-    ) -> None:
+    def _complete_movie_download(self, context: DownloadContext, handle: Any) -> None:
         """Handle movie download completion.
 
         Finds the largest video file and updates the database.
@@ -403,9 +405,7 @@ class TorrentService(QThread):
             self._db_manager.update_file_state(file_id, DownloadState.ERROR)
             self.download_error.emit(file_id, error_msg)
 
-    def _complete_season_download(
-        self, context: DownloadContext, handle: Any
-    ) -> None:
+    def _complete_season_download(self, context: DownloadContext, handle: Any) -> None:
         """Handle season pack download completion.
 
         Matches video files to episodes and updates all video_files records.
@@ -458,9 +458,7 @@ class TorrentService(QThread):
             len(episodes),
         )
 
-    def _get_video_files_from_torrent(
-        self, handle: Any
-    ) -> list[tuple[Path, int]]:
+    def _get_video_files_from_torrent(self, handle: Any) -> list[tuple[Path, int]]:
         """Get all video files from a torrent.
 
         Args:

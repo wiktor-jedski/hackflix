@@ -23,7 +23,7 @@ class PlayerService(QObject):
     """VLC-based video player service.
 
     Manages the VLC instance and media player for video playback.
-    Supports external audio tracks (voiceover) and audio track cycling.
+    Supports audio track cycling.
 
     Signals:
         playback_finished: Emitted when playback reaches the end.
@@ -61,9 +61,6 @@ class PlayerService(QObject):
 
         # Timer for time updates
         self._time_timer: QTimer | None = None
-
-        # Track external audio path for track cycling
-        self._external_audio_path: str | None = None
 
     def initialize(self, video_frame_id: int) -> None:
         """Initialize VLC and bind to a Qt widget.
@@ -118,12 +115,11 @@ class PlayerService(QObject):
             self.error_occurred.emit(f"VLC initialization failed: {e}")
             raise
 
-    def load_video(self, file_path: str, voiceover_path: str | None = None) -> None:
-        """Load a video file with optional external audio track.
+    def load_video(self, file_path: str) -> None:
+        """Load a video file.
 
         Args:
             file_path: Path to the video file.
-            voiceover_path: Optional path to voiceover audio file.
 
         Raises:
             vlc.VLCException: If media loading fails.
@@ -148,18 +144,6 @@ class PlayerService(QObject):
             self._current_media = self._instance.media_new(file_path)
             if not self._current_media:
                 raise vlc.VLCException("Failed to create media from file")
-
-            # Add external audio track if provided
-            self._external_audio_path = None
-            if voiceover_path:
-                voiceover_file = Path(voiceover_path)
-                if voiceover_file.exists():
-                    # Add as input-slave for external audio track
-                    self._current_media.add_option(f":input-slave={voiceover_path}")
-                    self._external_audio_path = voiceover_path
-                    logger.info("Added voiceover track: %s", voiceover_path)
-                else:
-                    logger.warning("Voiceover file not found: %s", voiceover_path)
 
             self._player.set_media(self._current_media)
             self._player.play()

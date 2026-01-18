@@ -34,7 +34,7 @@ MEDIA_LIBRARY_PATH = Path(
 
 def ensure_directories() -> None:
     """Create all required directories if they don't exist."""
-    for directory in [CONFIG_DIR, LOG_DIR, CACHE_DIR, TORRENT_STATE_DIR, TTS_TEMP_DIR]:
+    for directory in [CONFIG_DIR, LOG_DIR, CACHE_DIR, TORRENT_STATE_DIR]:
         directory.mkdir(parents=True, exist_ok=True)
 
 
@@ -87,16 +87,13 @@ class DownloadState(Enum):
 
 
 class PipelineState(Enum):
-    """Pipeline state for subtitle/voiceover processing.
+    """Pipeline state for subtitle processing.
 
     States:
         NONE: No processing required or not started.
         FETCHING_SUBS: Querying OpenSubtitles API.
         TRANSLATING: Sending text to Gemini API.
         SUBS_READY: Subtitles ready, video can be watched with subs.
-        GENERATING_TTS: Creating audio clips with edge-tts.
-        MIXING_AUDIO: FFmpeg merging audio tracks.
-        VOICEOVER_READY: Voiceover audio available.
         FAILED: Pipeline broke (API error, quota exceeded, etc.).
     """
 
@@ -104,25 +101,12 @@ class PipelineState(Enum):
     FETCHING_SUBS = "FETCHING_SUBS"
     TRANSLATING = "TRANSLATING"
     SUBS_READY = "SUBS_READY"
-    GENERATING_TTS = "GENERATING_TTS"
-    MIXING_AUDIO = "MIXING_AUDIO"
-    VOICEOVER_READY = "VOICEOVER_READY"
     FAILED = "FAILED"
 
 
 # =============================================================================
 # Application Constants
 # =============================================================================
-
-# TTS Configuration
-TTS_VOICE = "pl-PL-MarekNeural"
-VOICEOVER_LANGUAGE = "pl"
-MAX_TTS_SPEEDUP = 1.3
-MAX_TIMING_DRIFT_SECONDS = 5.0
-
-# Audio Ducking Configuration
-DUCKING_FADE_MS = 100
-DUCKING_LEVEL_DB = -15
 
 # UI Timing Constants
 OSD_FADE_TIMEOUT_MS = 3000
@@ -133,8 +117,6 @@ TRANSLATION_BATCH_SIZE = 30
 
 # Pipeline Configuration
 PIPELINE_CHUNK_DURATION_MINUTES = 10
-TTS_TEMP_DIR = CACHE_DIR / "tts"
-VOICEOVER_PATH_TEMPLATE = "{video_folder}/voiceover_pl.wav"
 
 # Torrent Configuration
 TORRENT_POLL_INTERVAL_MS = 2000

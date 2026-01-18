@@ -1,6 +1,5 @@
 """Tests for UI styles."""
 
-
 from src.ui import styles
 
 

@@ -71,9 +71,8 @@ class LibraryItemDelegate(QStyledItemDelegate):
         "completed": "\u25b6",  # Play button
         "error": "\u26a0",  # Warning triangle
         "series": "\ud83d\udcfa",  # TV icon
-        "subs_ready": "\ud83d\udcdd",  # Memo/notebook (subtitles ready)
-        "generating_tts": "\ud83c\udfb5",  # Musical note (TTS generation)
-        "voiceover_ready": "\ud83c\udfa4",  # Microphone (voiceover ready)
+        "subs_processing": "\u8bd1",  # 译 Chinese character (processing subtitles)
+        "subs_ready": "\u25b6",  # Play button (subtitles ready)
         "pipeline_failed": "\u26a0",  # Warning triangle
     }
 
@@ -84,9 +83,8 @@ class LibraryItemDelegate(QStyledItemDelegate):
         "completed": SUCCESS_COLOR,
         "error": ERROR_COLOR,
         "series": TEXT_SECONDARY,
-        "subs_ready": TEXT_SECONDARY,
-        "generating_tts": WARNING_COLOR,
-        "voiceover_ready": SUCCESS_COLOR,
+        "subs_processing": WARNING_COLOR,
+        "subs_ready": SUCCESS_COLOR,
         "pipeline_failed": ERROR_COLOR,
     }
 
@@ -254,10 +252,14 @@ class LibraryItemDelegate(QStyledItemDelegate):
         painter.setPen(QColor(TEXT_PRIMARY))
         title_rect = QRect(rect.left(), y, rect.width(), title_metrics.height())
         elided_title = title_metrics.elidedText(
-            title, Qt.ElideRight, rect.width()  # type: ignore[attr-defined]
+            title,
+            Qt.ElideRight,  # type: ignore[attr-defined]
+            rect.width(),
         )
         painter.drawText(
-            title_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_title  # type: ignore[attr-defined]
+            title_rect,
+            Qt.AlignLeft | Qt.AlignVCenter,  # type: ignore[attr-defined]
+            elided_title,
         )
         y += title_metrics.height() + line_spacing
 
@@ -267,10 +269,14 @@ class LibraryItemDelegate(QStyledItemDelegate):
             painter.setPen(QColor(TEXT_SECONDARY))
             genres_rect = QRect(rect.left(), y, rect.width(), body_metrics.height())
             elided_genres = body_metrics.elidedText(
-                genres, Qt.ElideRight, rect.width()  # type: ignore[attr-defined]
+                genres,
+                Qt.ElideRight,  # type: ignore[attr-defined]
+                rect.width(),
             )
             painter.drawText(
-                genres_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_genres  # type: ignore[attr-defined]
+                genres_rect,
+                Qt.AlignLeft | Qt.AlignVCenter,  # type: ignore[attr-defined]
+                elided_genres,
             )
             y += body_metrics.height() + line_spacing
 
@@ -280,10 +286,14 @@ class LibraryItemDelegate(QStyledItemDelegate):
             painter.setPen(QColor(TEXT_SECONDARY))
             subtitle_rect = QRect(rect.left(), y, rect.width(), small_metrics.height())
             elided_subtitle = small_metrics.elidedText(
-                subtitle, Qt.ElideRight, rect.width()  # type: ignore[attr-defined]
+                subtitle,
+                Qt.ElideRight,  # type: ignore[attr-defined]
+                rect.width(),
             )
             painter.drawText(
-                subtitle_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_subtitle  # type: ignore[attr-defined]
+                subtitle_rect,
+                Qt.AlignLeft | Qt.AlignVCenter,  # type: ignore[attr-defined]
+                elided_subtitle,
             )
 
     def _build_subtitle(self, index: QModelIndex) -> str:
@@ -350,15 +360,11 @@ class LibraryItemDelegate(QStyledItemDelegate):
         # Determine status - pipeline states take precedence over download states
         if item_type == "series":
             status = "series"
-        elif pipeline_state == PipelineState.VOICEOVER_READY.value:
-            status = "voiceover_ready"
         elif pipeline_state in (
             PipelineState.FETCHING_SUBS.value,
             PipelineState.TRANSLATING.value,
-            PipelineState.GENERATING_TTS.value,
-            PipelineState.MIXING_AUDIO.value,
         ):
-            status = "generating_tts"
+            status = "subs_processing"
         elif pipeline_state == PipelineState.SUBS_READY.value:
             status = "subs_ready"
         elif pipeline_state == PipelineState.FAILED.value:

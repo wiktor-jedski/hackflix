@@ -181,9 +181,7 @@ class TestAudioTrackOverlay:
         assert len(overlay.get_tracks()) == 1
         assert overlay.get_tracks()[0]["name"] == "French"
 
-    def test_track_selected_signal_exists(
-        self, overlay: AudioTrackOverlay
-    ) -> None:
+    def test_track_selected_signal_exists(self, overlay: AudioTrackOverlay) -> None:
         """Test that track_selected signal exists."""
         assert hasattr(overlay, "track_selected")
 
@@ -298,9 +296,7 @@ class TestPlayerView:
         player_view.show_cursor()
         assert player_view._cursor_hidden == initial_hidden
 
-    def test_hide_cursor_when_already_hidden(
-        self, player_view: PlayerView
-    ) -> None:
+    def test_hide_cursor_when_already_hidden(self, player_view: PlayerView) -> None:
         """Test hide_cursor does nothing when already hidden."""
         player_view.hide_cursor()
         player_view.hide_cursor()  # Call again
@@ -351,7 +347,10 @@ class TestPlayerView:
         player_view.show_pause_indicator(True)
         player_view._on_osd_timeout()
         # Fade animation should be running
-        assert player_view._osd._fade_animation.state() == player_view._osd._fade_animation.Running
+        assert (
+            player_view._osd._fade_animation.state()
+            == player_view._osd._fade_animation.Running
+        )
 
     def test_resize_repositions_overlays(self, player_view: PlayerView) -> None:
         """Test resize event repositions overlays."""
@@ -376,9 +375,7 @@ class TestPlayerView:
         expected_right = player_view.width() - 20
         assert abs(track_overlay_right - expected_right) <= 1
 
-    def test_osd_timer_resets_on_activity(
-        self, player_view: PlayerView
-    ) -> None:
+    def test_osd_timer_resets_on_activity(self, player_view: PlayerView) -> None:
         """Test OSD timer resets when activity is triggered."""
         player_view.show_pause_indicator(True)
         assert player_view._osd_timer.isActive()
@@ -387,9 +384,7 @@ class TestPlayerView:
         player_view.trigger_activity()
         assert player_view._osd_timer.isActive()
 
-    def test_multiple_osd_indicators_in_sequence(
-        self, player_view: PlayerView
-    ) -> None:
+    def test_multiple_osd_indicators_in_sequence(self, player_view: PlayerView) -> None:
         """Test showing different OSD indicators in sequence."""
         player_view.show()
         player_view.show_pause_indicator(True)
@@ -448,9 +443,7 @@ class TestPlayerViewIntegration:
         player_view.exit_fullscreen()
         assert not player_view._cursor_hidden
 
-    def test_osd_visibility_lifecycle(
-        self, player_view: PlayerView, qtbot
-    ) -> None:
+    def test_osd_visibility_lifecycle(self, player_view: PlayerView, qtbot) -> None:
         """Test OSD visibility through its lifecycle."""
         player_view.show()
 

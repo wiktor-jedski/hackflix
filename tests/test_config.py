@@ -9,8 +9,6 @@ from src.config import (
     LoggingConfig,
     PipelineState,
     setup_logging,
-    TTS_VOICE,
-    MAX_TTS_SPEEDUP,
     TRANSLATION_BATCH_SIZE,
 )
 
@@ -40,9 +38,6 @@ class TestPipelineState:
             "FETCHING_SUBS",
             "TRANSLATING",
             "SUBS_READY",
-            "GENERATING_TTS",
-            "MIXING_AUDIO",
-            "VOICEOVER_READY",
             "FAILED",
         }
         actual = {state.name for state in PipelineState}
@@ -56,15 +51,6 @@ class TestPipelineState:
 
 class TestConstants:
     """Tests for configuration constants."""
-
-    def test_tts_voice_is_polish(self) -> None:
-        """Verify TTS voice is the required Polish voice."""
-        assert TTS_VOICE == "pl-PL-MarekNeural"
-
-    def test_max_tts_speedup(self) -> None:
-        """Verify max TTS speedup is within reasonable bounds."""
-        assert 1.0 < MAX_TTS_SPEEDUP <= 2.0
-        assert MAX_TTS_SPEEDUP == 1.3
 
     def test_translation_batch_size(self) -> None:
         """Verify translation batch size is reasonable."""
