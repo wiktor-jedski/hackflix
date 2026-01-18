@@ -1253,10 +1253,10 @@ class AppController(QObject):
             logger.error("Video file has no file_path: %d", video_file_id)
             return
 
-        # Check for subtitles (prefer Polish, fallback to English)
+        # Check for subtitles (prefer Polish translated, fallback to original)
         subtitles = self._db_manager.get_subtitles(video_file_id)
         subtitle_path = None
-        for lang_code in ["pl", "en"]:
+        for lang_code in ["polish", "original"]:
             for sub in subtitles:
                 if sub.get("language_code") == lang_code:
                     subtitle_path = sub.get("file_path")

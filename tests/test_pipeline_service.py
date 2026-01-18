@@ -614,7 +614,7 @@ class TestPipelineServiceFetchSubtitlesIntegration:
             pipeline_service._fetch_subtitles(subtitle_id, video_folder)
 
             mock_db_manager.add_subtitle.assert_called_once_with(
-                1, str(video_folder / "original.srt"), "original", subtitle_id
+                1, "original", str(video_folder / "original.srt"), False
             )
 
 

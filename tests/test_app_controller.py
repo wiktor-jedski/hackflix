@@ -1627,25 +1627,25 @@ class TestAppControllerPlayerMethods:
         )
         video = db_manager.get_video_details("test-movie")
         db_manager.update_file_path(video["id"], "/path/to/video.mp4")
-        # Add Polish and English subtitles
-        db_manager.add_subtitle(video["id"], "en", "/path/to/en.srt")
-        db_manager.add_subtitle(video["id"], "pl", "/path/to/pl.srt")
+        # Add Polish and original subtitles
+        db_manager.add_subtitle(video["id"], "original", "/path/to/original.srt")
+        db_manager.add_subtitle(video["id"], "polish", "/path/to/polish.srt")
 
         controller._main_window = mock_main_window
         controller._player_service = mock_player_service
         controller.play_media(video["id"])
 
-        # Should load Polish subtitle (priority over English)
-        mock_player_service.load_subtitle.assert_called_once_with("/path/to/pl.srt")
+        # Should load Polish subtitle (priority over original)
+        mock_player_service.load_subtitle.assert_called_once_with("/path/to/polish.srt")
 
-    def test_play_media_with_english_subtitle(
+    def test_play_media_with_original_subtitle(
         self,
         controller: AppController,
         mock_main_window: MagicMock,
         mock_player_service: MagicMock,
         db_manager: DatabaseManager,
     ) -> None:
-        """Test play_media loads English subtitle when Polish not available."""
+        """Test play_media loads original subtitle when Polish not available."""
         # Insert media and video file
         db_manager.upsert_content(
             {
@@ -1662,15 +1662,15 @@ class TestAppControllerPlayerMethods:
         )
         video = db_manager.get_video_details("test-movie")
         db_manager.update_file_path(video["id"], "/path/to/video.mp4")
-        # Add only English subtitle
-        db_manager.add_subtitle(video["id"], "en", "/path/to/en.srt")
+        # Add only original subtitle
+        db_manager.add_subtitle(video["id"], "original", "/path/to/original.srt")
 
         controller._main_window = mock_main_window
         controller._player_service = mock_player_service
         controller.play_media(video["id"])
 
-        # Should load English subtitle
-        mock_player_service.load_subtitle.assert_called_once_with("/path/to/en.srt")
+        # Should load original subtitle
+        mock_player_service.load_subtitle.assert_called_once_with("/path/to/original.srt")
 
     def test_play_media_without_subtitles(
         self,

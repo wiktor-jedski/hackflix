@@ -211,7 +211,7 @@ class PipelineService(QThread):
         client.download_subtitle(subtitle_id, output_path)
 
         self.db_manager.add_subtitle(
-            self._video_file_id, str(output_path), "original", subtitle_id
+            self._video_file_id, "original", str(output_path), False
         )
 
         logger.info("Subtitles downloaded to %s", output_path)
@@ -249,7 +249,7 @@ class PipelineService(QThread):
 
         write_srt_file(translated_srt, translated_lines)
 
-        self.db_manager.add_subtitle(video_file_id, str(translated_srt), "polish", None)
+        self.db_manager.add_subtitle(video_file_id, "polish", str(translated_srt), True)
         self.db_manager.clear_translation_progress(video_file_id)
 
         self._emit_update(PipelineState.SUBS_READY, "Translation complete")
