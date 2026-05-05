@@ -1,5 +1,9 @@
 """Pytest fixtures for Hackflix tests."""
 
+import os
+
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
 from pathlib import Path
 
 import pytest

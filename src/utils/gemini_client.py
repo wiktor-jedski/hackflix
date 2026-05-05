@@ -7,8 +7,8 @@ with support for resumable processing and progress tracking.
 import json
 import logging
 
-import google.generativeai as genai
-from google.generativeai import GenerationConfig
+from google import genai
+from google.genai import types
 
 from src.config import GEMINI_API_KEY, TRANSLATION_BATCH_SIZE
 
@@ -43,14 +43,15 @@ Return ONLY a valid JSON object with this structure:
 
 Do not include any explanation or markdown formatting."""
 
+    MODEL_NAME = "gemini-1.5-pro"
+
     def __init__(self) -> None:
         """Initialize the translator with API key from config."""
         self.api_key = GEMINI_API_KEY
         if not self.api_key:
             raise GeminiTranslationError("GEMINI_API_KEY not configured")
 
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel("gemini-1.5-pro")
+        self.client = genai.Client(api_key=self.api_key)
 
     def translate_batch(
         self,
@@ -133,15 +134,19 @@ Do not include any explanation or markdown formatting."""
         user_prompt = self._build_translation_prompt(batch, batch_number, total_batches)
 
         try:
-            response = self.model.generate_content(
-                [self.SYSTEM_PROMPT, user_prompt],
-                generation_config=GenerationConfig(
+            response = self.client.models.generate_content(
+                model=self.MODEL_NAME,
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=self.SYSTEM_PROMPT,
                     temperature=0.3,
                     max_output_tokens=8192,
                 ),
             )
 
             response_text = response.text
+            if response_text is None:
+                raise GeminiTranslationError("Empty response from Gemini")
 
             if response_text.startswith("```"):
                 lines = response_text.split("\n")

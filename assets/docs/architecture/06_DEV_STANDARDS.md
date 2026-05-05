@@ -11,7 +11,7 @@ All development must be strictly compatible with **Debian 12 (Bookworm)** runnin
     *   `PyQt5` (GUI) - *Note: Using PyQt5 for broader compatibility with vlc bindings.*
     *   `python-vlc` (Media Player) - tested on Pi 5 with hardware acceleration
     *   `libtorrent` (Embedded Torrent Client) - not qbittorrent-api
-    *   `google-generativeai` (Translation) - API key via environment variable
+    *   `google-genai` (Translation) - API key via environment variable
     *   `edge-tts` (Voice Synthesis) - online only, hardcoded `pl-PL-MarekNeural`
     *   `pydub` (Audio Processing)
     *   `pytest`, `pytest-qt`, `pytest-mock` (Testing)

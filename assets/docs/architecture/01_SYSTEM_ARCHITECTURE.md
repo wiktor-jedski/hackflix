@@ -87,7 +87,7 @@ graph TD
 | **Database** | SQLite + raw sqlite3 | Per-operation connections, no ORM |
 | **Torrent Client** | `libtorrent` | Embedded library with persistent session state |
 | **Audio Proc** | FFmpeg + pydub | CLI wrapper and Python library |
-| **Translation** | Google Gemini API | `google-generativeai` via env var for API key |
+| **Translation** | Google Gemini API | `google-genai` via env var for API key |
 | **TTS** | `edge-tts` | Hardcoded `pl-PL-MarekNeural` voice |
 | **Subtitles** | OpenSubtitles.com API | Server specifies exact subtitle_id |
 
