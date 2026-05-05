@@ -4,8 +4,8 @@ This module provides the StatusBar widget that displays connection status,
 sync information, and storage usage at the bottom of the main window.
 """
 
-from PyQt5.QtCore import Qt, pyqtSlot
-from PyQt5.QtWidgets import QFrame, QHBoxLayout, QLabel, QWidget
+from PySide6.QtCore import Qt, Slot
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QWidget
 
 from src.ui.styles import (
     ERROR_COLOR,
@@ -89,7 +89,7 @@ class StatusBar(QFrame):
         self.set_sync_status("")
         self.set_storage_usage("")
 
-    @pyqtSlot(bool)
+    @Slot(bool)
     def set_connection_status(self, online: bool) -> None:
         """Set the connection status indicator.
 
@@ -107,7 +107,7 @@ class StatusBar(QFrame):
             self._connection_label.setText("Offline")
             self._connection_label.setStyleSheet(f"color: {TEXT_SECONDARY};")
 
-    @pyqtSlot(str)
+    @Slot(str)
     def set_sync_status(self, message: str) -> None:
         """Set the sync status message.
 
@@ -117,7 +117,7 @@ class StatusBar(QFrame):
         """
         self._sync_label.setText(message)
 
-    @pyqtSlot(str)
+    @Slot(str)
     def set_storage_usage(self, usage: str) -> None:
         """Set the storage usage display.
 

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import libtorrent as lt
-from PyQt5.QtCore import QObject, QThread, QTimer, pyqtSignal
+from PySide6.QtCore import QObject, QThread, QTimer, Signal
 
 from src.config import (
     DownloadState,
@@ -68,9 +68,9 @@ class TorrentService(QThread):
                        For movies: video_file_id. For seasons: season_id.
     """
 
-    download_progress = pyqtSignal(int, int, float, float)  # context_id, %, down, up
-    download_completed = pyqtSignal(int, str)  # video_file_id, file_path
-    download_error = pyqtSignal(int, str)  # context_id, error_message
+    download_progress = Signal(int, int, float, float)  # context_id, %, down, up
+    download_completed = Signal(int, str)  # video_file_id, file_path
+    download_error = Signal(int, str)  # context_id, error_message
 
     # State file names
     SESSION_STATE_FILE = "session_state.lt"

@@ -3,9 +3,9 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PyQt5.QtCore import QModelIndex, QRect, QSize, Qt
-from PyQt5.QtGui import QColor, QPainter, QPixmap
-from PyQt5.QtWidgets import QStyle, QStyleOptionViewItem
+from PySide6.QtCore import QModelIndex, QRect, QSize, Qt
+from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtWidgets import QStyle, QStyleOptionViewItem
 
 from src.config import DownloadState
 from src.ui.components.library_item_delegate import (

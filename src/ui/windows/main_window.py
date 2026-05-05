@@ -9,9 +9,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from PyQt5.QtCore import QTimer
-from PyQt5.QtGui import QCloseEvent, QResizeEvent, QShowEvent
-from PyQt5.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication
+from PySide6.QtCore import QTimer
+from PySide6.QtGui import QCloseEvent, QResizeEvent, QShowEvent
+from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication
 
 from src.ui.components.confirm_dialog import ConfirmDialog
 from src.ui.components.library_view import LibraryView
@@ -86,6 +86,7 @@ class MainWindow(QMainWindow):
     def _setup_input_manager(self) -> None:
         """Set up the input manager as an event filter."""
         self._input_manager = InputManager(self)
+        self._input_filter_installed = False
         # Install on the application to catch all events globally
         # This will be moved to bind_controller when QApplication is available
         logger.debug("Input manager created")
@@ -108,6 +109,7 @@ class MainWindow(QMainWindow):
 
         # Also install on library view since it has focus
         self._library_view.installEventFilter(self._input_manager)
+        self._input_filter_installed = True
 
         logger.debug("Input manager installed as global and library view event filter")
 
@@ -238,17 +240,20 @@ class MainWindow(QMainWindow):
         """
         # Suspend input manager to allow dialog to receive key events
         app = QApplication.instance()
-        if app:
-            app.removeEventFilter(self._input_manager)
-        self._library_view.removeEventFilter(self._input_manager)
+        was_installed = self._input_filter_installed
+        if was_installed:
+            if app:
+                app.removeEventFilter(self._input_manager)
+            self._library_view.removeEventFilter(self._input_manager)
 
         try:
             return ConfirmDialog.confirm(title, message, self)
         finally:
-            # Restore input manager after dialog closes
-            if app:
-                app.installEventFilter(self._input_manager)
-            self._library_view.installEventFilter(self._input_manager)
+            # Restore input manager only if it was previously installed
+            if was_installed:
+                if app:
+                    app.installEventFilter(self._input_manager)
+                self._library_view.installEventFilter(self._input_manager)
 
     def show_toast(
         self,

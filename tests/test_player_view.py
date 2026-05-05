@@ -3,7 +3,7 @@
 from typing import Any
 
 import pytest
-from PyQt5.QtCore import Qt
+from PySide6.QtCore import QAbstractAnimation, Qt
 
 from src.ui.components.player_view import (
     AudioTrackOverlay,
@@ -109,7 +109,7 @@ class TestOSDWidget:
         osd.show_pause(True)
         osd.fade_out()
         # Animation should be running
-        assert osd._fade_animation.state() == osd._fade_animation.Running
+        assert osd._fade_animation.state() == QAbstractAnimation.State.Running
 
     def test_fade_animation_hides_widget(self, osd: OSDWidget, qtbot) -> None:
         """Test that fade animation hides widget when complete."""
@@ -349,7 +349,7 @@ class TestPlayerView:
         # Fade animation should be running
         assert (
             player_view._osd._fade_animation.state()
-            == player_view._osd._fade_animation.Running
+            == QAbstractAnimation.State.Running
         )
 
     def test_resize_repositions_overlays(self, player_view: PlayerView) -> None:
@@ -461,6 +461,6 @@ class TestPlayerViewIntegration:
         # Wait for fade animation
         # Since animation is async, we verify the animation started
         assert player_view._osd._fade_animation.state() in (
-            player_view._osd._fade_animation.Running,
-            player_view._osd._fade_animation.Stopped,
+            QAbstractAnimation.State.Running,
+            QAbstractAnimation.State.Stopped,
         )

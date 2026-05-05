@@ -4,9 +4,9 @@ This module provides the ConfirmDialog widget for confirming
 destructive actions like file deletion.
 """
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QKeyEvent
-from PyQt5.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeyEvent
+from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget
 
 from src.ui.styles import (
     DIALOG_PADDING,
@@ -144,5 +144,5 @@ class ConfirmDialog(QDialog):
             True if user confirmed (Enter), False if cancelled (Esc).
         """
         dialog = ConfirmDialog(title, message, parent)
-        result = dialog.exec_()
-        return result == QDialog.Accepted
+        result = dialog.exec()
+        return result == QDialog.DialogCode.Accepted

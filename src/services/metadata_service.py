@@ -11,7 +11,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from PyQt5.QtCore import QObject, QThread, pyqtSignal
+from PySide6.QtCore import QObject, QThread, Signal
 
 from src.config import CACHE_DIR, CATALOG_URL
 from src.database.db_manager import DatabaseManager
@@ -32,10 +32,10 @@ class MetadataService(QThread):
         sync_error: Emitted with (error_message: str) on failure.
     """
 
-    sync_started = pyqtSignal()
-    sync_progress = pyqtSignal(int, int, str)  # current, total, message
-    sync_completed = pyqtSignal()
-    sync_error = pyqtSignal(str)
+    sync_started = Signal()
+    sync_progress = Signal(int, int, str)  # current, total, message
+    sync_completed = Signal()
+    sync_error = Signal(str)
 
     def __init__(
         self,

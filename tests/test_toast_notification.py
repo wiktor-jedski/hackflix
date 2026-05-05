@@ -1,7 +1,7 @@
 """Tests for ToastNotification component."""
 
 import pytest
-from PyQt5.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget
 
 from src.ui.components.toast_notification import ToastManager, ToastNotification
 

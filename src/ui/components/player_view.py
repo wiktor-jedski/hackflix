@@ -7,9 +7,9 @@ with On-Screen Display (OSD) controls.
 import logging
 from typing import Any
 
-from PyQt5.QtCore import QPropertyAnimation, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QCursor
-from PyQt5.QtWidgets import (
+from PySide6.QtCore import QPropertyAnimation, Qt, QTimer, Signal
+from PySide6.QtGui import QCursor
+from PySide6.QtWidgets import (
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -199,7 +199,7 @@ class AudioTrackOverlay(QFrame):
     Shows a list of audio tracks that the user can select.
     """
 
-    track_selected = pyqtSignal(int)  # Track ID
+    track_selected = Signal(int)  # Track ID
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the audio track overlay.
@@ -301,7 +301,7 @@ class PlayerView(QFrame):
         view_ready: Emitted when the view is ready with the video frame ID.
     """
 
-    view_ready = pyqtSignal(int)  # Video frame winId
+    view_ready = Signal(int)  # Video frame winId
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the PlayerView.

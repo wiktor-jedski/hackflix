@@ -1,7 +1,7 @@
 """Tests for i18n module."""
 
 from pathlib import Path
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication
 
 from src.utils.i18n import (
     create_translation_source,
@@ -130,7 +130,7 @@ class TestSetupTranslationsWithFile:
     def test_loads_valid_translation_file(self, qtbot, tmp_path: Path) -> None:
         """Test that a valid .qm file is loaded successfully."""
         from unittest.mock import MagicMock, patch
-        from PyQt5.QtCore import QTranslator
+        from PySide6.QtCore import QTranslator
         import src.utils.i18n as i18n_module
 
         app = QApplication.instance()
@@ -157,7 +157,7 @@ class TestSetupTranslationsWithFile:
     ) -> None:
         """Test behavior when translation file exists but fails to load."""
         from unittest.mock import MagicMock, patch
-        from PyQt5.QtCore import QTranslator
+        from PySide6.QtCore import QTranslator
         import src.utils.i18n as i18n_module
 
         app = QApplication.instance()
@@ -179,7 +179,7 @@ class TestSetupTranslationsWithFile:
     def test_logs_warning_when_load_fails(self, qtbot, tmp_path: Path, caplog) -> None:
         """Test that warning is logged when load fails."""
         from unittest.mock import MagicMock, patch
-        from PyQt5.QtCore import QTranslator
+        from PySide6.QtCore import QTranslator
         import src.utils.i18n as i18n_module
 
         app = QApplication.instance()

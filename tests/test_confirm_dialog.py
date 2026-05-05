@@ -1,8 +1,8 @@
 """Tests for ConfirmDialog component."""
 
 import pytest
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QDialog, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog, QWidget
 
 from src.ui.components.confirm_dialog import ConfirmDialog
 
@@ -94,7 +94,7 @@ class TestConfirmDialogStaticMethod:
 
     def test_confirm_accept_returns_true(self, parent_widget: QWidget, qtbot) -> None:
         """Test that confirm returns True when accepted."""
-        from PyQt5.QtCore import QTimer
+        from PySide6.QtCore import QTimer
 
         result_holder = [None]
 
@@ -105,7 +105,7 @@ class TestConfirmDialogStaticMethod:
                     widget.accept()
                     return
             # Check application-level dialogs
-            from PyQt5.QtWidgets import QApplication
+            from PySide6.QtWidgets import QApplication
 
             for widget in QApplication.topLevelWidgets():
                 if isinstance(widget, ConfirmDialog):
@@ -124,10 +124,10 @@ class TestConfirmDialogStaticMethod:
 
     def test_confirm_without_parent(self, qtbot) -> None:
         """Test confirm can be called without parent."""
-        from PyQt5.QtCore import QTimer
+        from PySide6.QtCore import QTimer
 
         def reject_dialog():
-            from PyQt5.QtWidgets import QApplication
+            from PySide6.QtWidgets import QApplication
 
             for widget in QApplication.topLevelWidgets():
                 if isinstance(widget, ConfirmDialog):

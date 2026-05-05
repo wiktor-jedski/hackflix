@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication
 
 from src.config import (
     CACHE_DIR,
@@ -129,7 +129,7 @@ def main() -> int:
     logger.info("Hackflix initialization complete")
 
     # Create Qt application
-    # Force X11 backend for PyQt5 compatibility with Wayland
+    # Force X11 backend for PySide6 compatibility with Wayland
     if os.environ.get("XDG_SESSION_TYPE") == "wayland":
         os.environ["QT_QPA_PLATFORM"] = "xcb"
 
@@ -174,7 +174,7 @@ def main() -> int:
 
     # Run the application event loop
     logger.info("Starting application event loop")
-    return app.exec_()
+    return app.exec()
 
 
 if __name__ == "__main__":

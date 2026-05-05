@@ -280,7 +280,7 @@ class TestLibraryView:
         library_view.selection_changed.connect(capture)
 
         # Simulate selection change to invalid index
-        from PyQt5.QtCore import QModelIndex
+        from PySide6.QtCore import QModelIndex
 
         library_view._on_selection_changed(QModelIndex(), QModelIndex())
 

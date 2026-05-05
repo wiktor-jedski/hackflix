@@ -1,9 +1,9 @@
 """Tests for InputManager."""
 
 import pytest
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QKeyEvent
-from PyQt5.QtWidgets import QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeyEvent
+from PySide6.QtWidgets import QWidget
 
 from src.ui.enums import Action
 from src.ui.input_manager import InputManager
@@ -125,7 +125,7 @@ class TestInputManager:
         self, input_manager: InputManager
     ) -> None:
         """Test that build_context returns empty dict for non-widget."""
-        from PyQt5.QtCore import QObject
+        from PySide6.QtCore import QObject
 
         obj = QObject()
         context = input_manager._build_context(obj)
@@ -162,7 +162,7 @@ class TestInputManager:
         self, input_manager: InputManager, widget: QWidget
     ) -> None:
         """Test that event filter ignores non-key events."""
-        from PyQt5.QtCore import QEvent
+        from PySide6.QtCore import QEvent
 
         event = QEvent(QEvent.None_)
         result = input_manager.eventFilter(widget, event)
@@ -279,7 +279,7 @@ class TestInputManager:
         self, input_manager: InputManager, qtbot
     ) -> None:
         """Test build_context includes focused widget info."""
-        from PyQt5.QtWidgets import QLineEdit, QVBoxLayout
+        from PySide6.QtWidgets import QLineEdit, QVBoxLayout
 
         # Create a parent widget with a focusable child
         parent = QWidget()
@@ -300,7 +300,7 @@ class TestInputManager:
         self, input_manager: InputManager, qtbot
     ) -> None:
         """Test build_context uses class name when widget has no object name."""
-        from PyQt5.QtWidgets import QLineEdit, QVBoxLayout
+        from PySide6.QtWidgets import QLineEdit, QVBoxLayout
 
         parent = QWidget()
         layout = QVBoxLayout(parent)

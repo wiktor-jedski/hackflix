@@ -7,9 +7,9 @@ media items in a navigable list.
 import logging
 from typing import Any
 
-from PyQt5.QtCore import QModelIndex, QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QStandardItem, QStandardItemModel
-from PyQt5.QtWidgets import (
+from PySide6.QtCore import QModelIndex, QSize, Qt, Signal
+from PySide6.QtGui import QStandardItem, QStandardItemModel
+from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
     QHBoxLayout,
@@ -54,9 +54,9 @@ class LibraryView(QFrame):
         tab_changed: Emitted when the active tab changes.
     """
 
-    item_activated = pyqtSignal(dict)  # Item data dict
-    selection_changed = pyqtSignal(dict)  # Item data dict (empty if none)
-    tab_changed = pyqtSignal(MediaTab)  # New active tab
+    item_activated = Signal(dict)  # Item data dict
+    selection_changed = Signal(dict)  # Item data dict (empty if none)
+    tab_changed = Signal(MediaTab)  # New active tab
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the LibraryView.
@@ -85,11 +85,11 @@ class LibraryView(QFrame):
         # List view
         self._list_view = QListView()
         self._list_view.setObjectName("MediaList")
-        self._list_view.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self._list_view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self._list_view.setHorizontalScrollBarPolicy(
             Qt.ScrollBarAlwaysOff  # type: ignore[attr-defined]
         )
-        self._list_view.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._list_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list_view.setFocusPolicy(Qt.StrongFocus)  # type: ignore[attr-defined]
         self._list_view.setUniformItemSizes(True)
         self._list_view.setSpacing(4)

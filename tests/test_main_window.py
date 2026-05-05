@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import MagicMock
 
-from PyQt5.QtCore import Qt
+from PySide6.QtCore import Qt
 
 from src.ui.windows.main_window import MainWindow
 
@@ -207,8 +207,8 @@ class TestMainWindowEventHandlers:
     ) -> None:
         """Test resizeEvent calls _center_in_parent when overlay is visible."""
         from unittest.mock import MagicMock
-        from PyQt5.QtGui import QResizeEvent
-        from PyQt5.QtCore import QSize
+        from PySide6.QtGui import QResizeEvent
+        from PySide6.QtCore import QSize
 
         main_window.show()
         main_window.show_search()
@@ -235,8 +235,8 @@ class TestMainWindowEventHandlers:
     ) -> None:
         """Test resizeEvent sets background geometry when visible."""
         from unittest.mock import MagicMock
-        from PyQt5.QtGui import QResizeEvent
-        from PyQt5.QtCore import QSize
+        from PySide6.QtGui import QResizeEvent
+        from PySide6.QtCore import QSize
 
         main_window.show()
         main_window.show_search()
@@ -271,11 +271,11 @@ class TestMainWindowEventHandlers:
 
     def test_show_confirm_creates_dialog(self, main_window: MainWindow, qtbot) -> None:
         """Test show_confirm creates and shows dialog."""
-        from PyQt5.QtCore import QTimer
+        from PySide6.QtCore import QTimer
         from src.ui.components.confirm_dialog import ConfirmDialog
 
         def accept_dialog():
-            from PyQt5.QtWidgets import QApplication
+            from PySide6.QtWidgets import QApplication
 
             for widget in QApplication.topLevelWidgets():
                 if isinstance(widget, ConfirmDialog):
@@ -350,7 +350,7 @@ class TestMainWindowFullscreen:
         main_window.showFullScreen = MagicMock()
 
         # Trigger showEvent
-        from PyQt5.QtGui import QShowEvent
+        from PySide6.QtGui import QShowEvent
 
         event = QShowEvent()
         main_window.showEvent(event)

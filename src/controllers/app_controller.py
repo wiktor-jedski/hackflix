@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from PyQt5.QtCore import QObject, pyqtSlot
+from PySide6.QtCore import QObject, Slot
 
 from src.config import DownloadState, PipelineState
 from src.database.db_manager import DatabaseManager
@@ -573,7 +573,7 @@ class AppController(QObject):
         logger.debug("Popped navigation context: %s", ctx)
         return ctx
 
-    @pyqtSlot(Action, dict)
+    @Slot(Action, dict)
     def handle_action(self, action: Action, context: dict[str, Any]) -> None:
         """Handle an action from the InputManager.
 
@@ -1044,14 +1044,14 @@ class AppController(QObject):
 
         self._metadata_service.start()
 
-    @pyqtSlot()
+    @Slot()
     def _on_sync_started(self) -> None:
         """Handle sync started."""
         if self._main_window:
             self._main_window.set_sync_status("Syncing...")
             self._main_window.show_toast("Sync started", "info")
 
-    @pyqtSlot()
+    @Slot()
     def _on_sync_completed(self) -> None:
         """Handle sync completed."""
         if self._main_window:
@@ -1060,7 +1060,7 @@ class AppController(QObject):
             self._main_window.show_toast("Sync completed", "info")
         self.refresh_library()
 
-    @pyqtSlot(str)
+    @Slot(str)
     def _on_sync_error(self, error: str) -> None:
         """Handle sync error.
 
@@ -1075,7 +1075,7 @@ class AppController(QObject):
     # Download
     # =========================================================================
 
-    @pyqtSlot(int, int, float, float)
+    @Slot(int, int, float, float)
     def _on_download_progress(
         self,
         context_id: int,
@@ -1100,7 +1100,7 @@ class AppController(QObject):
                 },
             )
 
-    @pyqtSlot(int, str)
+    @Slot(int, str)
     def _on_download_completed(self, file_id: int, path: str) -> None:
         """Handle download completed.
 
@@ -1119,7 +1119,7 @@ class AppController(QObject):
         if video and video.get("subtitle_id"):
             self.start_pipeline(file_id)
 
-    @pyqtSlot(int, str)
+    @Slot(int, str)
     def _on_download_error(self, file_id: int, error: str) -> None:
         """Handle download error.
 
@@ -1158,7 +1158,7 @@ class AppController(QObject):
         self._pipeline_service.start_process(video_file_id)
         logger.info("Pipeline started for video_file_id=%d", video_file_id)
 
-    @pyqtSlot(int, PipelineState, str)
+    @Slot(int, PipelineState, str)
     def _on_pipeline_update(
         self, file_id: int, state: PipelineState, message: str
     ) -> None:
@@ -1175,7 +1175,7 @@ class AppController(QObject):
                 str(file_id), {"pipeline_state": state.value}
             )
 
-    @pyqtSlot(int, bool)
+    @Slot(int, bool)
     def _on_pipeline_finished(self, file_id: int, success: bool) -> None:
         """Handle pipeline completion.
 
@@ -1194,7 +1194,7 @@ class AppController(QObject):
             )
         self.refresh_library()
 
-    @pyqtSlot(int, str)
+    @Slot(int, str)
     def _on_pipeline_error(self, file_id: int, error: str) -> None:
         """Handle pipeline error.
 
@@ -1417,7 +1417,7 @@ class AppController(QObject):
                 current_track["name"]
             )
 
-    @pyqtSlot()
+    @Slot()
     def _on_playback_finished(self) -> None:
         """Handle playback finished event."""
         logger.info("Playback finished")
@@ -1449,7 +1449,7 @@ class AppController(QObject):
         # Stop player and return to library (skip saving position since we just cleared it)
         self.stop_player(save_position=False)
 
-    @pyqtSlot(int, int)
+    @Slot(int, int)
     def _on_time_changed(self, current_ms: int, total_ms: int) -> None:
         """Handle playback time update.
 
@@ -1460,7 +1460,7 @@ class AppController(QObject):
         # Could update status bar or progress indicator here
         pass
 
-    @pyqtSlot(str)
+    @Slot(str)
     def _on_player_error(self, error: str) -> None:
         """Handle player error event.
 
@@ -1476,7 +1476,7 @@ class AppController(QObject):
     # UI Callbacks
     # =========================================================================
 
-    @pyqtSlot(dict)
+    @Slot(dict)
     def on_item_activated(self, item: dict[str, Any]) -> None:
         """Handle item activation from LibraryView.
 
@@ -1486,7 +1486,7 @@ class AppController(QObject):
         # This is handled by activate_selected via InputManager
         pass
 
-    @pyqtSlot(dict)
+    @Slot(dict)
     def on_selection_changed(self, item: dict[str, Any]) -> None:
         """Handle selection change from LibraryView.
 
@@ -1496,7 +1496,7 @@ class AppController(QObject):
         # Could update status bar or other UI elements here
         pass
 
-    @pyqtSlot(MediaTab)
+    @Slot(MediaTab)
     def on_tab_changed(self, tab: MediaTab) -> None:
         """Handle tab change from LibraryView.
 
@@ -1506,7 +1506,7 @@ class AppController(QObject):
         self._current_tab = tab
         self.refresh_library()
 
-    @pyqtSlot(str)
+    @Slot(str)
     def on_search_committed(self, query: str) -> None:
         """Handle search commit from SearchOverlay.
 
@@ -1516,7 +1516,7 @@ class AppController(QObject):
         self.apply_search_filter(query)
         self.hide_search()
 
-    @pyqtSlot()
+    @Slot()
     def on_search_cancelled(self) -> None:
         """Handle search cancel from SearchOverlay."""
         self.clear_search_filter()

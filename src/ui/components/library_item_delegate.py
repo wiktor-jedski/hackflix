@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt5.QtCore import QModelIndex, QRect, QSize, Qt
-from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
-from PyQt5.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QWidget
+from PySide6.QtCore import QModelIndex, QPersistentModelIndex, QRect, QSize, Qt
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
+from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QWidget
 
 from src.config import DownloadState, PipelineState
 from src.ui.styles import (
@@ -98,7 +98,10 @@ class LibraryItemDelegate(QStyledItemDelegate):
         self._poster_cache: dict[str, QPixmap] = {}
 
     def paint(
-        self, painter: QPainter | None, option: QStyleOptionViewItem, index: QModelIndex
+        self,
+        painter: QPainter,
+        option: QStyleOptionViewItem,
+        index: QModelIndex | QPersistentModelIndex,
     ) -> None:
         """Paint a library item.
 
@@ -110,7 +113,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
         if painter is None:
             return
         painter.save()
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # Draw background
         self._draw_background(painter, option)
@@ -164,7 +167,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
 
         painter.fillRect(rect, color)
 
-    def _draw_poster(self, painter: QPainter, rect: QRect, index: QModelIndex) -> None:
+    def _draw_poster(self, painter: QPainter, rect: QRect, index: QModelIndex | QPersistentModelIndex) -> None:
         """Draw the poster image.
 
         Args:
@@ -212,7 +215,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
         return self._poster_cache.get(path)
 
     def _draw_metadata(
-        self, painter: QPainter, rect: QRect, index: QModelIndex
+        self, painter: QPainter, rect: QRect, index: QModelIndex | QPersistentModelIndex
     ) -> None:
         """Draw the metadata section.
 
@@ -296,7 +299,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
                 elided_subtitle,
             )
 
-    def _build_subtitle(self, index: QModelIndex) -> str:
+    def _build_subtitle(self, index: QModelIndex | QPersistentModelIndex) -> str:
         """Build subtitle text based on item type.
 
         Args:
@@ -344,7 +347,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
 
         return ""
 
-    def _draw_status(self, painter: QPainter, rect: QRect, index: QModelIndex) -> None:
+    def _draw_status(self, painter: QPainter, rect: QRect, index: QModelIndex | QPersistentModelIndex) -> None:
         """Draw the status icon.
 
         Args:
@@ -396,7 +399,11 @@ class LibraryItemDelegate(QStyledItemDelegate):
             )
             painter.drawText(progress_rect, Qt.AlignCenter, f"{progress}%")  # type: ignore[attr-defined]
 
-    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
+    def sizeHint(
+        self,
+        option: QStyleOptionViewItem,
+        index: QModelIndex | QPersistentModelIndex,
+    ) -> QSize:
         """Return the size hint for an item.
 
         Args:

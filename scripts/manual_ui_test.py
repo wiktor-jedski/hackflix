@@ -20,7 +20,7 @@ def main():
 
     try:
         # Test core functionality without complex UI components
-        from PyQt5.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
         from src.ui.input_manager import InputManager
         from src.ui.windows.main_window import MainWindow
         from src.controllers.app_controller import AppController
@@ -71,7 +71,7 @@ def main():
             print("❌ Input manager missing from main window")
 
         # Check if global event filter is installed
-        from PyQt5.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         qapp = QApplication.instance()
         if qapp:

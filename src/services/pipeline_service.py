@@ -17,7 +17,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from PyQt5.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
+from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from src.config import PipelineState
 
@@ -27,9 +27,9 @@ logger = logging.getLogger(__name__)
 class PipelineSignals(QObject):
     """Signals for PipelineService communication."""
 
-    pipeline_update = pyqtSignal(int, PipelineState, str)
-    pipeline_finished = pyqtSignal(int, bool)
-    error_occurred = pyqtSignal(int, str)
+    pipeline_update = Signal(int, PipelineState, str)
+    pipeline_finished = Signal(int, bool)
+    error_occurred = Signal(int, str)
 
 
 class PipelineService(QThread):
@@ -70,7 +70,7 @@ class PipelineService(QThread):
         """
         return self.isRunning()
 
-    @pyqtSlot(int)
+    @Slot(int)
     def start_process(self, video_file_id: int) -> None:
         """Entry point to start pipeline processing for a video file.
 

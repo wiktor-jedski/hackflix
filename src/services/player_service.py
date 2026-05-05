@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import vlc
-from PyQt5.QtCore import QObject, QTimer, pyqtSignal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +31,9 @@ class PlayerService(QObject):
         error_occurred: Emitted with (error_message: str).
     """
 
-    playback_finished = pyqtSignal()
-    time_changed = pyqtSignal(int, int)  # current_ms, total_ms
-    error_occurred = pyqtSignal(str)
+    playback_finished = Signal()
+    time_changed = Signal(int, int)  # current_ms, total_ms
+    error_occurred = Signal(str)
 
     def __init__(
         self,

@@ -1,8 +1,8 @@
 """Tests for SearchOverlay component."""
 
 import pytest
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QWidget
 
 from src.ui.components.search_overlay import SearchOverlay, SearchOverlayBackground
 
@@ -172,8 +172,8 @@ class TestSearchOverlayKeyHandling:
 
     def test_non_special_keys_call_super(self, overlay: SearchOverlay, qtbot) -> None:
         """Test that non-special keys call super().keyPressEvent."""
-        from PyQt5.QtGui import QKeyEvent
-        from PyQt5.QtCore import QEvent
+        from PySide6.QtGui import QKeyEvent
+        from PySide6.QtCore import QEvent
 
         overlay.show_search()
         # Create a key event for a regular key (not Enter or Escape)

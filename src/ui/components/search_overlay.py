@@ -4,9 +4,9 @@ This module provides the SearchOverlay widget for text-based
 filtering of the media library.
 """
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QKeyEvent, QPalette
-from PyQt5.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPalette
+from PySide6.QtWidgets import (
     QFrame,
     QLabel,
     QLineEdit,
@@ -41,8 +41,8 @@ class SearchOverlay(QFrame):
         search_cancelled: Emitted when Escape is pressed (search cancelled).
     """
 
-    search_committed = pyqtSignal(str)
-    search_cancelled = pyqtSignal()
+    search_committed = Signal(str)
+    search_cancelled = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the SearchOverlay.
@@ -104,8 +104,8 @@ class SearchOverlay(QFrame):
 
         # Set palette colors as fallback for text visibility
         palette = self._search_input.palette()
-        palette.setColor(QPalette.Text, QColor(TEXT_PRIMARY))
-        palette.setColor(QPalette.PlaceholderText, QColor(TEXT_SECONDARY))
+        palette.setColor(QPalette.ColorRole.Text, QColor(TEXT_PRIMARY))
+        palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(TEXT_SECONDARY))
         self._search_input.setPalette(palette)
 
         # Connect return pressed signal to handle Enter key from the line edit
@@ -199,7 +199,7 @@ class SearchOverlayBackground(QWidget):
     to indicate modal state.
     """
 
-    clicked = pyqtSignal()
+    clicked = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the background overlay.
@@ -211,7 +211,7 @@ class SearchOverlayBackground(QWidget):
         self.setStyleSheet("background-color: rgba(0, 0, 0, 0.7);")
         self.hide()
 
-    def mousePressEvent(self, event: QKeyEvent) -> None:
+    def mousePressEvent(self, event: QMouseEvent) -> None:
         """Handle mouse press to close overlay.
 
         Args:

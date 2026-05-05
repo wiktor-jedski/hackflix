@@ -111,7 +111,7 @@ class TestMain(unittest.TestCase):
         mock_app_controller.return_value = mock_app_instance
 
         mock_qapp_instance = MagicMock()
-        mock_qapp_instance.exec_.return_value = 0
+        mock_qapp_instance.exec.return_value = 0
         mock_qapplication.return_value = mock_qapp_instance
 
         result = main()
@@ -160,7 +160,7 @@ class TestMain(unittest.TestCase):
         mock_app_controller.return_value = mock_app_instance
 
         mock_qapp_instance = MagicMock()
-        mock_qapp_instance.exec_.return_value = 0
+        mock_qapp_instance.exec.return_value = 0
         mock_qapplication.return_value = mock_qapp_instance
 
         result = main()
@@ -263,7 +263,7 @@ class TestMain(unittest.TestCase):
         mock_app_controller.return_value = mock_app_instance
 
         mock_qapp_instance = MagicMock()
-        mock_qapp_instance.exec_.return_value = 0
+        mock_qapp_instance.exec.return_value = 0
         mock_qapplication.return_value = mock_qapp_instance
 
         result = main()
@@ -322,7 +322,7 @@ class TestMain(unittest.TestCase):
         mock_app_controller.return_value = mock_app_instance
 
         mock_qapp_instance = MagicMock()
-        mock_qapp_instance.exec_.return_value = 42  # Custom exit code
+        mock_qapp_instance.exec.return_value = 42  # Custom exit code
         mock_qapplication.return_value = mock_qapp_instance
 
         result = main()
@@ -372,7 +372,7 @@ class TestMain(unittest.TestCase):
         mock_main_window.return_value = mock_main_window_instance
 
         mock_qapp_instance = MagicMock()
-        mock_qapp_instance.exec_.return_value = 0
+        mock_qapp_instance.exec.return_value = 0
         mock_qapplication.return_value = mock_qapp_instance
 
         result = main()

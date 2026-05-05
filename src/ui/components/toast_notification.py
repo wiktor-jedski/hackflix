@@ -7,13 +7,13 @@ transient messages to the user.
 import logging
 from typing import Literal
 
-from PyQt5.QtCore import (
+from PySide6.QtCore import (
     QEasingCurve,
     QPropertyAnimation,
     QTimer,
-    pyqtSignal,
+    Signal,
 )
-from PyQt5.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 
 from src.config import TOAST_TIMEOUT_MS
 from src.ui.styles import (
@@ -45,7 +45,7 @@ class ToastNotification(QFrame):
         dismissed: Emitted when this toast should be removed from the stack.
     """
 
-    dismissed = pyqtSignal(object)  # Emits self when dismissed
+    dismissed = Signal(object)  # Emits self when dismissed
 
     # Color mapping for toast levels
     _LEVEL_COLORS = {
@@ -142,7 +142,7 @@ class ToastNotification(QFrame):
         self._fade_animation.setDuration(ANIMATION_DURATION_NORMAL)
         self._fade_animation.setStartValue(0.0)
         self._fade_animation.setEndValue(1.0)
-        self._fade_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self._fade_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._fade_animation.start()
 
     @property

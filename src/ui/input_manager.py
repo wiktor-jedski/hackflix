@@ -7,9 +7,9 @@ events and maps them to semantic application actions.
 import logging
 from typing import Any, Optional
 
-from PyQt5.QtCore import QElapsedTimer, QEvent, QObject, Qt, pyqtSignal
-from PyQt5.QtGui import QKeyEvent
-from PyQt5.QtWidgets import QWidget
+from PySide6.QtCore import QElapsedTimer, QEvent, QObject, Qt, Signal
+from PySide6.QtGui import QKeyEvent
+from PySide6.QtWidgets import QWidget
 
 from src.ui.enums import Action
 from src.ui.styles import DEBOUNCE_MS
@@ -32,7 +32,7 @@ class InputManager(QObject):
             a key is pressed and debounce allows it.
     """
 
-    action_triggered = pyqtSignal(Action, dict)
+    action_triggered = Signal(Action, dict)
 
     # Keys that should be debounced (prevent accidental double-triggers)
     _DEBOUNCED_KEYS = {
