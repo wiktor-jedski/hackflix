@@ -99,12 +99,12 @@ class StatusBar(QFrame):
         if online:
             self._connection_indicator.setText("\u25cf")  # Filled circle
             self._connection_indicator.setStyleSheet(f"color: {SUCCESS_COLOR};")
-            self._connection_label.setText("Online")
+            self._connection_label.setText(self.tr("Online"))
             self._connection_label.setStyleSheet(f"color: {TEXT_PRIMARY};")
         else:
             self._connection_indicator.setText("\u25cb")  # Empty circle
             self._connection_indicator.setStyleSheet(f"color: {ERROR_COLOR};")
-            self._connection_label.setText("Offline")
+            self._connection_label.setText(self.tr("Offline"))
             self._connection_label.setStyleSheet(f"color: {TEXT_SECONDARY};")
 
     @Slot(str)

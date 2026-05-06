@@ -128,13 +128,13 @@ class LibraryView(QFrame):
         layout.setSpacing(32)
 
         # Movies tab
-        self._movies_tab = QLabel("Movies")
+        self._movies_tab = QLabel(self.tr("Movies"))
         self._movies_tab.setObjectName("MoviesTab")
         self._movies_tab.setCursor(Qt.PointingHandCursor)  # type: ignore[attr-defined]
         layout.addWidget(self._movies_tab)
 
         # Series tab
-        self._series_tab = QLabel("Series")
+        self._series_tab = QLabel(self.tr("Series"))
         self._series_tab.setObjectName("SeriesTab")
         self._series_tab.setCursor(Qt.PointingHandCursor)  # type: ignore[attr-defined]
         layout.addWidget(self._series_tab)

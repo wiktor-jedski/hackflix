@@ -77,7 +77,7 @@ class SearchOverlay(QFrame):
         layout.setSpacing(16)
 
         # Title
-        self._title_label = QLabel("Search")
+        self._title_label = QLabel(self.tr("Search"))
         self._title_label.setStyleSheet(f"""
             font-size: {FONT_SIZE_LARGE}px;
             font-weight: bold;
@@ -89,7 +89,7 @@ class SearchOverlay(QFrame):
         # Search input
         self._search_input = QLineEdit()
         self._search_input.setObjectName("SearchInput")
-        self._search_input.setPlaceholderText("Type to search...")
+        self._search_input.setPlaceholderText(self.tr("Type to search..."))
         self._search_input.setFixedHeight(SEARCH_INPUT_HEIGHT)
         self._search_input.setStyleSheet(f"""
             background-color: {BACKGROUND_COLOR};
@@ -114,7 +114,7 @@ class SearchOverlay(QFrame):
         layout.addWidget(self._search_input)
 
         # Hint text
-        self._hint_label = QLabel("Press Enter to search, Esc to cancel")
+        self._hint_label = QLabel(self.tr("Press Enter to search, Esc to cancel"))
         self._hint_label.setStyleSheet(f"""
             font-size: {FONT_SIZE_SMALL}px;
             color: {TEXT_SECONDARY};

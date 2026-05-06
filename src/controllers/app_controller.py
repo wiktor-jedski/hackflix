@@ -442,7 +442,9 @@ class AppController(QObject):
                 logger.info("Resuming %d incomplete downloads", len(incomplete))
                 if self._main_window:
                     self._main_window.show_toast(
-                        f"Resuming {len(incomplete)} incomplete downloads",
+                        self.tr("Resuming {count} incomplete downloads").format(
+                            count=len(incomplete)
+                        ),
                         "info",
                     )
                 for video in incomplete:
@@ -485,7 +487,9 @@ class AppController(QObject):
                 logger.info("Resuming %d incomplete pipelines", len(incomplete))
                 if self._main_window:
                     self._main_window.show_toast(
-                        f"Resuming {len(incomplete)} incomplete processing tasks",
+                        self.tr(
+                            "Resuming {count} incomplete processing tasks"
+                        ).format(count=len(incomplete)),
                         "info",
                     )
                 for video in incomplete:
@@ -653,7 +657,9 @@ class AppController(QObject):
 
         except Exception as e:
             logger.error("Failed to refresh library: %s", e)
-            self._main_window.show_toast(f"Failed to load library: {e}", "error")
+            self._main_window.show_toast(
+                self.tr("Failed to load library: {error}").format(error=e), "error"
+            )
 
     def load_seasons(self, series_id: str) -> None:
         """Load seasons for a series.
@@ -676,7 +682,7 @@ class AppController(QObject):
                     {
                         "id": season["id"],
                         "type": "season",
-                        "title": f"Season {season['season_number']}",
+                        "title": self.tr("Season {n}").format(n=season["season_number"]),
                         "season_number": season["season_number"],
                         "episode_count": len(episodes),
                         "state": season.get("state", DownloadState.PENDING.value),
@@ -689,7 +695,9 @@ class AppController(QObject):
 
         except Exception as e:
             logger.error("Failed to load seasons: %s", e)
-            self._main_window.show_toast(f"Failed to load seasons: {e}", "error")
+            self._main_window.show_toast(
+                self.tr("Failed to load seasons: {error}").format(error=e), "error"
+            )
 
     def load_episodes(self, season_id: int) -> None:
         """Load episodes for a season.
@@ -713,7 +721,7 @@ class AppController(QObject):
                         "file_id": ep["id"],  # For episodes, id is the video_file id
                         "type": "episode",
                         "title": ep.get("episode_title")
-                        or f"Episode {ep['episode_number']}",
+                        or self.tr("Episode {n}").format(n=ep["episode_number"]),
                         "episode_number": ep["episode_number"],
                         "episode_title": ep.get("episode_title", ""),
                         "state": ep.get("state", DownloadState.PENDING.value),
@@ -727,7 +735,9 @@ class AppController(QObject):
 
         except Exception as e:
             logger.error("Failed to load episodes: %s", e)
-            self._main_window.show_toast(f"Failed to load episodes: {e}", "error")
+            self._main_window.show_toast(
+                self.tr("Failed to load episodes: {error}").format(error=e), "error"
+            )
 
     def activate_selected(self) -> None:
         """Activate the currently selected item."""
@@ -764,7 +774,9 @@ class AppController(QObject):
         else:
             # Start download (PENDING, ERROR, QUEUED states)
             if not self._torrent_service:
-                self._main_window.show_toast("Torrent service not available", "error")
+                self._main_window.show_toast(
+                    self.tr("Torrent service not available"), "error"
+                )
                 return
 
             item_title = item.get("title")
@@ -772,24 +784,28 @@ class AppController(QObject):
             file_id_str = item.get("file_id") or item.get("id")
 
             if not file_id_str:
-                self._main_window.show_toast("No file ID available", "error")
+                self._main_window.show_toast(self.tr("No file ID available"), "error")
                 return
 
             try:
                 file_id = int(file_id_str)
             except (ValueError, TypeError):
-                self._main_window.show_toast("Invalid file ID", "error")
+                self._main_window.show_toast(self.tr("Invalid file ID"), "error")
                 return
 
             if item_type == "movie":
                 video = self._db_manager.get_video_file(file_id)
                 if not video:
-                    self._main_window.show_toast("Video file not found", "error")
+                    self._main_window.show_toast(
+                        self.tr("Video file not found"), "error"
+                    )
                     return
 
                 magnet = video.get("magnet_link")
                 if not magnet:
-                    self._main_window.show_toast("No magnet link available", "error")
+                    self._main_window.show_toast(
+                        self.tr("No magnet link available"), "error"
+                    )
                     return
 
                 from src.services.torrent_service import DownloadContext, DownloadType
@@ -801,33 +817,43 @@ class AppController(QObject):
                         {"state": DownloadState.QUEUED.value, "download_progress": 0},
                     )
                     self._main_window.show_toast(
-                        f"Starting download: {item_title}", "info"
+                        self.tr("Starting download: {title}").format(title=item_title),
+                        "info",
                     )
                 else:
                     self._main_window.show_toast(
-                        f"Failed to start download: {item_title}", "error"
+                        self.tr("Failed to start download: {title}").format(
+                            title=item_title
+                        ),
+                        "error",
                     )
 
             elif item_type == "episode":
                 video = self._db_manager.get_video_file(file_id)
                 if not video:
-                    self._main_window.show_toast("Video file not found", "error")
+                    self._main_window.show_toast(
+                        self.tr("Video file not found"), "error"
+                    )
                     return
 
                 # Episodes belong to a season - get magnet from season
                 season_id = video.get("season_id")
                 if not season_id:
-                    self._main_window.show_toast("Episode has no season", "error")
+                    self._main_window.show_toast(
+                        self.tr("Episode has no season"), "error"
+                    )
                     return
 
                 season = self._db_manager.get_season(season_id)
                 if not season:
-                    self._main_window.show_toast("Season not found", "error")
+                    self._main_window.show_toast(self.tr("Season not found"), "error")
                     return
 
                 magnet = season.get("magnet_link")
                 if not magnet:
-                    self._main_window.show_toast("No magnet link available", "error")
+                    self._main_window.show_toast(
+                        self.tr("No magnet link available"), "error"
+                    )
                     return
 
                 from src.services.torrent_service import DownloadContext, DownloadType
@@ -838,28 +864,38 @@ class AppController(QObject):
                     # Reload episodes to show updated QUEUED state
                     self.load_episodes(season_id)
                     self._main_window.show_toast(
-                        f"Starting season download for: {item_title}", "info"
+                        self.tr("Starting season download for: {title}").format(
+                            title=item_title
+                        ),
+                        "info",
                     )
                 else:
                     self._main_window.show_toast(
-                        f"Failed to start download: {item_title}", "error"
+                        self.tr("Failed to start download: {title}").format(
+                            title=item_title
+                        ),
+                        "error",
                     )
 
             elif item_type == "season":
                 # For seasons, id is the season_id
                 season_id = item.get("id")
                 if not season_id:
-                    self._main_window.show_toast("Invalid season selection", "error")
+                    self._main_window.show_toast(
+                        self.tr("Invalid season selection"), "error"
+                    )
                     return
 
                 season = self._db_manager.get_season(season_id)
                 if not season:
-                    self._main_window.show_toast("Season not found", "error")
+                    self._main_window.show_toast(self.tr("Season not found"), "error")
                     return
 
                 magnet = season.get("magnet_link")
                 if not magnet:
-                    self._main_window.show_toast("No magnet link available", "error")
+                    self._main_window.show_toast(
+                        self.tr("No magnet link available"), "error"
+                    )
                     return
 
                 from src.services.torrent_service import DownloadContext, DownloadType
@@ -870,15 +906,22 @@ class AppController(QObject):
                     if self._current_series_id:
                         self.load_seasons(self._current_series_id)
                     self._main_window.show_toast(
-                        f"Starting download: {item_title}", "info"
+                        self.tr("Starting download: {title}").format(title=item_title),
+                        "info",
                     )
                 else:
                     self._main_window.show_toast(
-                        f"Failed to start download: {item_title}", "error"
+                        self.tr("Failed to start download: {title}").format(
+                            title=item_title
+                        ),
+                        "error",
                     )
 
             else:
-                self._main_window.show_toast(f"Unknown item type: {item_type}", "error")
+                self._main_window.show_toast(
+                    self.tr("Unknown item type: {type}").format(type=item_type),
+                    "error",
+                )
 
     def navigate_back(self) -> None:
         """Navigate back to the previous context."""
@@ -913,24 +956,28 @@ class AppController(QObject):
         if not item:
             return
 
-        title = item.get("title", "this item")
+        title = item.get("title") or self.tr("this item")
         item_type = item.get("type")
 
         # Check if item has a downloaded file
         item_state = item.get("state")
         if item_state != DownloadState.COMPLETED.value:
-            self._main_window.show_toast("No downloaded file to delete", "warning")
+            self._main_window.show_toast(
+                self.tr("No downloaded file to delete"), "warning"
+            )
             return
 
         confirmed = self._main_window.show_confirm(
-            f"Delete {title}?",
-            "This will remove the file from disk but keep the catalog entry.",
+            self.tr("Delete {title}?").format(title=title),
+            self.tr("This will remove the file from disk but keep the catalog entry."),
         )
 
         if confirmed:
             item_id = item.get("id")
             if not item_id:
-                self._main_window.show_toast("Failed to delete: invalid item", "error")
+                self._main_window.show_toast(
+                    self.tr("Failed to delete: invalid item"), "error"
+                )
                 return
 
             # Handle episodes differently - they use file_id directly
@@ -945,11 +992,15 @@ class AppController(QObject):
                                 file_path.unlink()
                                 self._db_manager.reset_video_file_state(file_id)
                                 self._main_window.show_toast(
-                                    f"Deleted: {title}", "info"
+                                    self.tr("Deleted: {title}").format(title=title),
+                                    "info",
                                 )
                             except OSError as e:
                                 self._main_window.show_toast(
-                                    f"Failed to delete: {e}", "error"
+                                    self.tr("Failed to delete: {error}").format(
+                                        error=e
+                                    ),
+                                    "error",
                                 )
                         else:
                             # File already gone, just reset state
@@ -977,11 +1028,16 @@ class AppController(QObject):
 
             if failed_count == 0:
                 self._main_window.show_toast(
-                    f"Deleted {deleted_count} file(s): {title}", "info"
+                    self.tr("Deleted {count} file(s): {title}").format(
+                        count=deleted_count, title=title
+                    ),
+                    "info",
                 )
             else:
                 self._main_window.show_toast(
-                    f"Deleted {deleted_count}, failed {failed_count}: {title}",
+                    self.tr(
+                        "Deleted {ok}, failed {failed}: {title}"
+                    ).format(ok=deleted_count, failed=failed_count, title=title),
                     "warning",
                 )
             self.refresh_library()
@@ -1024,7 +1080,7 @@ class AppController(QObject):
             self._search_filter = None
             self.refresh_library()
             if self._main_window:
-                self._main_window.show_toast("Filter cleared", "info")
+                self._main_window.show_toast(self.tr("Filter cleared"), "info")
 
     # =========================================================================
     # Sync
@@ -1034,12 +1090,16 @@ class AppController(QObject):
         """Trigger a metadata sync."""
         if not self._metadata_service:
             if self._main_window:
-                self._main_window.show_toast("Metadata service not available", "error")
+                self._main_window.show_toast(
+                    self.tr("Metadata service not available"), "error"
+                )
             return
 
         if self._metadata_service.isRunning():
             if self._main_window:
-                self._main_window.show_toast("Sync already in progress", "warning")
+                self._main_window.show_toast(
+                    self.tr("Sync already in progress"), "warning"
+                )
             return
 
         self._metadata_service.start()
@@ -1048,16 +1108,18 @@ class AppController(QObject):
     def _on_sync_started(self) -> None:
         """Handle sync started."""
         if self._main_window:
-            self._main_window.set_sync_status("Syncing...")
-            self._main_window.show_toast("Sync started", "info")
+            self._main_window.set_sync_status(self.tr("Syncing..."))
+            self._main_window.show_toast(self.tr("Sync started"), "info")
 
     @Slot()
     def _on_sync_completed(self) -> None:
         """Handle sync completed."""
         if self._main_window:
             now = datetime.now().strftime("%H:%M")
-            self._main_window.set_sync_status(f"Last Sync: {now}")
-            self._main_window.show_toast("Sync completed", "info")
+            self._main_window.set_sync_status(
+                self.tr("Last Sync: {time}").format(time=now)
+            )
+            self._main_window.show_toast(self.tr("Sync completed"), "info")
         self.refresh_library()
 
     @Slot(str)
@@ -1068,8 +1130,10 @@ class AppController(QObject):
             error: Error message.
         """
         if self._main_window:
-            self._main_window.set_sync_status("Sync failed")
-            self._main_window.show_toast(f"Sync failed: {error}", "error")
+            self._main_window.set_sync_status(self.tr("Sync failed"))
+            self._main_window.show_toast(
+                self.tr("Sync failed: {error}").format(error=error), "error"
+            )
 
     # =========================================================================
     # Download
@@ -1113,7 +1177,7 @@ class AppController(QObject):
                 file_id,
                 {"state": DownloadState.COMPLETED.value, "download_progress": 100},
             )
-            self._main_window.show_toast("Download completed", "info")
+            self._main_window.show_toast(self.tr("Download completed"), "info")
 
         video = self._db_manager.get_video_file(file_id)
         if video and video.get("subtitle_id"):
@@ -1132,7 +1196,9 @@ class AppController(QObject):
                 file_id,
                 {"state": DownloadState.ERROR.value},
             )
-            self._main_window.show_toast(f"Download failed: {error}", "error")
+            self._main_window.show_toast(
+                self.tr("Download failed: {error}").format(error=error), "error"
+            )
 
     # =========================================================================
     # Pipeline
@@ -1146,13 +1212,17 @@ class AppController(QObject):
         """
         if not self._pipeline_service:
             if self._main_window:
-                self._main_window.show_toast("Pipeline service not available", "error")
+                self._main_window.show_toast(
+                    self.tr("Pipeline service not available"), "error"
+                )
             logger.error("PipelineService not bound")
             return
 
         if self._pipeline_service.is_busy():
             if self._main_window:
-                self._main_window.show_toast("Pipeline already in progress", "warning")
+                self._main_window.show_toast(
+                    self.tr("Pipeline already in progress"), "warning"
+                )
             return
 
         self._pipeline_service.start_process(video_file_id)
@@ -1170,7 +1240,9 @@ class AppController(QObject):
             message: Progress message.
         """
         if self._main_window:
-            self._main_window.show_toast(f"Processing: {message}", "info")
+            self._main_window.show_toast(
+                self.tr("Processing: {message}").format(message=message), "info"
+            )
             self._main_window.library_view.update_item(
                 str(file_id), {"pipeline_state": state.value}
             )
@@ -1185,9 +1257,11 @@ class AppController(QObject):
         """
         if self._main_window:
             if success:
-                self._main_window.show_toast("Subtitles ready", "info")
+                self._main_window.show_toast(self.tr("Subtitles ready"), "info")
             else:
-                self._main_window.show_toast("Subtitle processing failed", "error")
+                self._main_window.show_toast(
+                    self.tr("Subtitle processing failed"), "error"
+                )
             self._main_window.library_view.update_item(
                 str(file_id),
                 {"pipeline_state": "completed" if success else "failed"},
@@ -1204,7 +1278,9 @@ class AppController(QObject):
         """
         logger.error("Pipeline error for file %d: %s", file_id, error)
         if self._main_window:
-            self._main_window.show_toast(f"Pipeline error: {error}", "error")
+            self._main_window.show_toast(
+                self.tr("Pipeline error: {error}").format(error=error), "error"
+            )
             self._main_window.library_view.update_item(
                 str(file_id), {"pipeline_state": "failed"}
             )
@@ -1223,7 +1299,9 @@ class AppController(QObject):
             return
 
         if not self._player_service:
-            self._main_window.show_toast("Player service not available", "error")
+            self._main_window.show_toast(
+                self.tr("Player service not available"), "error"
+            )
             logger.error("PlayerService not bound")
             return
 
@@ -1235,7 +1313,7 @@ class AppController(QObject):
             # Look up the video file for this media item
             video_details = self._db_manager.get_video_details(str(file_id))
             if not video_details:
-                self._main_window.show_toast("Video file not found", "error")
+                self._main_window.show_toast(self.tr("Video file not found"), "error")
                 logger.error("No video file found for media_id: %s", file_id)
                 return
             video_file_id = video_details["id"]
@@ -1243,13 +1321,13 @@ class AppController(QObject):
         # Get video file details
         video = self._db_manager.get_video_file(video_file_id)
         if not video:
-            self._main_window.show_toast("Video file not found", "error")
+            self._main_window.show_toast(self.tr("Video file not found"), "error")
             logger.error("Video file not found: %d", video_file_id)
             return
 
         file_path = video.get("file_path")
         if not file_path:
-            self._main_window.show_toast("Video file path not set", "error")
+            self._main_window.show_toast(self.tr("Video file path not set"), "error")
             logger.error("Video file has no file_path: %d", video_file_id)
             return
 
@@ -1301,11 +1379,15 @@ class AppController(QObject):
             )
 
         except FileNotFoundError as e:
-            self._main_window.show_toast(f"File not found: {e}", "error")
+            self._main_window.show_toast(
+                self.tr("File not found: {error}").format(error=e), "error"
+            )
             logger.error("Failed to load video: %s", e)
             self.stop_player()
         except Exception as e:
-            self._main_window.show_toast(f"Playback error: {e}", "error")
+            self._main_window.show_toast(
+                self.tr("Playback error: {error}").format(error=e), "error"
+            )
             logger.error("Playback error: %s", e)
             self.stop_player()
 
@@ -1469,7 +1551,9 @@ class AppController(QObject):
         """
         logger.error("Player error: %s", error)
         if self._main_window:
-            self._main_window.show_toast(f"Player error: {error}", "error")
+            self._main_window.show_toast(
+                self.tr("Player error: {error}").format(error=error), "error"
+            )
         self.stop_player()
 
     # =========================================================================

@@ -100,7 +100,7 @@ class ConfirmDialog(QDialog):
         layout.addWidget(self._message_label)
 
         # Hint text
-        self._hint_label = QLabel("Press Enter to confirm, Esc to cancel")
+        self._hint_label = QLabel(self.tr("Press Enter to confirm, Esc to cancel"))
         self._hint_label.setStyleSheet(f"""
             font-size: {FONT_SIZE_SMALL}px;
             color: {TEXT_SECONDARY};
