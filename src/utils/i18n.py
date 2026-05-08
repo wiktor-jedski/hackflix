@@ -77,7 +77,10 @@ def get_system_locale() -> str:
         Two-letter language code (e.g., "en", "pl").
     """
     locale = QLocale.system()
-    return locale.name()[:2]
+    language = locale.name()[:2].lower()
+    if len(language) != 2 or not language.isalpha():
+        return "en"
+    return language
 
 
 def tr(context: str, text: str) -> str:

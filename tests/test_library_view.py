@@ -1,8 +1,10 @@
 """Tests for LibraryView component."""
 
 import pytest
+from PySide6.QtGui import QPixmap
 
 from src.config import DownloadState
+from src.ui.components.library_item_delegate import LibraryItemRole
 from src.ui.components.library_view import LibraryView
 from src.ui.enums import MediaTab
 
@@ -85,6 +87,30 @@ class TestLibraryView:
         """Test setting items in the view."""
         library_view.set_items(sample_items)
         assert len(library_view.get_items()) == 3
+
+    def test_set_items_formats_status_text(
+        self, library_view: LibraryView, sample_items: list[dict]
+    ) -> None:
+        """Test built-in delegate display text includes status."""
+        library_view.set_items(sample_items)
+
+        item = library_view._model.item(0)
+
+        assert item.text().startswith("[Download] Test Movie 1")
+
+    def test_set_items_uses_poster_icon(
+        self, library_view: LibraryView, sample_items: list[dict], tmp_path
+    ) -> None:
+        """Test cached poster paths are exposed as standard item icons."""
+        poster_path = tmp_path / "poster.png"
+        pixmap = QPixmap(2, 2)
+        assert pixmap.save(str(poster_path))
+        sample_items[0]["poster_path"] = str(poster_path)
+
+        library_view.set_items(sample_items)
+
+        item = library_view._model.item(0)
+        assert not item.icon().isNull()
 
     def test_get_selected_item_none_when_empty(self, library_view: LibraryView) -> None:
         """Test get_selected_item returns None when list is empty."""
@@ -211,6 +237,9 @@ class TestLibraryView:
         )
         # The update should not raise an exception
         # Visual verification would require rendering
+        item = library_view._model.item(0)
+        assert item.data(LibraryItemRole.DownloadProgressRole) == 50
+        assert item.text().startswith("[Downloading 50%]")
 
     def test_refresh(self, library_view: LibraryView, sample_items: list[dict]) -> None:
         """Test refresh triggers viewport update."""

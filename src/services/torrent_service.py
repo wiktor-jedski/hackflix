@@ -5,14 +5,20 @@ using the embedded libtorrent library.
 """
 
 import logging
+import json
+import os
 import pickle
 import re
+import select
+import subprocess
+import sys
+import threading
+import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
-import libtorrent as lt
 from PySide6.QtCore import QObject, QThread, QTimer, Signal
 
 from src.config import (
@@ -24,6 +30,18 @@ from src.config import (
 from src.database.db_manager import DatabaseManager
 
 logger = logging.getLogger(__name__)
+
+
+class _LazyLibtorrent:
+    """Import libtorrent only when the embedded backend is used."""
+
+    def __getattr__(self, name: str) -> Any:
+        import libtorrent as libtorrent
+
+        return getattr(libtorrent, name)
+
+
+lt = _LazyLibtorrent()
 
 # Video file extensions to identify the main content
 VIDEO_EXTENSIONS = frozenset({".mkv", ".mp4", ".avi", ".webm", ".mov", ".wmv", ".flv"})
@@ -71,6 +89,7 @@ class TorrentService(QThread):
     download_progress = Signal(int, int, float, float)  # context_id, %, down, up
     download_completed = Signal(int, str)  # video_file_id, file_path
     download_error = Signal(int, str)  # context_id, error_message
+    season_completed = Signal(int)  # season_id
 
     # State file names
     SESSION_STATE_FILE = "session_state.lt"
@@ -99,29 +118,57 @@ class TorrentService(QThread):
         self._download_dir = Path(download_dir) if download_dir else MEDIA_LIBRARY_PATH
         self._poll_interval = poll_interval_ms or TORRENT_POLL_INTERVAL_MS
 
-        self._session: lt.session | None = None  # type: ignore[name-defined]
+        self._session: Any | None = None
         self._contexts: dict[int, DownloadContext] = {}  # context_id -> DownloadContext
-        self._handles: dict[int, lt.torrent_handle] = {}  # type: ignore[name-defined]
+        self._handles: dict[int, Any] = {}
         self._handle_to_context: dict[str, int] = {}  # info_hash hex -> context_id
         self._should_stop = False
         self._poll_timer: QTimer | None = None
+        self._session_lock = threading.RLock()
+        self._ready_event = threading.Event()
+        self._use_process_backend = (
+            os.environ.get("HACKFLIX_TORRENT_BACKEND", "process") == "process"
+        )
+        self._worker_process: subprocess.Popen[str] | None = None
+        self._worker_lock = threading.RLock()
+        self._pending_commands: list[dict[str, Any]] = []
+        self._last_worker_progress_log: dict[int, tuple[float, str, int, int]] = {}
+        self._last_worker_progress_emit: dict[int, tuple[float, int, str, bool]] = {}
 
     def stop(self) -> None:
         """Request the service to stop gracefully and save state."""
         self._should_stop = True
         if self._poll_timer:
             self._poll_timer.stop()
+        if self._use_process_backend:
+            self._send_worker_command({"command": "stop"})
+
+    def wait_until_ready(self, timeout_ms: int = 5000) -> bool:
+        """Wait for the libtorrent session to be initialized.
+
+        Args:
+            timeout_ms: Maximum time to wait in milliseconds.
+
+        Returns:
+            True if the session is ready, otherwise False.
+        """
+        return self._ready_event.wait(timeout_ms / 1000)
 
     def run(self) -> None:
         """Start the torrent service main loop.
 
         Initializes the libtorrent session, restores state, and begins polling.
         """
+        if self._use_process_backend:
+            self._run_process_backend()
+            return
+
         try:
             self._ensure_directories()
             self._init_session()
             self._load_session_state()
             self._load_resume_data()
+            self._ready_event.set()
 
             # Poll manually since QTimer doesn't work without event loop
             poll_counter = 0
@@ -139,6 +186,182 @@ class TorrentService(QThread):
 
         except Exception as e:
             logger.error("TorrentService failed: %s", e)
+            self._ready_event.set()
+
+    def _run_process_backend(self) -> None:
+        """Run the torrent backend in a separate Python process."""
+        try:
+            self._ensure_directories()
+            self._worker_process = subprocess.Popen(
+                [sys.executable, "-m", "src.services.torrent_worker"],
+                cwd=str(Path(__file__).resolve().parents[2]),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+            logger.info("Torrent worker process started")
+
+            while not self._should_stop and self._worker_process.poll() is None:
+                if self._worker_process.stdout is None:
+                    break
+                readable, _, _ = select.select([self._worker_process.stdout], [], [], 0.5)
+                if not readable:
+                    continue
+                line = self._worker_process.stdout.readline()
+                if not line:
+                    continue
+                self._handle_worker_event(json.loads(line))
+
+            if self._worker_process.poll() is not None:
+                stderr = ""
+                if self._worker_process.stderr is not None:
+                    stderr = self._worker_process.stderr.read()
+                logger.error("Torrent worker exited: %s", stderr.strip())
+        except Exception as e:
+            logger.error("Torrent process backend failed: %s", e)
+            self._ready_event.set()
+        finally:
+            process = self._worker_process
+            if process and process.poll() is None:
+                self._send_worker_command({"command": "stop"})
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+
+    def _handle_worker_event(self, event: dict[str, Any]) -> None:
+        """Handle one event from the torrent worker process."""
+        event_name = event.get("event")
+        if event_name == "ready":
+            logger.info(
+                "Torrent worker ready (listen_interfaces=%s)",
+                event.get("listen_interfaces", "unknown"),
+            )
+            self._ready_event.set()
+            with self._worker_lock:
+                pending = list(self._pending_commands)
+                self._pending_commands.clear()
+            for command in pending:
+                self._send_worker_command(command)
+            return
+
+        context_id = int(event.get("id", 0))
+        if event_name == "progress":
+            if not self._should_emit_worker_progress(context_id, event):
+                return
+            self._log_worker_progress(context_id, event)
+            self.download_progress.emit(
+                context_id,
+                int(event["progress"]),
+                float(event["download_rate"]),
+                float(event["upload_rate"]),
+            )
+        elif event_name == "completed":
+            logger.info("Torrent worker completed context %d: %s", context_id, event["path"])
+            self.download_completed.emit(context_id, str(event["path"]))
+            self._unregister_handle(context_id)
+        elif event_name == "season_completed":
+            logger.info("Torrent worker completed season context %d", context_id)
+            self.season_completed.emit(context_id)
+            self._unregister_handle(context_id)
+        elif event_name == "error":
+            logger.error(
+                "Torrent worker error for context %d: %s",
+                context_id,
+                event.get("message", ""),
+            )
+            self.download_error.emit(context_id, str(event.get("message", "")))
+            self._unregister_handle(context_id)
+        elif event_name == "added":
+            logger.info("Torrent worker added context %d", context_id)
+        elif event_name == "tracker_error":
+            logger.warning(
+                "Torrent tracker error for context %d (%s): %s",
+                context_id,
+                event.get("url", ""),
+                event.get("message", ""),
+            )
+        elif event_name == "metadata_received":
+            logger.info("Torrent metadata received for context %d", context_id)
+
+    def _should_emit_worker_progress(self, context_id: int, event: dict[str, Any]) -> bool:
+        """Return true when progress should update the app state."""
+        now = time.monotonic()
+        progress = int(event.get("progress", 0))
+        state = str(event.get("state", "unknown"))
+        has_metadata = bool(event.get("has_metadata", False))
+        previous = self._last_worker_progress_emit.get(context_id)
+
+        if previous is None:
+            self._last_worker_progress_emit[context_id] = (
+                now,
+                progress,
+                state,
+                has_metadata,
+            )
+            return True
+
+        last_time, last_progress, last_state, last_has_metadata = previous
+        should_emit = (
+            progress != last_progress
+            or state != last_state
+            or has_metadata != last_has_metadata
+            or now - last_time >= 10
+        )
+        if should_emit:
+            self._last_worker_progress_emit[context_id] = (
+                now,
+                progress,
+                state,
+                has_metadata,
+            )
+        return should_emit
+
+    def _log_worker_progress(self, context_id: int, event: dict[str, Any]) -> None:
+        """Log worker progress when state changes or enough time has passed."""
+        now = time.monotonic()
+        state = str(event.get("state", "unknown"))
+        peers = int(event.get("peers", 0))
+        seeds = int(event.get("seeds", 0))
+        previous = self._last_worker_progress_log.get(context_id)
+        if previous and previous[1:] == (state, peers, seeds) and now - previous[0] < 15:
+            return
+
+        self._last_worker_progress_log[context_id] = (now, state, peers, seeds)
+        logger.info(
+            (
+                "Torrent worker progress context=%d state=%s progress=%d%% "
+                "peers=%d seeds=%d metadata=%s down=%.1f KiB/s total=%d/%d"
+            ),
+            context_id,
+            state,
+            int(event.get("progress", 0)),
+            peers,
+            seeds,
+            event.get("has_metadata", False),
+            float(event.get("download_rate", 0.0)),
+            int(event.get("total_wanted_done", 0)),
+            int(event.get("total_wanted", 0)),
+        )
+
+    def _send_worker_command(self, command: dict[str, Any]) -> bool:
+        """Send a JSON command to the worker process."""
+        with self._worker_lock:
+            process = self._worker_process
+            if process is None or process.stdin is None or process.poll() is not None:
+                self._pending_commands.append(command)
+                return False
+
+            try:
+                process.stdin.write(json.dumps(command) + "\n")
+                process.stdin.flush()
+                return True
+            except BrokenPipeError:
+                self._pending_commands.append(command)
+                return False
 
     def _ensure_directories(self) -> None:
         """Create required directories."""
@@ -160,7 +383,8 @@ class TorrentService(QThread):
                 | lt.alert.category_t.storage_notification  # type: ignore[attr-defined]
             ),
         }
-        self._session = lt.session(settings)  # type: ignore[attr-defined]
+        with self._session_lock:
+            self._session = lt.session(settings)  # type: ignore[attr-defined]
         logger.info("Libtorrent session initialized")
 
     def _load_session_state(self) -> None:
@@ -171,7 +395,8 @@ class TorrentService(QThread):
 
         try:
             state_data = state_file.read_bytes()
-            self._session.load_state(lt.bdecode(state_data))  # type: ignore[attr-defined]
+            with self._session_lock:
+                self._session.load_state(lt.bdecode(state_data))  # type: ignore[attr-defined]
             logger.info("Session state loaded from %s", state_file)
         except Exception as e:
             logger.warning("Failed to load session state: %s", e)
@@ -182,7 +407,8 @@ class TorrentService(QThread):
             return
         state_file = self._state_dir / self.SESSION_STATE_FILE
         try:
-            state_data = self._session.save_state()
+            with self._session_lock:
+                state_data = self._session.save_state()
             state_file.write_bytes(lt.bencode(state_data))  # type: ignore[attr-defined]
             logger.info("Session state saved to %s", state_file)
         except Exception as e:
@@ -205,12 +431,13 @@ class TorrentService(QThread):
                     atp = lt.add_torrent_params()  # type: ignore[attr-defined]
                     atp.resume_data = data["resume_data"]
                     atp.save_path = data["save_path"]
-                    handle = self._session.add_torrent(atp)  # type: ignore[union-attr]
                     context = DownloadContext(
                         download_type=DownloadType(data["download_type"]),
                         id=data["context_db_id"],
                     )
-                    self._register_handle(context_id, handle, context)
+                    with self._session_lock:
+                        handle = self._session.add_torrent(atp)  # type: ignore[union-attr]
+                        self._register_handle(context_id, handle, context)
                     logger.info("Resumed torrent for context %d", context_id)
                 except Exception as e:
                     logger.warning(
@@ -228,35 +455,36 @@ class TorrentService(QThread):
         resume_file = self._state_dir / self.RESUME_DATA_FILE
         resume_data: dict[int, dict[str, Any]] = {}
 
-        for context_id, handle in self._handles.items():
-            if not handle.is_valid():
-                continue
-            try:
-                handle.save_resume_data(
-                    lt.torrent_handle.save_info_dict  # type: ignore[attr-defined]
-                    | lt.torrent_handle.only_if_modified  # type: ignore[attr-defined]
-                )
-            except Exception as e:
-                logger.warning(
-                    "Failed to request resume data for context %d: %s", context_id, e
-                )
+        with self._session_lock:
+            for context_id, handle in self._handles.items():
+                if not handle.is_valid():
+                    continue
+                try:
+                    handle.save_resume_data(
+                        lt.torrent_handle.save_info_dict  # type: ignore[attr-defined]
+                        | lt.torrent_handle.only_if_modified  # type: ignore[attr-defined]
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to request resume data for context %d: %s", context_id, e
+                    )
 
-        # Process alerts to get resume data
-        self._session.wait_for_alert(1000)  # Wait up to 1 second
-        alerts = self._session.pop_alerts()
-        for alert in alerts:
-            if isinstance(alert, lt.save_resume_data_alert):  # type: ignore[attr-defined]
-                info_hash = str(alert.handle.info_hash())
-                context_id = self._handle_to_context.get(info_hash)
-                if context_id is not None:
-                    context = self._contexts.get(context_id)
-                    if context:
-                        resume_data[context_id] = {
-                            "resume_data": lt.write_resume_data_buf(alert),  # type: ignore[attr-defined]
-                            "save_path": alert.handle.status().save_path,
-                            "download_type": context.download_type.value,
-                            "context_db_id": context.id,
-                        }
+            # Process alerts to get resume data
+            self._session.wait_for_alert(1000)  # Wait up to 1 second
+            alerts = self._session.pop_alerts()
+            for alert in alerts:
+                if isinstance(alert, lt.save_resume_data_alert):  # type: ignore[attr-defined]
+                    info_hash = str(alert.handle.info_hash())
+                    context_id = self._handle_to_context.get(info_hash)
+                    if context_id is not None:
+                        context = self._contexts.get(context_id)
+                        if context:
+                            resume_data[context_id] = {
+                                "resume_data": lt.write_resume_data_buf(alert),  # type: ignore[attr-defined]
+                                "save_path": alert.handle.status().save_path,
+                                "download_type": context.download_type.value,
+                                "context_db_id": context.id,
+                            }
 
         try:
             with open(resume_file, "wb") as f:
@@ -276,58 +504,50 @@ class TorrentService(QThread):
         if self._should_stop or not self._session:
             return
 
-        # Process alerts
-        alerts = self._session.pop_alerts()
-        for alert in alerts:
-            self._handle_alert(alert)
+        with self._session_lock:
+            # Process alerts
+            alerts = self._session.pop_alerts()
+            for alert in alerts:
+                self._handle_alert(alert)
 
-        # Update progress for all handles
-        for context_id, handle in list(self._handles.items()):
-            if not handle.is_valid():
-                logger.debug("Handle for context %d is invalid", context_id)
-                continue
+            # Update progress for all handles
+            for context_id, handle in list(self._handles.items()):
+                if not handle.is_valid():
+                    logger.debug("Handle for context %d is invalid", context_id)
+                    continue
 
-            context = self._contexts.get(context_id)
-            if not context:
-                logger.debug("No context for context_id %d", context_id)
-                continue
+                context = self._contexts.get(context_id)
+                if not context:
+                    logger.debug("No context for context_id %d", context_id)
+                    continue
 
-            status = handle.status()
-            state_name = str(status.state)
-            progress = int(status.progress * 100)
-            logger.debug(
-                "Torrent %d: state=%s, progress=%d%%, peers=%d, seeds=%d",
-                context_id,
-                state_name,
-                progress,
-                status.num_peers,
-                status.num_seeds,
-            )
-
-            if status.state == lt.torrent_status.states.seeding:  # type: ignore[attr-defined]
-                # Download complete
-                self._on_download_complete(context_id, handle)
-            elif status.state in (
-                lt.torrent_status.states.downloading,  # type: ignore[attr-defined]
-                lt.torrent_status.states.downloading_metadata,  # type: ignore[attr-defined]
-                lt.torrent_status.states.checking_files,  # type: ignore[attr-defined]
-                lt.torrent_status.states.checking_resume_data,  # type: ignore[attr-defined]
-            ):
-                # Emit progress for all active download states
-                self.download_progress.emit(
-                    context.id,
+                status = handle.status()
+                state_name = str(status.state)
+                progress = int(status.progress * 100)
+                logger.debug(
+                    "Torrent %d: state=%s, progress=%d%%, peers=%d, seeds=%d",
+                    context_id,
+                    state_name,
                     progress,
-                    status.download_rate / 1024,  # KB/s
-                    status.upload_rate / 1024,
+                    status.num_peers,
+                    status.num_seeds,
                 )
-                # Update DB based on context type
-                if context.download_type == DownloadType.MOVIE:
-                    self._db_manager.update_file_state(
-                        context.id, DownloadState.DOWNLOADING, progress
-                    )
-                else:
-                    self._db_manager.update_season_state(
-                        context.id, DownloadState.DOWNLOADING, progress
+
+                if status.state == lt.torrent_status.states.seeding:  # type: ignore[attr-defined]
+                    # Download complete
+                    self._on_download_complete(context_id, handle)
+                elif status.state in (
+                    lt.torrent_status.states.downloading,  # type: ignore[attr-defined]
+                    lt.torrent_status.states.downloading_metadata,  # type: ignore[attr-defined]
+                    lt.torrent_status.states.checking_files,  # type: ignore[attr-defined]
+                    lt.torrent_status.states.checking_resume_data,  # type: ignore[attr-defined]
+                ):
+                    # Emit progress for all active download states
+                    self.download_progress.emit(
+                        context.id,
+                        progress,
+                        status.download_rate / 1024,  # KB/s
+                        status.upload_rate / 1024,
                     )
 
     def _handle_alert(self, alert: Any) -> None:
@@ -348,14 +568,6 @@ class TorrentService(QThread):
                         context.id,
                         error_msg,
                     )
-                    if context.download_type == DownloadType.MOVIE:
-                        self._db_manager.update_file_state(
-                            context.id, DownloadState.ERROR
-                        )
-                    else:
-                        self._db_manager.update_season_state(
-                            context.id, DownloadState.ERROR
-                        )
                     self.download_error.emit(context.id, error_msg)
                     self._unregister_handle(context_id)
 
@@ -395,14 +607,11 @@ class TorrentService(QThread):
         file_id = context.id
 
         if video_path:
-            self._db_manager.update_file_state(file_id, DownloadState.COMPLETED, 100)
-            self._db_manager.update_file_path(file_id, str(video_path))
             self.download_completed.emit(file_id, str(video_path))
             logger.info("Movie download completed for file %d: %s", file_id, video_path)
         else:
             error_msg = "No video file found in torrent"
             logger.error("Download error for movie file %d: %s", file_id, error_msg)
-            self._db_manager.update_file_state(file_id, DownloadState.ERROR)
             self.download_error.emit(file_id, error_msg)
 
     def _complete_season_download(self, context: DownloadContext, handle: Any) -> None:
@@ -420,7 +629,6 @@ class TorrentService(QThread):
         if not episodes:
             error_msg = "No episodes found for season"
             logger.error("Download error for season %d: %s", season_id, error_msg)
-            self._db_manager.update_season_state(season_id, DownloadState.ERROR)
             self.download_error.emit(season_id, error_msg)
             return
 
@@ -428,7 +636,6 @@ class TorrentService(QThread):
         if not video_files:
             error_msg = "No video files found in torrent"
             logger.error("Download error for season %d: %s", season_id, error_msg)
-            self._db_manager.update_season_state(season_id, DownloadState.ERROR)
             self.download_error.emit(season_id, error_msg)
             return
 
@@ -438,19 +645,15 @@ class TorrentService(QThread):
         if not matches:
             error_msg = "Could not match any video files to episodes"
             logger.error("Download error for season %d: %s", season_id, error_msg)
-            self._db_manager.update_season_state(season_id, DownloadState.ERROR)
             self.download_error.emit(season_id, error_msg)
             return
 
         # Update each matched episode
         for episode_id, video_path in matches.items():
-            self._db_manager.update_file_state(episode_id, DownloadState.COMPLETED, 100)
-            self._db_manager.update_file_path(episode_id, str(video_path))
             self.download_completed.emit(episode_id, str(video_path))
             logger.info("Episode %d completed: %s", episode_id, video_path)
 
-        # Mark season as completed
-        self._db_manager.update_season_state(season_id, DownloadState.COMPLETED, 100)
+        self.season_completed.emit(season_id)
         logger.info(
             "Season %d download completed: %d/%d episodes matched",
             season_id,
@@ -604,6 +807,40 @@ class TorrentService(QThread):
         Returns:
             True if torrent was added successfully.
         """
+        if self._use_process_backend:
+            context_id = context.id
+            if context_id in self._contexts:
+                logger.warning(
+                    "Torrent already exists for %s %d",
+                    context.download_type.value,
+                    context_id,
+                )
+                return False
+
+            self._contexts[context_id] = context
+            command = {
+                "command": "add",
+                "type": context.download_type.value,
+                "id": context.id,
+                "magnet": magnet_link,
+                "download_dir": str(self._download_dir),
+                "sequential": sequential,
+            }
+            self._send_worker_command(command)
+
+            if context.download_type == DownloadType.MOVIE:
+                self._db_manager.update_file_state(context.id, DownloadState.QUEUED)
+            else:
+                self._db_manager.update_season_state(context.id, DownloadState.QUEUED)
+
+            logger.info(
+                "Queued magnet for %s %d in torrent worker (sequential=%s)",
+                context.download_type.value,
+                context.id,
+                sequential,
+            )
+            return True
+
         if not self._session:
             logger.error("Cannot add magnet: session not initialized")
             return False
@@ -622,12 +859,13 @@ class TorrentService(QThread):
             atp = lt.parse_magnet_uri(magnet_link)  # type: ignore[attr-defined]
             atp.save_path = str(self._download_dir)
 
-            handle = self._session.add_torrent(atp)
+            with self._session_lock:
+                handle = self._session.add_torrent(atp)
 
-            if sequential:
-                handle.set_sequential_download(True)
+                if sequential:
+                    handle.set_sequential_download(True)
 
-            self._register_handle(context_id, handle, context)
+                self._register_handle(context_id, handle, context)
 
             # Update DB state based on context type
             if context.download_type == DownloadType.MOVIE:
@@ -667,14 +905,32 @@ class TorrentService(QThread):
             True if download was cancelled.
         """
         context_id = context.id
+        if self._use_process_backend:
+            if context_id not in self._contexts:
+                return False
+
+            self._send_worker_command({"command": "cancel", "id": context_id})
+            self._contexts.pop(context_id, None)
+
+            if context.download_type == DownloadType.MOVIE:
+                self._db_manager.update_file_state(context.id, DownloadState.PENDING)
+            else:
+                self._db_manager.update_season_state(context.id, DownloadState.PENDING)
+
+            logger.info(
+                "Cancelled download for %s %d", context.download_type.value, context.id
+            )
+            return True
+
         if context_id not in self._handles:
             return False
 
         handle = self._handles[context_id]
-        if handle.is_valid() and self._session:
-            self._session.remove_torrent(handle)
+        with self._session_lock:
+            if handle.is_valid() and self._session:
+                self._session.remove_torrent(handle)
 
-        self._unregister_handle(context_id)
+            self._unregister_handle(context_id)
 
         # Reset DB state based on context type
         if context.download_type == DownloadType.MOVIE:

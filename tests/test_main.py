@@ -1,6 +1,7 @@
 """Test main.py entry point."""
 
 import os
+import subprocess
 import sys
 import unittest
 from unittest.mock import MagicMock, patch
@@ -29,7 +30,15 @@ class TestCheckDependencies(unittest.TestCase):
     @patch.dict("sys.modules", {"libtorrent": None})
     def test_missing_libtorrent(self):
         """Test when libtorrent is missing."""
-        with patch("src.main.logger") as mock_logger:
+        def fake_run(args, **kwargs):
+            if args == [sys.executable, "-c", "import libtorrent"]:
+                raise subprocess.CalledProcessError(1, args)
+            return MagicMock()
+
+        with (
+            patch("src.main.logger") as mock_logger,
+            patch("src.main.subprocess.run", side_effect=fake_run),
+        ):
             result = check_dependencies()
 
             self.assertFalse(result)
@@ -41,7 +50,15 @@ class TestCheckDependencies(unittest.TestCase):
     @patch.dict("sys.modules", {"vlc": None, "libtorrent": None})
     def test_missing_both_dependencies(self):
         """Test when both dependencies are missing."""
-        with patch("src.main.logger") as mock_logger:
+        def fake_run(args, **kwargs):
+            if args == [sys.executable, "-c", "import libtorrent"]:
+                raise subprocess.CalledProcessError(1, args)
+            return MagicMock()
+
+        with (
+            patch("src.main.logger") as mock_logger,
+            patch("src.main.subprocess.run", side_effect=fake_run),
+        ):
             result = check_dependencies()
 
             self.assertFalse(result)
@@ -396,6 +413,7 @@ class TestMain(unittest.TestCase):
         )
         mock_app_instance.bind_services.assert_called_once()
         mock_app_instance.bootstrap.assert_called_once()
+        mock_torrent_service.return_value.wait_until_ready.assert_called_once()
 
         # Check logger startup message
         info_calls = [str(call) for call in mock_logger.info.call_args_list]
@@ -403,6 +421,53 @@ class TestMain(unittest.TestCase):
         self.assertIn("Hackflix starting up", logged_messages)
         self.assertIn("Hackflix initialization complete", logged_messages)
         self.assertIn("Starting application event loop", logged_messages)
+
+    @patch("src.main.QApplication")
+    @patch("src.main.setup_translations")
+    @patch("src.main.MainWindow")
+    @patch("src.main.AppController")
+    @patch("src.main.MetadataService")
+    @patch("src.main.TorrentService")
+    @patch("src.main.DatabaseManager")
+    @patch("src.main.check_dependencies")
+    @patch("src.main.check_required_env_vars")
+    @patch("src.main.ensure_directories")
+    @patch("src.main.setup_logging")
+    @patch("src.main.logger")
+    def test_main_warns_when_torrent_service_not_ready(
+        self,
+        mock_logger,
+        mock_setup_logging,
+        mock_ensure_dirs,
+        mock_check_env,
+        mock_check_deps,
+        mock_db_manager,
+        mock_torrent_service,
+        mock_metadata_service,
+        mock_app_controller,
+        mock_main_window,
+        mock_setup_translations,
+        mock_qapplication,
+    ):
+        """Test main logs a warning when torrent readiness times out."""
+        mock_check_deps.return_value = True
+        mock_check_env.return_value = []
+        mock_db_instance = MagicMock()
+        mock_db_instance.get_incomplete_downloads.return_value = []
+        mock_db_instance.get_incomplete_pipelines.return_value = []
+        mock_db_manager.return_value = mock_db_instance
+        mock_torrent_service.return_value.wait_until_ready.return_value = False
+
+        mock_qapp_instance = MagicMock()
+        mock_qapp_instance.exec.return_value = 0
+        mock_qapplication.return_value = mock_qapp_instance
+
+        result = main()
+
+        self.assertEqual(result, 0)
+        mock_logger.warning.assert_any_call(
+            "Torrent service did not become ready before bootstrap"
+        )
 
 
 if __name__ == "__main__":

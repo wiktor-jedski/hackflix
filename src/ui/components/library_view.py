@@ -5,10 +5,12 @@ media items in a navigable list.
 """
 
 import logging
+import os
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QModelIndex, QSize, Qt, Signal
-from PySide6.QtGui import QStandardItem, QStandardItemModel
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -27,6 +29,8 @@ from src.ui.enums import MediaTab
 from src.ui.styles import (
     BACKGROUND_COLOR,
     FONT_SIZE_TITLE,
+    POSTER_HEIGHT,
+    POSTER_WIDTH,
     PRIMARY_COLOR,
     ROW_HEIGHT,
     SECONDARY_COLOR,
@@ -93,12 +97,14 @@ class LibraryView(QFrame):
         self._list_view.setFocusPolicy(Qt.StrongFocus)  # type: ignore[attr-defined]
         self._list_view.setUniformItemSizes(True)
         self._list_view.setSpacing(4)
+        self._list_view.setIconSize(QSize(POSTER_WIDTH, POSTER_HEIGHT))
 
         # Model and delegate
         self._model = QStandardItemModel(self)
         self._delegate = LibraryItemDelegate(self)
         self._list_view.setModel(self._model)
-        self._list_view.setItemDelegate(self._delegate)
+        if os.environ.get("HACKFLIX_CUSTOM_LIBRARY_DELEGATE") == "1":
+            self._list_view.setItemDelegate(self._delegate)
 
         # Connect selection changed
         selection_model = self._list_view.selectionModel()
@@ -209,6 +215,8 @@ class LibraryView(QFrame):
 
         for item_data in items:
             model_item = QStandardItem()
+            model_item.setText(self._format_item_text(item_data))
+            model_item.setIcon(self._build_item_icon(item_data))
             model_item.setData(item_data.get("id"), LibraryItemRole.IdRole)
             model_item.setData(item_data.get("type"), LibraryItemRole.TypeRole)
             model_item.setData(item_data.get("title"), LibraryItemRole.TitleRole)
@@ -423,19 +431,152 @@ class LibraryView(QFrame):
         """
         item = self._model.itemFromIndex(index)
         if item:
+            changed = False
             if "state" in updates:
-                item.setData(updates["state"], LibraryItemRole.DownloadStateRole)
+                if item.data(LibraryItemRole.DownloadStateRole) != updates["state"]:
+                    item.setData(updates["state"], LibraryItemRole.DownloadStateRole)
+                    changed = True
             if "download_progress" in updates:
-                item.setData(
-                    updates["download_progress"],
-                    LibraryItemRole.DownloadProgressRole,
-                )
+                if (
+                    item.data(LibraryItemRole.DownloadProgressRole)
+                    != updates["download_progress"]
+                ):
+                    item.setData(
+                        updates["download_progress"],
+                        LibraryItemRole.DownloadProgressRole,
+                    )
+                    changed = True
             if "pipeline_state" in updates:
-                item.setData(
-                    updates["pipeline_state"], LibraryItemRole.PipelineStateRole
+                if (
+                    item.data(LibraryItemRole.PipelineStateRole)
+                    != updates["pipeline_state"]
+                ):
+                    item.setData(
+                        updates["pipeline_state"], LibraryItemRole.PipelineStateRole
+                    )
+                    changed = True
+            if changed:
+                item.setText(self._format_item_text_from_model_item(item))
+                item.setIcon(self._build_item_icon_from_model_item(item))
+                self._list_view.viewport().update()
+
+    def _format_item_text(self, item_data: dict[str, Any]) -> str:
+        """Format stable fallback text for Qt's built-in delegate."""
+        title = str(item_data.get("title") or "")
+        item_type = item_data.get("type")
+        state = item_data.get("state")
+        progress = item_data.get("download_progress") or 0
+
+        status = ""
+        if item_type == "series":
+            status = "[Series]"
+        elif state == "COMPLETED":
+            status = "[Play]"
+        elif state == "DOWNLOADING":
+            status = f"[Downloading {progress}%]"
+        elif state == "ERROR":
+            status = "[Error]"
+        elif state == "QUEUED":
+            status = "[Queued]"
+        elif state == "PENDING":
+            status = "[Download]"
+        elif state:
+            status = f"[{state.title()}]"
+
+        subtitle_parts = []
+        genres = item_data.get("genres")
+        if genres:
+            subtitle_parts.append(str(genres))
+        episode_title = item_data.get("episode_title")
+        if episode_title:
+            subtitle_parts.append(str(episode_title))
+
+        first_line = f"{status} {title}".strip()
+        if subtitle_parts:
+            return f"{first_line}\n{' | '.join(subtitle_parts)}"
+        return first_line
+
+    def _format_item_text_from_model_item(self, item: QStandardItem) -> str:
+        """Build display text from model roles after an incremental update."""
+        return self._format_item_text(self._item_data_from_model_item(item))
+
+    def _build_item_icon_from_model_item(self, item: QStandardItem) -> QIcon:
+        """Build an icon from model roles after an incremental update."""
+        return self._build_item_icon(self._item_data_from_model_item(item))
+
+    def _item_data_from_model_item(self, item: QStandardItem) -> dict[str, Any]:
+        """Return item data represented by a model item."""
+        return {
+            "title": item.data(LibraryItemRole.TitleRole),
+            "type": item.data(LibraryItemRole.TypeRole),
+            "state": item.data(LibraryItemRole.DownloadStateRole),
+            "download_progress": item.data(LibraryItemRole.DownloadProgressRole),
+            "genres": item.data(LibraryItemRole.GenresRole),
+            "episode_title": item.data(LibraryItemRole.EpisodeTitleRole),
+            "poster_path": item.data(LibraryItemRole.PosterPathRole),
+        }
+
+    def _build_item_icon(self, item_data: dict[str, Any]) -> QIcon:
+        """Build a poster icon with a small status badge."""
+        icon_pixmap = QPixmap(POSTER_WIDTH, POSTER_HEIGHT)
+        icon_pixmap.fill(QColor(SURFACE_COLOR))
+
+        poster_path = item_data.get("poster_path")
+        if poster_path and Path(str(poster_path)).exists():
+            poster = QPixmap(str(poster_path))
+            if not poster.isNull():
+                scaled = poster.scaled(
+                    icon_pixmap.size(),
+                    Qt.KeepAspectRatioByExpanding,  # type: ignore[attr-defined]
+                    Qt.SmoothTransformation,  # type: ignore[attr-defined]
                 )
-            # Trigger repaint
-            self._model.dataChanged.emit(index, index)
+                x = (scaled.width() - POSTER_WIDTH) // 2
+                y = (scaled.height() - POSTER_HEIGHT) // 2
+                icon_pixmap = scaled.copy(x, y, POSTER_WIDTH, POSTER_HEIGHT)
+
+        painter = QPainter(icon_pixmap)
+        try:
+            status_text = self._status_badge_text(item_data)
+            if status_text:
+                badge_height = 22
+                badge_rect = icon_pixmap.rect().adjusted(
+                    0, POSTER_HEIGHT - badge_height, 0, 0
+                )
+                painter.fillRect(badge_rect, QColor(0, 0, 0, 190))
+                painter.setPen(QColor("white"))
+                font = QFont()
+                font.setPointSize(8)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.drawText(
+                    badge_rect,
+                    Qt.AlignCenter,  # type: ignore[attr-defined]
+                    status_text,
+                )
+        finally:
+            painter.end()
+
+        return QIcon(icon_pixmap)
+
+    def _status_badge_text(self, item_data: dict[str, Any]) -> str:
+        """Return compact status text for the poster badge."""
+        item_type = item_data.get("type")
+        state = item_data.get("state")
+        progress = item_data.get("download_progress") or 0
+
+        if item_type == "series":
+            return "SERIES"
+        if state == "COMPLETED":
+            return "PLAY"
+        if state == "DOWNLOADING":
+            return f"{progress}%"
+        if state == "QUEUED":
+            return "QUEUED"
+        if state == "ERROR":
+            return "ERROR"
+        if state == "PENDING":
+            return "GET"
+        return ""
 
     def clear(self) -> None:
         """Clear all items from the view."""

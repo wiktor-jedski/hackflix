@@ -45,10 +45,20 @@ def check_dependencies() -> bool:
     except ImportError:
         missing.append("python-vlc (VLC)")
 
-    # Check for libtorrent
+    # Check libtorrent in a subprocess so the GUI process never loads the
+    # native extension. The torrent worker imports libtorrent separately.
     try:
-        import libtorrent  # noqa: F401
-    except ImportError:
+        subprocess.run(
+            [sys.executable, "-c", "import libtorrent"],
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
         missing.append("libtorrent")
 
     # Check for FFmpeg
@@ -165,6 +175,8 @@ def main() -> int:
 
     # Start the torrent service thread
     torrent_service.start()
+    if not torrent_service.wait_until_ready():
+        logger.warning("Torrent service did not become ready before bootstrap")
 
     # Bootstrap the controller
     controller.bootstrap()

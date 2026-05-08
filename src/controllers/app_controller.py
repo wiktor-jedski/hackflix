@@ -14,9 +14,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QObject, Slot
+from PySide6.QtCore import QObject, Qt, Slot
 
-from src.config import DownloadState, PipelineState
+from src.config import CACHE_DIR, DownloadState, PipelineState
 from src.database.db_manager import DatabaseManager
 from src.ui.enums import Action, AppState, MediaTab
 
@@ -28,6 +28,8 @@ if TYPE_CHECKING:
     from src.ui.windows.main_window import MainWindow
 
 logger = logging.getLogger(__name__)
+
+POSTER_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 
 
 @dataclass
@@ -365,9 +367,18 @@ class AppController(QObject):
             metadata_service.sync_error.connect(self._on_sync_error)
 
         if torrent_service:
-            torrent_service.download_progress.connect(self._on_download_progress)
-            torrent_service.download_completed.connect(self._on_download_completed)
-            torrent_service.download_error.connect(self._on_download_error)
+            torrent_service.download_progress.connect(
+                self._on_download_progress, Qt.ConnectionType.QueuedConnection
+            )
+            torrent_service.download_completed.connect(
+                self._on_download_completed, Qt.ConnectionType.QueuedConnection
+            )
+            torrent_service.download_error.connect(
+                self._on_download_error, Qt.ConnectionType.QueuedConnection
+            )
+            torrent_service.season_completed.connect(
+                self._on_season_completed, Qt.ConnectionType.QueuedConnection
+            )
 
         if player_service:
             player_service.playback_finished.connect(self._on_playback_finished)
@@ -516,6 +527,7 @@ class AppController(QObject):
 
         if self._torrent_service and self._torrent_service.isRunning():
             self._torrent_service.stop()
+            self._torrent_service.wait()
 
     # =========================================================================
     # State Machine
@@ -627,7 +639,9 @@ class AppController(QObject):
                     "type": item["type"],
                     "title": item["title"],
                     "genres": item.get("genres", ""),
-                    "poster_path": item.get("poster_path", ""),
+                    "poster_path": self._get_cached_poster_path(
+                        item["id"], item.get("poster_path")
+                    ),
                 }
 
                 if item["type"] == "series":
@@ -660,6 +674,19 @@ class AppController(QObject):
             self._main_window.show_toast(
                 self.tr("Failed to load library: {error}").format(error=e), "error"
             )
+
+    def _get_cached_poster_path(self, media_id: str, poster_path: str | None) -> str:
+        """Return a local poster path when one is cached."""
+        if poster_path and Path(poster_path).exists():
+            return poster_path
+
+        poster_dir = CACHE_DIR / "posters"
+        for ext in POSTER_EXTENSIONS:
+            cached = poster_dir / f"{media_id}{ext}"
+            if cached.exists():
+                return str(cached)
+
+        return poster_path or ""
 
     def load_seasons(self, series_id: str) -> None:
         """Load seasons for a series.
@@ -1164,6 +1191,18 @@ class AppController(QObject):
                 },
             )
 
+        try:
+            if self._db_manager.get_video_file(context_id):
+                self._db_manager.update_file_state(
+                    context_id, DownloadState.DOWNLOADING, percentage
+                )
+            elif self._db_manager.get_season(context_id):
+                self._db_manager.update_season_state(
+                    context_id, DownloadState.DOWNLOADING, percentage
+                )
+        except Exception as e:
+            logger.error("Failed to persist download progress: %s", e)
+
     @Slot(int, str)
     def _on_download_completed(self, file_id: int, path: str) -> None:
         """Handle download completed.
@@ -1178,6 +1217,12 @@ class AppController(QObject):
                 {"state": DownloadState.COMPLETED.value, "download_progress": 100},
             )
             self._main_window.show_toast(self.tr("Download completed"), "info")
+
+        try:
+            self._db_manager.update_file_state(file_id, DownloadState.COMPLETED, 100)
+            self._db_manager.update_file_path(file_id, path)
+        except Exception as e:
+            logger.error("Failed to persist download completion: %s", e)
 
         video = self._db_manager.get_video_file(file_id)
         if video and video.get("subtitle_id"):
@@ -1199,6 +1244,29 @@ class AppController(QObject):
             self._main_window.show_toast(
                 self.tr("Download failed: {error}").format(error=error), "error"
             )
+
+        try:
+            if self._db_manager.get_video_file(file_id):
+                self._db_manager.update_file_state(file_id, DownloadState.ERROR)
+            elif self._db_manager.get_season(file_id):
+                self._db_manager.update_season_state(file_id, DownloadState.ERROR)
+        except Exception as e:
+            logger.error("Failed to persist download error: %s", e)
+
+    @Slot(int)
+    def _on_season_completed(self, season_id: int) -> None:
+        """Handle season pack completion."""
+        try:
+            self._db_manager.update_season_state(
+                season_id, DownloadState.COMPLETED, 100
+            )
+        except Exception as e:
+            logger.error("Failed to persist season completion: %s", e)
+
+        if self._main_window:
+            if self._current_series_id:
+                self.load_seasons(self._current_series_id)
+            self._main_window.show_toast(self.tr("Season download completed"), "info")
 
     # =========================================================================
     # Pipeline

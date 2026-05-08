@@ -13,8 +13,9 @@ from src.database.db_manager import DatabaseManager
 
 # Mock libtorrent before importing TorrentService
 @pytest.fixture(autouse=True)
-def mock_libtorrent_module():
+def mock_libtorrent_module(monkeypatch: pytest.MonkeyPatch):
     """Mock libtorrent module for all tests."""
+    monkeypatch.setenv("HACKFLIX_TORRENT_BACKEND", "embedded")
     mock_lt = mock.MagicMock()
 
     # Setup session mock with all required methods
@@ -182,6 +183,27 @@ class TestTorrentServiceInit:
         service.stop()
 
         mock_timer.stop.assert_called_once()
+
+    def test_wait_until_ready_returns_false_before_ready(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Test wait_until_ready times out when the service is not ready."""
+        from src.services.torrent_service import TorrentService
+
+        service = TorrentService(db_manager=db_manager)
+
+        assert service.wait_until_ready(timeout_ms=0) is False
+
+    def test_wait_until_ready_returns_true_after_ready(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Test wait_until_ready returns true after readiness is set."""
+        from src.services.torrent_service import TorrentService
+
+        service = TorrentService(db_manager=db_manager)
+        service._ready_event.set()
+
+        assert service.wait_until_ready(timeout_ms=0) is True
 
 
 class TestTorrentServiceDirectories:
@@ -1598,16 +1620,12 @@ class TestDownloadStateTransitions:
 
         service._session.pop_alerts.return_value = [mock_alert]
 
-        with mock.patch.object(service._db_manager, "update_file_state") as mock_update:
-            service._poll_progress()
+        errors: list[tuple[int, str]] = []
+        service.download_error.connect(lambda file_id, error: errors.append((file_id, error)))
 
-        error_calls = [
-            call
-            for call in mock_update.call_args_list
-            if call[0][1] == DownloadState.ERROR
-        ]
-        assert len(error_calls) >= 1
-        assert error_calls[-1][0][0] == 301
+        service._poll_progress()
+
+        assert errors == [(301, "Connection lost")]
 
     def test_pending_to_queued_state_transition(
         self,
@@ -1678,16 +1696,18 @@ class TestDownloadStateTransitions:
         mock_status.upload_rate = 250000
         mock_handle.status.return_value = mock_status
 
-        with mock.patch.object(service._db_manager, "update_file_state") as mock_update:
-            service._poll_progress()
+        progress_updates: list[tuple[int, int, float, float]] = []
+        service.download_progress.connect(
+            lambda file_id, progress, down, up: progress_updates.append(
+                (file_id, progress, down, up)
+            )
+        )
 
-        downloading_calls = [
-            call
-            for call in mock_update.call_args_list
-            if call[0][1] == DownloadState.DOWNLOADING
-        ]
-        assert len(downloading_calls) == 1
-        assert downloading_calls[0][0][0] == 501
+        service._poll_progress()
+
+        assert len(progress_updates) == 1
+        assert progress_updates[0][0] == 501
+        assert progress_updates[0][1] == 0
 
     def test_downloading_to_completed_state_transition(
         self,
@@ -1736,18 +1756,16 @@ class TestDownloadStateTransitions:
         mock_torrent_info.files.return_value = mock_files
         mock_handle.torrent_file.return_value = mock_torrent_info
 
-        with mock.patch.object(service._db_manager, "update_file_state") as mock_update:
-            with mock.patch.object(service._db_manager, "update_file_path"):
-                service._poll_progress()
+        completions: list[tuple[int, str]] = []
+        service.download_completed.connect(
+            lambda file_id, path: completions.append((file_id, path))
+        )
 
-        completed_calls = [
-            call
-            for call in mock_update.call_args_list
-            if call[0][1] == DownloadState.COMPLETED
-        ]
-        assert len(completed_calls) == 1
-        assert completed_calls[0][0][0] == 601
-        assert completed_calls[0][0][2] == 100
+        service._poll_progress()
+
+        assert len(completions) == 1
+        assert completions[0][0] == 601
+        assert completions[0][1].endswith("complete.mkv")
 
     def test_error_state_blocks_further_processing(
         self,

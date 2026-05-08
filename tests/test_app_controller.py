@@ -2,8 +2,10 @@
 
 import pytest
 from unittest.mock import MagicMock
+from pathlib import Path
 
 from src.config import DownloadState
+import src.controllers.app_controller as app_controller_module
 from src.controllers.app_controller import (
     AppController,
     DialogConfirmHandler,
@@ -73,6 +75,30 @@ class TestAppController:
         assert AppState.SEARCH_OVERLAY in controller._state_handlers
         assert AppState.DIALOG_CONFIRM in controller._state_handlers
         assert AppState.PLAYER_ACTIVE in controller._state_handlers
+
+    def test_get_cached_poster_path_prefers_existing_local_path(
+        self, controller: AppController, tmp_path: Path
+    ) -> None:
+        """Test local poster paths are kept when they exist."""
+        poster = tmp_path / "poster.jpg"
+        poster.write_bytes(b"image")
+
+        assert controller._get_cached_poster_path("movie-1", str(poster)) == str(poster)
+
+    def test_get_cached_poster_path_finds_cached_media_id_poster(
+        self, controller: AppController, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test poster URLs resolve to cached poster files."""
+        poster_dir = tmp_path / "posters"
+        poster_dir.mkdir()
+        poster = poster_dir / "movie-1.jpg"
+        poster.write_bytes(b"image")
+        monkeypatch.setattr(app_controller_module, "CACHE_DIR", tmp_path)
+
+        assert (
+            controller._get_cached_poster_path("movie-1", "https://example.com/p.jpg")
+            == str(poster)
+        )
 
     def test_transition_to(self, controller: AppController) -> None:
         """Test state transition."""
@@ -2168,7 +2194,6 @@ class TestErrorRecoveryWorkflows:
         mock_pipeline.is_busy.return_value = False
         controller._pipeline_service = mock_pipeline
 
-        video_file_id = 1
         db_manager.upsert_content(
             {
                 "items": [
