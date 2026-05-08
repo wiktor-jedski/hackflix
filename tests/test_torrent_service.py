@@ -1141,6 +1141,75 @@ class TestTorrentServiceAddMagnet:
         assert 201 in service._handles
         assert service._contexts[201].download_type == DownloadType.SEASON
 
+    def test_process_backend_namespaces_movie_and_season_ids(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Verify process backend can track movie and season with same DB ID."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(db_manager=db_manager)
+        service._use_process_backend = True
+
+        with (
+            mock.patch.object(
+                service, "_send_worker_command", return_value=True
+            ) as send,
+            mock.patch.object(service._db_manager, "update_file_state"),
+            mock.patch.object(service._db_manager, "update_season_state"),
+        ):
+            assert service.add_magnet(
+                DownloadContext(DownloadType.MOVIE, 7), "magnet:?movie"
+            )
+            assert service.add_magnet(
+                DownloadContext(DownloadType.SEASON, 7), "magnet:?season"
+            )
+
+        assert set(service._contexts) == {7, -7}
+        sent_ids = [call.args[0]["id"] for call in send.call_args_list]
+        assert sent_ids == [7, -7]
+
+    def test_process_backend_unavailable_does_not_queue_db_state(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Verify unavailable worker does not mark a download as queued."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(db_manager=db_manager)
+        service._use_process_backend = True
+
+        with (
+            mock.patch.object(service, "_send_worker_command", return_value=False),
+            mock.patch.object(service._db_manager, "update_file_state") as update,
+        ):
+            result = service.add_magnet(
+                DownloadContext(DownloadType.MOVIE, 8), "magnet:?movie"
+            )
+
+        assert result is False
+        update.assert_not_called()
+        assert service._contexts == {}
+
+    def test_malformed_worker_stdout_is_ignored(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Verify malformed worker JSON does not crash event handling."""
+        from src.services.torrent_service import TorrentService
+
+        service = TorrentService(db_manager=db_manager)
+
+        with mock.patch.object(service, "_handle_worker_event") as handle_event:
+            service._handle_worker_line("not json\n")
+
+        handle_event.assert_not_called()
+
     def test_add_magnet_sequential(
         self,
         mock_libtorrent_module: mock.MagicMock,
@@ -1621,7 +1690,9 @@ class TestDownloadStateTransitions:
         service._session.pop_alerts.return_value = [mock_alert]
 
         errors: list[tuple[int, str]] = []
-        service.download_error.connect(lambda file_id, error: errors.append((file_id, error)))
+        service.download_error.connect(
+            lambda file_id, error: errors.append((file_id, error))
+        )
 
         service._poll_progress()
 

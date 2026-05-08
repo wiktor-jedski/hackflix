@@ -292,6 +292,25 @@ class TestMetadataServicePosterCaching:
         assert poster_path.exists()
         assert poster_path.read_bytes() == b"fake image data"
 
+    def test_poster_cache_sanitizes_id_and_extension(
+        self, service: MetadataService
+    ) -> None:
+        """Verify unsafe catalog IDs and URL suffixes stay inside poster cache."""
+        service._ensure_cache_dirs()
+        mock_poster = mock.MagicMock()
+        mock_poster.read.return_value = b"poster"
+        mock_poster.__enter__ = mock.MagicMock(return_value=mock_poster)
+        mock_poster.__exit__ = mock.MagicMock(return_value=False)
+
+        with mock.patch("urllib.request.urlopen", return_value=mock_poster):
+            poster_path = service._download_poster(
+                "../unsafe/movie", "https://example.com/poster.php?name=x.jpg"
+            )
+
+        assert poster_path.parent == service._poster_dir.resolve()
+        assert poster_path.name == "unsafe_movie.jpg"
+        assert poster_path.exists()
+
     def test_poster_caching_skips_existing(
         self, service: MetadataService, tmp_path: Path
     ) -> None:

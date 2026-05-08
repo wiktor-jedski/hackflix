@@ -8,6 +8,7 @@ from src.config import DownloadState, PipelineState
 import src.controllers.app_controller as app_controller_module
 from src.controllers.app_controller import (
     AppController,
+    DeleteWorker,
     DialogConfirmHandler,
     LibraryRootHandler,
     NavigationContext,
@@ -95,10 +96,9 @@ class TestAppController:
         poster.write_bytes(b"image")
         monkeypatch.setattr(app_controller_module, "CACHE_DIR", tmp_path)
 
-        assert (
-            controller._get_cached_poster_path("movie-1", "https://example.com/p.jpg")
-            == str(poster)
-        )
+        assert controller._get_cached_poster_path(
+            "movie-1", "https://example.com/p.jpg"
+        ) == str(poster)
 
     def test_transition_to(self, controller: AppController) -> None:
         """Test state transition."""
@@ -182,9 +182,160 @@ class TestAppController:
         controller.clear_search_filter()
         assert controller.search_filter is None
 
+    def test_resume_incomplete_downloads_includes_seasons(
+        self, controller: AppController
+    ) -> None:
+        """Verify startup resume includes interrupted season downloads."""
+        mock_torrent = MagicMock()
+        mock_torrent.add_magnet.return_value = True
+        controller._torrent_service = mock_torrent
+
+        with (
+            pytest.MonkeyPatch.context() as monkeypatch,
+        ):
+            monkeypatch.setattr(
+                controller._db_manager,
+                "get_incomplete_downloads",
+                MagicMock(return_value=[]),
+            )
+            monkeypatch.setattr(
+                controller._db_manager,
+                "get_incomplete_season_downloads",
+                MagicMock(
+                    return_value=[
+                        {"id": 3, "magnet_link": "magnet:?xt=urn:btih:season3"},
+                    ]
+                ),
+            )
+            controller._resume_incomplete_downloads()
+
+        mock_torrent.add_magnet.assert_called_once()
+        context = mock_torrent.add_magnet.call_args.args[0]
+        assert context.download_type.value == "season"
+        assert context.id == 3
+
+    def test_busy_pipeline_jobs_are_queued_and_started_sequentially(
+        self, controller: AppController
+    ) -> None:
+        """Verify multiple incomplete pipelines are serialized instead of dropped."""
+        pipeline = MagicMock()
+        pipeline.is_busy.return_value = True
+        controller._pipeline_service = pipeline
+
+        controller.start_pipeline(1)
+        controller.start_pipeline(2)
+
+        assert controller._pending_pipeline_ids == [1, 2]
+        pipeline.start_process.assert_not_called()
+
+        pipeline.is_busy.return_value = False
+        controller._start_next_pending_pipeline()
+
+        pipeline.start_process.assert_called_once_with(1)
+        assert controller._pending_pipeline_ids == [2]
+
     def test_shutdown(self, controller: AppController) -> None:
         """Test shutdown method."""
         controller.shutdown()  # Should not raise
+
+
+class TestDeleteWorker:
+    """Tests for background deletion safety."""
+
+    def test_delete_paths_removes_files_under_media_root(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify app-owned media files are deleted."""
+        media_root = tmp_path / "media"
+        cache_root = tmp_path / "cache"
+        media_root.mkdir()
+        cache_root.mkdir()
+        video_path = media_root / "movie.mp4"
+        video_path.write_bytes(b"video")
+
+        monkeypatch.setattr(app_controller_module, "MEDIA_LIBRARY_PATH", media_root)
+        monkeypatch.setattr(app_controller_module, "CACHE_DIR", cache_root)
+
+        worker = DeleteWorker(MagicMock(), "movie", "movie-1", "Movie", None)
+
+        deleted, failed = worker._delete_paths([str(video_path)])
+
+        assert (deleted, failed) == (1, 0)
+        assert not video_path.exists()
+
+    def test_delete_paths_skips_files_outside_app_roots(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify paths outside media/cache roots are left untouched."""
+        media_root = tmp_path / "media"
+        cache_root = tmp_path / "cache"
+        outside_root = tmp_path / "outside"
+        media_root.mkdir()
+        cache_root.mkdir()
+        outside_root.mkdir()
+        outside_path = outside_root / "external.mp4"
+        outside_path.write_bytes(b"external")
+
+        monkeypatch.setattr(app_controller_module, "MEDIA_LIBRARY_PATH", media_root)
+        monkeypatch.setattr(app_controller_module, "CACHE_DIR", cache_root)
+
+        worker = DeleteWorker(MagicMock(), "movie", "movie-1", "Movie", None)
+
+        deleted, failed = worker._delete_paths([str(outside_path)])
+
+        assert (deleted, failed) == (0, 0)
+        assert outside_path.exists()
+
+    def test_run_resets_movie_state_when_file_is_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify DB state is reset even if the downloaded file is already gone."""
+        media_root = tmp_path / "media"
+        cache_root = tmp_path / "cache"
+        media_root.mkdir()
+        cache_root.mkdir()
+        missing_path = media_root / "missing.mp4"
+        db_manager = MagicMock()
+        db_manager.get_media_files.return_value = [str(missing_path)]
+
+        monkeypatch.setattr(app_controller_module, "MEDIA_LIBRARY_PATH", media_root)
+        monkeypatch.setattr(app_controller_module, "CACHE_DIR", cache_root)
+
+        worker = DeleteWorker(db_manager, "movie", "movie-1", "Movie", None)
+        emissions: list[tuple[str, str, int, int]] = []
+        worker.delete_finished.connect(
+            lambda status, view, deleted, failed: emissions.append(
+                (status, view, deleted, failed)
+            )
+        )
+
+        worker.run()
+
+        db_manager.reset_media_state.assert_called_once_with("movie-1")
+        assert emissions == [("ok", "library", 0, 0)]
+
+    def test_delete_paths_reports_unlink_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify unlink errors are counted as failures."""
+        media_root = tmp_path / "media"
+        cache_root = tmp_path / "cache"
+        media_root.mkdir()
+        cache_root.mkdir()
+        video_path = media_root / "movie.mp4"
+        video_path.write_bytes(b"video")
+
+        monkeypatch.setattr(app_controller_module, "MEDIA_LIBRARY_PATH", media_root)
+        monkeypatch.setattr(app_controller_module, "CACHE_DIR", cache_root)
+
+        worker = DeleteWorker(MagicMock(), "movie", "movie-1", "Movie", None)
+
+        with pytest.MonkeyPatch.context() as patcher:
+            patcher.setattr(Path, "unlink", MagicMock(side_effect=OSError("denied")))
+            deleted, failed = worker._delete_paths([str(video_path)])
+
+        assert (deleted, failed) == (0, 1)
+        assert video_path.exists()
 
 
 class TestLibraryRootHandler:
@@ -1769,7 +1920,9 @@ class TestAppControllerPlayerMethods:
         controller.play_media(video["id"])
 
         # Should load original subtitle
-        mock_player_service.load_subtitle.assert_called_once_with("/path/to/original.srt")
+        mock_player_service.load_subtitle.assert_called_once_with(
+            "/path/to/original.srt"
+        )
 
     def test_play_media_without_subtitles(
         self,

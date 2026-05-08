@@ -14,9 +14,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QObject, Qt, Slot
+from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 
-from src.config import CACHE_DIR, DownloadState, PipelineState
+from src.config import CACHE_DIR, MEDIA_LIBRARY_PATH, DownloadState, PipelineState
 from src.database.db_manager import DatabaseManager
 from src.ui.enums import Action, AppState, MediaTab
 
@@ -30,6 +30,82 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 POSTER_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+
+
+class DeleteWorker(QThread):
+    """Delete downloaded files away from the UI thread."""
+
+    delete_finished = Signal(str, str, int, int)
+
+    def __init__(
+        self,
+        db_manager: DatabaseManager,
+        item_type: str,
+        item_id: str | int,
+        title: str,
+        current_season_id: int | None,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._db_manager = db_manager
+        self._item_type = item_type
+        self._item_id = item_id
+        self._title = title
+        self._current_season_id = current_season_id
+
+    def run(self) -> None:
+        """Delete approved paths and reset DB state."""
+        try:
+            if self._item_type == "episode":
+                video = self._db_manager.get_video_file(int(self._item_id))
+                paths = [video["file_path"]] if video and video.get("file_path") else []
+                deleted, failed = self._delete_paths(paths)
+                self._db_manager.reset_video_file_state(int(self._item_id))
+                view = "episodes" if self._current_season_id else "library"
+                self.delete_finished.emit("ok", view, deleted, failed)
+                return
+
+            paths = self._db_manager.get_media_files(str(self._item_id))
+            deleted, failed = self._delete_paths(paths)
+            self._db_manager.reset_media_state(str(self._item_id))
+            self.delete_finished.emit("ok", "library", deleted, failed)
+        except Exception as e:
+            logger.error(
+                "Delete failed for %s %s: %s", self._item_type, self._item_id, e
+            )
+            self.delete_finished.emit(str(e), "library", 0, 1)
+
+    def _delete_paths(self, paths: list[str]) -> tuple[int, int]:
+        """Delete paths that are under app-owned roots."""
+        deleted = 0
+        failed = 0
+        roots = [MEDIA_LIBRARY_PATH.resolve(), CACHE_DIR.resolve()]
+
+        for raw_path in paths:
+            try:
+                file_path = Path(raw_path).resolve()
+            except (OSError, RuntimeError):
+                logger.warning("Skipping invalid delete path: %s", raw_path)
+                failed += 1
+                continue
+
+            if not any(
+                file_path == root or root in file_path.parents for root in roots
+            ):
+                logger.warning("Skipping non-app-owned delete path: %s", file_path)
+                continue
+
+            if not file_path.exists():
+                continue
+
+            try:
+                file_path.unlink()
+                deleted += 1
+            except OSError as e:
+                logger.warning("Failed to delete %s: %s", file_path, e)
+                failed += 1
+
+        return deleted, failed
 
 
 @dataclass
@@ -324,6 +400,8 @@ class AppController(QObject):
         self._current_season_id: int | None = None
         self._active_download_types: dict[int, str] = {}
         self._pending_episode_pipeline_by_season: dict[int, int] = {}
+        self._pending_pipeline_ids: list[int] = []
+        self._delete_worker: DeleteWorker | None = None
 
         # Player state
         self._current_playing_file_id: int | None = None
@@ -451,17 +529,21 @@ class AppController(QObject):
 
         try:
             incomplete = self._db_manager.get_incomplete_downloads()
-            if incomplete:
-                logger.info("Resuming %d incomplete downloads", len(incomplete))
+            incomplete_seasons = self._db_manager.get_incomplete_season_downloads()
+            total = len(incomplete) + len(incomplete_seasons)
+            if total:
+                logger.info("Resuming %d incomplete downloads", total)
                 if self._main_window:
                     self._main_window.show_toast(
                         self.tr("Resuming {count} incomplete downloads").format(
-                            count=len(incomplete)
+                            count=total
                         ),
                         "info",
                     )
                 for video in incomplete:
                     self._resume_download(video)
+                for season in incomplete_seasons:
+                    self._resume_season_download(season)
         except Exception as e:
             logger.error("Failed to resume incomplete downloads: %s", e)
 
@@ -490,6 +572,29 @@ class AppController(QObject):
         else:
             logger.warning("Failed to resume download for video file %d", file_id)
 
+    def _resume_season_download(self, season: dict[str, Any]) -> None:
+        """Resume a season download from database state."""
+        magnet = season.get("magnet_link")
+        if not magnet:
+            logger.warning(
+                "Cannot resume season download %d: no magnet link", season.get("id")
+            )
+            return
+
+        if not self._torrent_service:
+            return
+
+        from src.services.torrent_service import DownloadContext, DownloadType
+
+        season_id = season["id"]
+        context = DownloadContext(DownloadType.SEASON, season_id)
+
+        if self._torrent_service.add_magnet(context, magnet):
+            self._active_download_types[season_id] = DownloadType.SEASON.value
+            logger.info("Resumed season download for season %d", season_id)
+        else:
+            logger.warning("Failed to resume season download for season %d", season_id)
+
     def _resume_incomplete_pipelines(self) -> None:
         """Resume any incomplete pipeline processes on startup."""
         if not self._pipeline_service:
@@ -501,13 +606,13 @@ class AppController(QObject):
                 logger.info("Resuming %d incomplete pipelines", len(incomplete))
                 if self._main_window:
                     self._main_window.show_toast(
-                        self.tr(
-                            "Resuming {count} incomplete processing tasks"
-                        ).format(count=len(incomplete)),
+                        self.tr("Resuming {count} incomplete processing tasks").format(
+                            count=len(incomplete)
+                        ),
                         "info",
                     )
                 for video in incomplete:
-                    self.start_pipeline(video["id"])
+                    self.start_pipeline(video["id"], show_busy_toast=False)
         except Exception as e:
             logger.error("Failed to resume incomplete pipelines: %s", e)
 
@@ -684,16 +789,34 @@ class AppController(QObject):
 
     def _get_cached_poster_path(self, media_id: str, poster_path: str | None) -> str:
         """Return a local poster path when one is cached."""
-        if poster_path and Path(poster_path).exists():
-            return poster_path
-
         poster_dir = CACHE_DIR / "posters"
+        poster_root = poster_dir.resolve()
+        if poster_path:
+            try:
+                local_path = Path(poster_path).resolve()
+                if local_path.exists():
+                    return str(local_path)
+                if (
+                    local_path == poster_root or poster_root in local_path.parents
+                ) and local_path.exists():
+                    return str(local_path)
+            except (OSError, RuntimeError):
+                logger.warning("Ignoring invalid poster path: %s", poster_path)
+
+        safe_media_id = self._safe_cache_name(media_id)
         for ext in POSTER_EXTENSIONS:
-            cached = poster_dir / f"{media_id}{ext}"
+            cached = poster_dir / f"{safe_media_id}{ext}"
             if cached.exists():
                 return str(cached)
 
         return poster_path or ""
+
+    def _safe_cache_name(self, item_id: str) -> str:
+        """Return the poster cache basename used by MetadataService."""
+        safe = "".join(
+            char if char.isalnum() or char in "_.-" else "_" for char in item_id
+        ).strip("._")
+        return safe or "poster"
 
     def load_seasons(self, series_id: str) -> None:
         """Load seasons for a series.
@@ -716,7 +839,9 @@ class AppController(QObject):
                     {
                         "id": season["id"],
                         "type": "season",
-                        "title": self.tr("Season {n}").format(n=season["season_number"]),
+                        "title": self.tr("Season {n}").format(
+                            n=season["season_number"]
+                        ),
                         "season_number": season["season_number"],
                         "episode_count": len(episodes),
                         "state": season.get("state", DownloadState.PENDING.value),
@@ -761,9 +886,7 @@ class AppController(QObject):
                         "state": ep.get("state", DownloadState.PENDING.value),
                         "pipeline_state": ep.get("pipeline_state"),
                         "download_progress": ep.get("download_progress", 0),
-                        "resume_position_seconds": ep.get(
-                            "resume_position_seconds", 0
-                        ),
+                        "resume_position_seconds": ep.get("resume_position_seconds", 0),
                         "watched_at": ep.get("watched_at"),
                     }
                 )
@@ -1034,67 +1157,62 @@ class AppController(QObject):
                 )
                 return
 
-            # Handle episodes differently - they use file_id directly
-            if item_type == "episode":
-                file_id = item.get("file_id")
-                if file_id:
-                    video = self._db_manager.get_video_file(file_id)
-                    if video and video.get("file_path"):
-                        file_path = Path(video["file_path"])
-                        if file_path.exists():
-                            try:
-                                file_path.unlink()
-                                self._db_manager.reset_video_file_state(file_id)
-                                self._main_window.show_toast(
-                                    self.tr("Deleted: {title}").format(title=title),
-                                    "info",
-                                )
-                            except OSError as e:
-                                self._main_window.show_toast(
-                                    self.tr("Failed to delete: {error}").format(
-                                        error=e
-                                    ),
-                                    "error",
-                                )
-                        else:
-                            # File already gone, just reset state
-                            self._db_manager.reset_video_file_state(file_id)
-                    # Reload episodes view
-                    if self._current_season_id:
-                        self.load_episodes(self._current_season_id)
+            delete_id = item.get("file_id") if item_type == "episode" else item_id
+            if delete_id is None:
+                self._main_window.show_toast(
+                    self.tr("Failed to delete: invalid item"), "error"
+                )
                 return
 
-            # For movies: get all associated files and delete them
-            file_paths = self._db_manager.get_media_files(item_id)
-            deleted_count = 0
-            failed_count = 0
+            self._delete_worker = DeleteWorker(
+                self._db_manager,
+                str(item_type),
+                delete_id,
+                str(title),
+                self._current_season_id,
+            )
+            self._delete_worker.delete_finished.connect(
+                lambda status, view, deleted, failed: self._on_delete_finished(
+                    status, view, deleted, failed, str(title)
+                )
+            )
+            self._delete_worker.start()
+            self._main_window.show_toast(
+                self.tr("Deleting: {title}").format(title=title), "info"
+            )
 
-            for file_path in file_paths:
-                if file_path and Path(file_path).exists():
-                    try:
-                        Path(file_path).unlink()
-                        deleted_count += 1
-                    except OSError:
-                        failed_count += 1
-
-            # Reset the video file state to PENDING
-            self._db_manager.reset_media_state(item_id)
-
-            if failed_count == 0:
+    @Slot(str, str, int, int)
+    def _on_delete_finished(
+        self, status: str, view: str, deleted: int, failed: int, title: str
+    ) -> None:
+        """Handle completion of a background delete operation."""
+        if self._main_window:
+            if status == "ok" and failed == 0:
                 self._main_window.show_toast(
                     self.tr("Deleted {count} file(s): {title}").format(
-                        count=deleted_count, title=title
+                        count=deleted, title=title
                     ),
                     "info",
                 )
-            else:
+            elif status == "ok":
                 self._main_window.show_toast(
-                    self.tr(
-                        "Deleted {ok}, failed {failed}: {title}"
-                    ).format(ok=deleted_count, failed=failed_count, title=title),
+                    self.tr("Deleted {ok}, failed {failed}: {title}").format(
+                        ok=deleted, failed=failed, title=title
+                    ),
                     "warning",
                 )
+            else:
+                self._main_window.show_toast(
+                    self.tr("Failed to delete: {error}").format(error=status),
+                    "error",
+                )
+
+        if view == "episodes" and self._current_season_id:
+            self.load_episodes(self._current_season_id)
+        else:
             self.refresh_library()
+
+        self._delete_worker = None
 
     # =========================================================================
     # Search
@@ -1349,7 +1467,7 @@ class AppController(QObject):
     # Pipeline
     # =========================================================================
 
-    def start_pipeline(self, video_file_id: int) -> None:
+    def start_pipeline(self, video_file_id: int, show_busy_toast: bool = True) -> None:
         """Start the voiceover pipeline for a video file.
 
         Args:
@@ -1364,10 +1482,10 @@ class AppController(QObject):
             return
 
         if self._pipeline_service.is_busy():
-            if self._main_window:
-                self._main_window.show_toast(
-                    self.tr("Pipeline already in progress"), "warning"
-                )
+            if video_file_id not in self._pending_pipeline_ids:
+                self._pending_pipeline_ids.append(video_file_id)
+            if show_busy_toast and self._main_window:
+                self._main_window.show_toast(self.tr("Pipeline queued"), "info")
             return
 
         self._pipeline_service.start_process(video_file_id)
@@ -1409,9 +1527,16 @@ class AppController(QObject):
                 )
             self._main_window.library_view.update_item_by_file_id(
                 file_id,
-                {"pipeline_state": "completed" if success else "failed"},
+                {
+                    "pipeline_state": (
+                        PipelineState.SUBS_READY.value
+                        if success
+                        else PipelineState.FAILED.value
+                    )
+                },
             )
         self.refresh_library()
+        self._start_next_pending_pipeline()
 
     @Slot(int, str)
     def _on_pipeline_error(self, file_id: int, error: str) -> None:
@@ -1427,8 +1552,17 @@ class AppController(QObject):
                 self.tr("Pipeline error: {error}").format(error=error), "error"
             )
             self._main_window.library_view.update_item_by_file_id(
-                file_id, {"pipeline_state": "failed"}
+                file_id, {"pipeline_state": PipelineState.FAILED.value}
             )
+
+    def _start_next_pending_pipeline(self) -> None:
+        """Start the next queued pipeline job if the service is idle."""
+        if not self._pipeline_service or self._pipeline_service.is_busy():
+            return
+        if not self._pending_pipeline_ids:
+            return
+        next_file_id = self._pending_pipeline_ids.pop(0)
+        self.start_pipeline(next_file_id, show_busy_toast=False)
 
     # =========================================================================
     # Player

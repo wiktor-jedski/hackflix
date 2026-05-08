@@ -6,6 +6,7 @@ with support for resumable processing and progress tracking.
 
 import json
 import logging
+from collections.abc import Callable
 
 from google import genai
 from google.genai import types
@@ -58,6 +59,7 @@ Do not include any explanation or markdown formatting."""
         subtitle_lines: list,
         start_batch: int = 0,
         video_file_id: int | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> list:
         """Translate a batch of subtitle lines.
 
@@ -65,6 +67,8 @@ Do not include any explanation or markdown formatting."""
             subtitle_lines: List of SubtitleLine objects to translate.
             start_batch: Batch index to start from (for resume support).
             video_file_id: Optional video file ID for progress tracking.
+            progress_callback: Optional callback receiving the last completed batch
+                number and total batch count after each successful batch.
 
         Returns:
             List of SubtitleLine objects with translated text.
@@ -95,6 +99,8 @@ Do not include any explanation or markdown formatting."""
                     batch, batch_idx + 1, total_batches
                 )
                 all_translated.extend(translated_batch)
+                if progress_callback:
+                    progress_callback(batch_idx + 1, total_batches)
 
             except GeminiTranslationError as e:
                 if "rate limit" in str(e).lower() or "429" in str(e):
@@ -109,6 +115,8 @@ Do not include any explanation or markdown formatting."""
                         batch, batch_idx + 1, total_batches
                     )
                     all_translated.extend(translated_batch)
+                    if progress_callback:
+                        progress_callback(batch_idx + 1, total_batches)
                 else:
                     raise
 

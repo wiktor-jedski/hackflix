@@ -47,7 +47,7 @@ class DatabaseManager:
         """
         if self._is_memory:
             if self._shared_conn is None:
-                self._shared_conn = sqlite3.connect(":memory:")
+                self._shared_conn = sqlite3.connect(":memory:", check_same_thread=False)
                 self._shared_conn.execute("PRAGMA foreign_keys = ON")
                 self._shared_conn.row_factory = sqlite3.Row
             return self._shared_conn
@@ -742,6 +742,31 @@ class DatabaseManager:
             logger.error("Failed to update translation progress: %s", e)
             raise
 
+    def clear_translation_progress(self, file_id: int) -> None:
+        """Remove saved translation progress after successful completion.
+
+        Args:
+            file_id: ID of the video file.
+
+        Raises:
+            sqlite3.Error: If delete fails.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "DELETE FROM translation_progress WHERE video_file_id = ?",
+                (file_id,),
+            )
+
+            conn.commit()
+            self._close_connection(conn)
+            logger.debug("Cleared translation progress for file %d", file_id)
+        except sqlite3.Error as e:
+            logger.error("Failed to clear translation progress: %s", e)
+            raise
+
     def get_incomplete_downloads(self) -> list[dict[str, Any]]:
         """Get all video files with incomplete downloads for auto-resume.
 
@@ -770,6 +795,36 @@ class DatabaseManager:
             return [dict(row) for row in rows]
         except sqlite3.Error as e:
             logger.error("Failed to get incomplete downloads: %s", e)
+            raise
+
+    def get_incomplete_season_downloads(self) -> list[dict[str, Any]]:
+        """Get all seasons with incomplete downloads for auto-resume.
+
+        Returns:
+            List of seasons in QUEUED or DOWNLOADING state.
+
+        Raises:
+            sqlite3.Error: If query fails.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                SELECT s.*, mi.title as media_title
+                FROM seasons s
+                JOIN media_items mi ON s.media_item_id = mi.id
+                WHERE s.state IN (?, ?)
+                """,
+                (DownloadState.QUEUED.value, DownloadState.DOWNLOADING.value),
+            )
+
+            rows = cursor.fetchall()
+            self._close_connection(conn)
+            return [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            logger.error("Failed to get incomplete season downloads: %s", e)
             raise
 
     def get_incomplete_pipelines(self) -> list[dict[str, Any]]:

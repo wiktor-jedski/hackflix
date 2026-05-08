@@ -186,6 +186,33 @@ class TestDatabaseManager:
         assert video["subtitle_id"] == 123
         assert video["needs_translation"] == 1
 
+    def test_clear_translation_progress_removes_row(
+        self, db_manager: DatabaseManager
+    ) -> None:
+        """Verify translation progress can be cleared after a successful run."""
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "movie-clear-progress",
+                        "type": "movie",
+                        "title": "Progress Movie",
+                        "magnet": "magnet:?xt=urn:btih:progress",
+                        "subtitle_id": 10,
+                    }
+                ]
+            }
+        )
+        video = db_manager.get_video_details("movie-clear-progress")
+        assert video is not None
+
+        db_manager.update_translation_progress(video["id"], 2, 4)
+        assert db_manager.get_translation_progress(video["id"]) is not None
+
+        db_manager.clear_translation_progress(video["id"])
+
+        assert db_manager.get_translation_progress(video["id"]) is None
+
     def test_upsert_content_series(
         self, db_manager: DatabaseManager, sample_content_json: dict
     ) -> None:

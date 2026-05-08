@@ -149,9 +149,13 @@ class PipelineService(QThread):
 
             if needs_translation:
                 self._translate_subtitles(video_folder, self._video_file_id)
-                Path(video_folder / "pl.srt").rename(f"{video_folder}/{video_name}.srt")
+                Path(video_folder / "pl.srt").replace(
+                    video_folder / f"{video_name}.srt"
+                )
             else:
-                Path(video_folder / "original.srt").rename(f"{video_folder}/{video_name}.srt")
+                Path(video_folder / "original.srt").replace(
+                    video_folder / f"{video_name}.srt"
+                )
                 # If no translation needed, mark as ready after fetching
                 self._update_pipeline_state(PipelineState.SUBS_READY)
 
@@ -241,11 +245,18 @@ class PipelineService(QThread):
         subtitle_lines = parse_srt_file(original_srt)
 
         progress = self.db_manager.get_translation_progress(video_file_id)
-        start_batch = progress["completed_batches"] if progress else 0
+        start_batch = (
+            progress.get("last_completed_batch", progress.get("completed_batches", 0))
+            if progress
+            else 0
+        )
 
         translator = GeminiTranslator()
         translated_lines = translator.translate_batch(
-            subtitle_lines, start_batch, video_file_id
+            subtitle_lines,
+            start_batch,
+            video_file_id,
+            self.db_manager.update_translation_progress,
         )
 
         from src.utils.subtitle_parser import write_srt_file

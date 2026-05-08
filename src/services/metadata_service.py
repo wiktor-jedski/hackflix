@@ -6,9 +6,11 @@ content metadata from a remote catalog.
 
 import json
 import logging
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import Any
 
 from PySide6.QtCore import QObject, QThread, Signal
@@ -17,6 +19,9 @@ from src.config import CACHE_DIR, CATALOG_URL
 from src.database.db_manager import DatabaseManager
 
 logger = logging.getLogger(__name__)
+
+POSTER_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".webp"})
+SAFE_ID_PATTERN = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
 class MetadataService(QThread):
@@ -159,9 +164,12 @@ class MetadataService(QThread):
         Raises:
             urllib.error.URLError: If download fails.
         """
-        # Determine file extension from URL
-        ext = Path(poster_url).suffix or ".jpg"
-        poster_path = self._poster_dir / f"{item_id}{ext}"
+        ext = self._safe_poster_extension(poster_url)
+        safe_item_id = self._safe_cache_name(item_id)
+        poster_path = (self._poster_dir / f"{safe_item_id}{ext}").resolve()
+        poster_root = self._poster_dir.resolve()
+        if poster_root not in poster_path.parents:
+            raise urllib.error.URLError("Unsafe poster cache path")
 
         # Skip if already cached
         if poster_path.exists():
@@ -173,6 +181,18 @@ class MetadataService(QThread):
 
         return poster_path
 
+    def _safe_cache_name(self, item_id: str) -> str:
+        """Return a path-safe cache basename for a catalog item ID."""
+        safe_name = SAFE_ID_PATTERN.sub("_", item_id).strip("._")
+        return safe_name or "poster"
+
+    def _safe_poster_extension(self, poster_url: str) -> str:
+        """Return an allowed poster extension, defaulting unsafe suffixes to jpg."""
+        suffix = Path(urlparse(poster_url).path).suffix.lower()
+        if suffix in POSTER_EXTENSIONS:
+            return suffix
+        return ".jpg"
+
     def get_poster_path(self, item_id: str) -> Path | None:
         """Get the cached poster path for a media item.
 
@@ -183,7 +203,7 @@ class MetadataService(QThread):
             Path to cached poster or None if not cached.
         """
         for ext in [".jpg", ".jpeg", ".png", ".webp"]:
-            poster_path = self._poster_dir / f"{item_id}{ext}"
+            poster_path = self._poster_dir / f"{self._safe_cache_name(item_id)}{ext}"
             if poster_path.exists():
                 return poster_path
         return None
