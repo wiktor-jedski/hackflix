@@ -2,11 +2,13 @@
 
 import pytest
 from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import QStyledItemDelegate
 
 from src.config import DownloadState
 from src.ui.components.library_item_delegate import LibraryItemRole
 from src.ui.components.library_view import LibraryView
 from src.ui.enums import MediaTab
+from src.ui.styles import POSTER_HEIGHT, POSTER_WIDTH, SURFACE_COLOR
 
 
 class TestLibraryView:
@@ -98,6 +100,47 @@ class TestLibraryView:
 
         assert item.text().startswith("[Download] Test Movie 1")
 
+    @pytest.mark.parametrize(
+        ("item_data", "expected"),
+        [
+            (
+                {
+                    "type": "movie",
+                    "state": DownloadState.COMPLETED.value,
+                    "resume_position_seconds": 42,
+                },
+                "[Resume 1 min] Test",
+            ),
+            (
+                {
+                    "type": "movie",
+                    "state": DownloadState.COMPLETED.value,
+                    "resume_position_seconds": 2520,
+                },
+                "[Resume 42 min] Test",
+            ),
+            (
+                {
+                    "type": "movie",
+                    "state": DownloadState.COMPLETED.value,
+                    "watched_at": "2026-05-08 12:00:00",
+                },
+                "[Watched] Test",
+            ),
+            (
+                {"type": "movie", "state": DownloadState.COMPLETED.value},
+                "[Play] Test",
+            ),
+        ],
+    )
+    def test_completed_item_status_text_uses_resume_and_watched_state(
+        self, library_view: LibraryView, item_data: dict[str, object], expected: str
+    ) -> None:
+        """Test completed fallback labels show resume, watched, or play."""
+        item_data["title"] = "Test"
+
+        assert library_view._format_item_text(item_data) == expected
+
     def test_set_items_uses_poster_icon(
         self, library_view: LibraryView, sample_items: list[dict], tmp_path
     ) -> None:
@@ -111,6 +154,161 @@ class TestLibraryView:
 
         item = library_view._model.item(0)
         assert not item.icon().isNull()
+
+    @pytest.mark.parametrize(
+        ("item_data", "expected_kind"),
+        [
+            ({"type": "movie", "state": DownloadState.PENDING.value}, "download"),
+            ({"type": "movie", "state": DownloadState.QUEUED.value}, "download"),
+            (
+                {
+                    "type": "movie",
+                    "state": DownloadState.DOWNLOADING.value,
+                    "download_progress": 42,
+                },
+                "hourglass",
+            ),
+            ({"type": "movie", "state": DownloadState.COMPLETED.value}, "play"),
+            ({"type": "movie", "state": DownloadState.ERROR.value}, "warning"),
+            ({"type": "series", "state": None}, "series"),
+        ],
+    )
+    def test_status_indicator_mapping(
+        self,
+        library_view: LibraryView,
+        item_data: dict[str, object],
+        expected_kind: str,
+    ) -> None:
+        """Test poster overlay status symbols use the expected state mapping."""
+        indicator = library_view._status_indicator(item_data)
+
+        assert indicator["kind"] == expected_kind
+
+    def test_status_indicator_empty_for_unknown_state(
+        self, library_view: LibraryView
+    ) -> None:
+        """Test unknown states do not draw an overlay."""
+        assert library_view._status_indicator({"type": "movie", "state": None}) == {}
+
+    def test_generated_icon_contains_status_overlay(
+        self, library_view: LibraryView
+    ) -> None:
+        """Test generated poster icons include static overlay pixels."""
+        icon = library_view._build_item_icon(
+            {"type": "movie", "state": DownloadState.COMPLETED.value}
+        )
+        pixmap = icon.pixmap(POSTER_WIDTH, POSTER_HEIGHT)
+        image = pixmap.toImage()
+        background = SURFACE_COLOR.lower()
+
+        overlay_pixels = [
+            image.pixelColor(x, y).name().lower()
+            for x in range(POSTER_WIDTH - 35, POSTER_WIDTH - 5)
+            for y in range(POSTER_HEIGHT - 35, POSTER_HEIGHT - 5)
+        ]
+
+        assert any(color != background for color in overlay_pixels)
+
+    @pytest.mark.parametrize(
+        "item_data",
+        [
+            {"type": "movie", "state": DownloadState.PENDING.value},
+            {"type": "movie", "state": DownloadState.QUEUED.value},
+            {
+                "type": "movie",
+                "state": DownloadState.DOWNLOADING.value,
+                "download_progress": 42,
+            },
+            {"type": "movie", "state": DownloadState.COMPLETED.value},
+            {"type": "movie", "state": DownloadState.ERROR.value},
+            {"type": "series", "state": None},
+        ],
+    )
+    def test_generated_icon_contains_each_status_overlay(
+        self, library_view: LibraryView, item_data: dict[str, object]
+    ) -> None:
+        """Test each status type draws a static overlay."""
+        icon = library_view._build_item_icon(item_data)
+        image = icon.pixmap(POSTER_WIDTH, POSTER_HEIGHT).toImage()
+        background = SURFACE_COLOR.lower()
+
+        overlay_pixels = [
+            image.pixelColor(x, y).name().lower()
+            for x in range(POSTER_WIDTH - 35, POSTER_WIDTH - 5)
+            for y in range(POSTER_HEIGHT - 35, POSTER_HEIGHT - 5)
+        ]
+
+        assert any(color != background for color in overlay_pixels)
+
+    def test_build_item_icon_without_status_overlay(
+        self, library_view: LibraryView
+    ) -> None:
+        """Test icon generation works for items without a status indicator."""
+        icon = library_view._build_item_icon({"type": "movie", "state": None})
+
+        assert not icon.isNull()
+
+    def test_placeholder_label_for_season_and_episode(
+        self, library_view: LibraryView
+    ) -> None:
+        """Test generated placeholders show season and episode labels."""
+        assert library_view._placeholder_label({"type": "season"}) == "Season"
+        assert library_view._placeholder_number(
+            {"type": "season", "season_number": 3}
+        ) == "3"
+        assert library_view._placeholder_label({"type": "episode"}) == "Episode"
+        assert library_view._placeholder_number(
+            {"type": "episode", "episode_number": 12}
+        ) == "12"
+
+    def test_placeholder_label_empty_for_movie(self, library_view: LibraryView) -> None:
+        """Test movie placeholders do not get season or episode labels."""
+        assert library_view._placeholder_label({"type": "movie"}) == ""
+        assert library_view._placeholder_number({"type": "movie"}) == ""
+
+    def test_generated_season_icon_contains_number_placeholder(
+        self, library_view: LibraryView
+    ) -> None:
+        """Test generated season placeholders draw visible number pixels."""
+        icon = library_view._build_item_icon(
+            {"type": "season", "season_number": 2, "state": None}
+        )
+        image = icon.pixmap(POSTER_WIDTH, POSTER_HEIGHT).toImage()
+        background = SURFACE_COLOR.lower()
+
+        center_pixels = [
+            image.pixelColor(x, y).name().lower()
+            for x in range(POSTER_WIDTH // 4, (POSTER_WIDTH * 3) // 4)
+            for y in range(POSTER_HEIGHT // 4, (POSTER_HEIGHT * 3) // 4)
+        ]
+
+        assert any(color != background for color in center_pixels)
+
+    def test_build_item_icon_skips_invalid_poster(
+        self, library_view: LibraryView, tmp_path
+    ) -> None:
+        """Test invalid poster files fall back to generated placeholder icons."""
+        poster_path = tmp_path / "poster.txt"
+        poster_path.write_text("not an image")
+
+        icon = library_view._build_item_icon(
+            {
+                "type": "movie",
+                "state": DownloadState.PENDING.value,
+                "poster_path": str(poster_path),
+            }
+        )
+
+        assert not icon.isNull()
+
+    def test_custom_delegate_can_be_enabled(self, qtbot, monkeypatch) -> None:
+        """Test custom delegate remains opt-in through the environment flag."""
+        monkeypatch.setenv("HACKFLIX_CUSTOM_LIBRARY_DELEGATE", "1")
+
+        view = LibraryView()
+        qtbot.addWidget(view)
+
+        assert isinstance(view._list_view.itemDelegate(), QStyledItemDelegate)
 
     def test_get_selected_item_none_when_empty(self, library_view: LibraryView) -> None:
         """Test get_selected_item returns None when list is empty."""
@@ -240,6 +438,107 @@ class TestLibraryView:
         item = library_view._model.item(0)
         assert item.data(LibraryItemRole.DownloadProgressRole) == 50
         assert item.text().startswith("[Downloading 50%]")
+
+    def test_update_item_by_file_id(
+        self, library_view: LibraryView, sample_items: list[dict]
+    ) -> None:
+        """Test updating an item by its file ID."""
+        sample_items[0]["file_id"] = 123
+        library_view.set_items(sample_items)
+
+        library_view.update_item_by_file_id(
+            123,
+            {
+                "state": DownloadState.ERROR.value,
+                "download_progress": 0,
+            },
+        )
+
+        item = library_view._model.item(0)
+        assert item.data(LibraryItemRole.DownloadStateRole) == DownloadState.ERROR.value
+        assert item.text().startswith("[Error]")
+
+    def test_update_item_by_file_id_not_found(
+        self, library_view: LibraryView, sample_items: list[dict]
+    ) -> None:
+        """Test updating a nonexistent file ID does nothing."""
+        sample_items[0]["file_id"] = 123
+        library_view.set_items(sample_items)
+
+        library_view.update_item_by_file_id(
+            999,
+            {
+                "state": DownloadState.ERROR.value,
+            },
+        )
+
+        item = library_view._model.item(0)
+        assert (
+            item.data(LibraryItemRole.DownloadStateRole) == DownloadState.PENDING.value
+        )
+
+    def test_apply_updates_ignores_unchanged_values(
+        self, library_view: LibraryView, sample_items: list[dict]
+    ) -> None:
+        """Test repeated values do not rewrite display text."""
+        library_view.set_items(sample_items)
+        item = library_view._model.item(0)
+        original_text = item.text()
+
+        library_view.update_item(
+            "movie-1",
+            {
+                "state": DownloadState.PENDING.value,
+                "download_progress": None,
+                "pipeline_state": None,
+            },
+        )
+
+        assert item.text() == original_text
+
+    @pytest.mark.parametrize(
+        ("state", "expected_prefix"),
+        [
+            (DownloadState.COMPLETED.value, "[Play]"),
+            (DownloadState.DOWNLOADING.value, "[Downloading 77%]"),
+            (DownloadState.ERROR.value, "[Error]"),
+            (DownloadState.QUEUED.value, "[Queued]"),
+            ("PAUSED", "[Paused]"),
+            (None, "Format Movie"),
+        ],
+    )
+    def test_format_item_text_state_branches(
+        self,
+        library_view: LibraryView,
+        state: str | None,
+        expected_prefix: str,
+    ) -> None:
+        """Test fallback display text for all download-state branches."""
+        text = library_view._format_item_text(
+            {
+                "title": "Format Movie",
+                "type": "movie",
+                "state": state,
+                "download_progress": 77,
+            }
+        )
+
+        assert text.startswith(expected_prefix)
+
+    def test_format_item_text_with_episode_title_only(
+        self, library_view: LibraryView
+    ) -> None:
+        """Test episode titles are included as fallback subtitle text."""
+        text = library_view._format_item_text(
+            {
+                "title": "Episode Row",
+                "type": "movie",
+                "state": None,
+                "episode_title": "Pilot",
+            }
+        )
+
+        assert text == "Episode Row\nPilot"
 
     def test_refresh(self, library_view: LibraryView, sample_items: list[dict]) -> None:
         """Test refresh triggers viewport update."""

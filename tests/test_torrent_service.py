@@ -2037,6 +2037,62 @@ class TestDownloadStateCancelAndRetry:
         assert len(matches) == 1
         assert matches[1] == Path("/downloads/Show.S01E01.1080p.mkv")
 
+    def test_complete_worker_season_download_emits_episode_completions(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Test process-backend season completion matches files to episodes."""
+        from src.services.torrent_service import TorrentService
+
+        service = TorrentService(db_manager=db_manager)
+        episodes = [
+            {"id": 1001, "episode_number": 1},
+            {"id": 1002, "episode_number": 2},
+        ]
+        event = {
+            "files": [
+                {"path": "/downloads/Show.S01E01.mkv", "size": 1000},
+                {"path": "/downloads/Show.S01E02.mkv", "size": 1100},
+            ]
+        }
+        completed_emissions: list[tuple[int, str]] = []
+        season_emissions: list[int] = []
+        service.download_completed.connect(
+            lambda fid, path: completed_emissions.append((fid, path))
+        )
+        service.season_completed.connect(lambda sid: season_emissions.append(sid))
+
+        with mock.patch.object(
+            service._db_manager, "get_episodes", return_value=episodes
+        ):
+            service._complete_worker_season_download(201, event)
+
+        assert completed_emissions == [
+            (1001, "/downloads/Show.S01E01.mkv"),
+            (1002, "/downloads/Show.S01E02.mkv"),
+        ]
+        assert season_emissions == [201]
+
+    def test_complete_worker_season_download_errors_without_files(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Test process-backend season completion reports missing video files."""
+        from src.services.torrent_service import TorrentService
+
+        service = TorrentService(db_manager=db_manager)
+        error_emissions: list[tuple[int, str]] = []
+        service.download_error.connect(
+            lambda sid, error: error_emissions.append((sid, error))
+        )
+
+        with mock.patch.object(
+            service._db_manager,
+            "get_episodes",
+            return_value=[{"id": 1001, "episode_number": 1}],
+        ):
+            service._complete_worker_season_download(201, {"files": []})
+
+        assert error_emissions == [(201, "No video files found in torrent")]
+
     def test_get_video_files_from_torrent(
         self,
         mock_libtorrent_module: mock.MagicMock,

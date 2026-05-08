@@ -11,6 +11,42 @@
         <source>Series</source>
         <translation>Seriale</translation>
     </message>
+    <message>
+        <source>Season</source>
+        <translation>Sezon</translation>
+    </message>
+    <message>
+        <source>Episode</source>
+        <translation>Odcinek</translation>
+    </message>
+    <message>
+        <source>Play</source>
+        <translation>Odtwórz</translation>
+    </message>
+    <message>
+        <source>Resume {minutes} min</source>
+        <translation>Wznów {minutes} min</translation>
+    </message>
+    <message>
+        <source>Watched</source>
+        <translation>Obejrzane</translation>
+    </message>
+    <message>
+        <source>Downloading {progress}%</source>
+        <translation>Pobieranie {progress}%</translation>
+    </message>
+    <message>
+        <source>Error</source>
+        <translation>Błąd</translation>
+    </message>
+    <message>
+        <source>Queued</source>
+        <translation>W kolejce</translation>
+    </message>
+    <message>
+        <source>Download</source>
+        <translation>Pobierz</translation>
+    </message>
 </context>
 <context>
     <name>LibraryItemDelegate</name>

@@ -74,6 +74,28 @@ def find_largest_video(handle: Any) -> str | None:
     return str(largest_video[0]) if largest_video[0] else None
 
 
+def get_video_files(handle: Any) -> list[dict[str, Any]]:
+    """Return video files from a completed torrent."""
+    torrent_info = handle.torrent_file()
+    if not torrent_info:
+        return []
+
+    save_path = Path(handle.status().save_path)
+    video_files: list[dict[str, Any]] = []
+    files = torrent_info.files()
+    for i in range(files.num_files()):
+        file_path = save_path / files.file_path(i)
+        if file_path.suffix.lower() in VIDEO_EXTENSIONS:
+            video_files.append(
+                {
+                    "path": str(file_path),
+                    "size": files.file_size(i),
+                }
+            )
+
+    return video_files
+
+
 def main() -> int:
     """Run the worker command loop."""
     listen_interfaces = get_listen_interfaces()
@@ -195,7 +217,13 @@ def main() -> int:
                             }
                         )
                 else:
-                    emit({"event": "season_completed", "id": context_id})
+                    emit(
+                        {
+                            "event": "season_completed",
+                            "id": context_id,
+                            "files": get_video_files(handle),
+                        }
+                    )
 
                 session.remove_torrent(handle)
                 handles.pop(context_id, None)

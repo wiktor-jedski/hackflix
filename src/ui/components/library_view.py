@@ -9,8 +9,18 @@ import os
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QModelIndex, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap, QStandardItem, QStandardItemModel
+from PySide6.QtCore import QPoint, QRect, QModelIndex, QSize, Qt, Signal
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QIcon,
+    QPainter,
+    QPen,
+    QPixmap,
+    QPolygon,
+    QStandardItem,
+    QStandardItemModel,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -29,13 +39,19 @@ from src.ui.enums import MediaTab
 from src.ui.styles import (
     BACKGROUND_COLOR,
     FONT_SIZE_TITLE,
+    INFO_COLOR,
     POSTER_HEIGHT,
     POSTER_WIDTH,
     PRIMARY_COLOR,
     ROW_HEIGHT,
     SECONDARY_COLOR,
+    SUCCESS_COLOR,
     SURFACE_COLOR,
+    ERROR_COLOR,
+    TEXT_PRIMARY,
     TEXT_SECONDARY,
+    WARNING_COLOR,
+    scaled,
 )
 
 logger = logging.getLogger(__name__)
@@ -89,11 +105,15 @@ class LibraryView(QFrame):
         # List view
         self._list_view = QListView()
         self._list_view.setObjectName("MediaList")
-        self._list_view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self._list_view.setVerticalScrollMode(
+            QAbstractItemView.ScrollMode.ScrollPerPixel
+        )
         self._list_view.setHorizontalScrollBarPolicy(
             Qt.ScrollBarAlwaysOff  # type: ignore[attr-defined]
         )
-        self._list_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._list_view.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
         self._list_view.setFocusPolicy(Qt.StrongFocus)  # type: ignore[attr-defined]
         self._list_view.setUniformItemSizes(True)
         self._list_view.setSpacing(4)
@@ -121,7 +141,7 @@ class LibraryView(QFrame):
         """
         header = QFrame()
         header.setObjectName("LibraryHeader")
-        header.setFixedHeight(60)
+        header.setFixedHeight(scaled(60))
         header.setStyleSheet(f"""
             QFrame#LibraryHeader {{
                 background-color: {SURFACE_COLOR};
@@ -130,8 +150,8 @@ class LibraryView(QFrame):
         """)
 
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(16, 0, 16, 0)
-        layout.setSpacing(32)
+        layout.setContentsMargins(scaled(16), 0, scaled(16), 0)
+        layout.setSpacing(scaled(32))
 
         # Movies tab
         self._movies_tab = QLabel(self.tr("Movies"))
@@ -157,14 +177,14 @@ class LibraryView(QFrame):
             font-weight: bold;
             color: {PRIMARY_COLOR};
             border-bottom: 3px solid {PRIMARY_COLOR};
-            padding-bottom: 8px;
+            padding-bottom: {scaled(8)}px;
         """
         inactive_style = f"""
             font-size: {FONT_SIZE_TITLE}px;
             font-weight: normal;
             color: {TEXT_SECONDARY};
             border-bottom: 3px solid transparent;
-            padding-bottom: 8px;
+            padding-bottom: {scaled(8)}px;
         """
 
         if self._current_tab == MediaTab.MOVIES:
@@ -216,6 +236,10 @@ class LibraryView(QFrame):
         for item_data in items:
             model_item = QStandardItem()
             model_item.setText(self._format_item_text(item_data))
+            font = QFont()
+            font.setPointSize(FONT_SIZE_TITLE)
+            font.setBold(True)
+            model_item.setFont(font)
             model_item.setIcon(self._build_item_icon(item_data))
             model_item.setData(item_data.get("id"), LibraryItemRole.IdRole)
             model_item.setData(item_data.get("type"), LibraryItemRole.TypeRole)
@@ -249,6 +273,11 @@ class LibraryView(QFrame):
                 item_data.get("episode_title"), LibraryItemRole.EpisodeTitleRole
             )
             model_item.setData(item_data.get("file_id"), LibraryItemRole.FileIdRole)
+            model_item.setData(
+                item_data.get("resume_position_seconds"),
+                LibraryItemRole.ResumePositionRole,
+            )
+            model_item.setData(item_data.get("watched_at"), LibraryItemRole.WatchedAtRole)
             model_item.setSizeHint(QSize(-1, ROW_HEIGHT))
 
             self._model.appendRow(model_item)
@@ -369,6 +398,8 @@ class LibraryView(QFrame):
             "episode_number": index.data(LibraryItemRole.EpisodeNumberRole),
             "episode_title": index.data(LibraryItemRole.EpisodeTitleRole),
             "file_id": index.data(LibraryItemRole.FileIdRole),
+            "resume_position_seconds": index.data(LibraryItemRole.ResumePositionRole),
+            "watched_at": index.data(LibraryItemRole.WatchedAtRole),
         }
 
     def _on_selection_changed(
@@ -396,7 +427,7 @@ class LibraryView(QFrame):
         """Set focus to the list view."""
         self._list_view.setFocus()
 
-    def update_item(self, item_id: str, updates: dict[str, Any]) -> None:
+    def update_item(self, item_id: str | int, updates: dict[str, Any]) -> None:
         """Update a specific item's data.
 
         Args:
@@ -408,6 +439,15 @@ class LibraryView(QFrame):
             if index.data(LibraryItemRole.IdRole) == item_id:
                 self._apply_updates(index, updates)
                 break
+
+    def update_all_items(self, updates: dict[str, Any]) -> None:
+        """Update all currently visible items.
+
+        Args:
+            updates: Dictionary of field updates.
+        """
+        for row in range(self._model.rowCount()):
+            self._apply_updates(self._model.index(row, 0), updates)
 
     def update_item_by_file_id(self, file_id: int, updates: dict[str, Any]) -> None:
         """Update a specific item's data by file_id.
@@ -455,6 +495,20 @@ class LibraryView(QFrame):
                         updates["pipeline_state"], LibraryItemRole.PipelineStateRole
                     )
                     changed = True
+            if "resume_position_seconds" in updates:
+                if (
+                    item.data(LibraryItemRole.ResumePositionRole)
+                    != updates["resume_position_seconds"]
+                ):
+                    item.setData(
+                        updates["resume_position_seconds"],
+                        LibraryItemRole.ResumePositionRole,
+                    )
+                    changed = True
+            if "watched_at" in updates:
+                if item.data(LibraryItemRole.WatchedAtRole) != updates["watched_at"]:
+                    item.setData(updates["watched_at"], LibraryItemRole.WatchedAtRole)
+                    changed = True
             if changed:
                 item.setText(self._format_item_text_from_model_item(item))
                 item.setIcon(self._build_item_icon_from_model_item(item))
@@ -466,20 +520,32 @@ class LibraryView(QFrame):
         item_type = item_data.get("type")
         state = item_data.get("state")
         progress = item_data.get("download_progress") or 0
+        resume_position = int(item_data.get("resume_position_seconds") or 0)
+        watched_at = item_data.get("watched_at")
 
         status = ""
         if item_type == "series":
-            status = "[Series]"
+            status = self._bracketed_status(self.tr("Series"))
         elif state == "COMPLETED":
-            status = "[Play]"
+            if resume_position > 0:
+                minutes = max(1, resume_position // 60)
+                status = self._bracketed_status(
+                    self.tr("Resume {minutes} min").format(minutes=minutes)
+                )
+            elif watched_at:
+                status = self._bracketed_status(self.tr("Watched"))
+            else:
+                status = self._bracketed_status(self.tr("Play"))
         elif state == "DOWNLOADING":
-            status = f"[Downloading {progress}%]"
+            status = self._bracketed_status(
+                self.tr("Downloading {progress}%").format(progress=progress)
+            )
         elif state == "ERROR":
-            status = "[Error]"
+            status = self._bracketed_status(self.tr("Error"))
         elif state == "QUEUED":
-            status = "[Queued]"
+            status = self._bracketed_status(self.tr("Queued"))
         elif state == "PENDING":
-            status = "[Download]"
+            status = self._bracketed_status(self.tr("Download"))
         elif state:
             status = f"[{state.title()}]"
 
@@ -495,6 +561,10 @@ class LibraryView(QFrame):
         if subtitle_parts:
             return f"{first_line}\n{' | '.join(subtitle_parts)}"
         return first_line
+
+    def _bracketed_status(self, status: str) -> str:
+        """Format a translated status token for fallback item text."""
+        return f"[{status}]"
 
     def _format_item_text_from_model_item(self, item: QStandardItem) -> str:
         """Build display text from model roles after an incremental update."""
@@ -513,15 +583,20 @@ class LibraryView(QFrame):
             "download_progress": item.data(LibraryItemRole.DownloadProgressRole),
             "genres": item.data(LibraryItemRole.GenresRole),
             "episode_title": item.data(LibraryItemRole.EpisodeTitleRole),
+            "season_number": item.data(LibraryItemRole.SeasonNumberRole),
+            "episode_number": item.data(LibraryItemRole.EpisodeNumberRole),
             "poster_path": item.data(LibraryItemRole.PosterPathRole),
+            "resume_position_seconds": item.data(LibraryItemRole.ResumePositionRole),
+            "watched_at": item.data(LibraryItemRole.WatchedAtRole),
         }
 
     def _build_item_icon(self, item_data: dict[str, Any]) -> QIcon:
-        """Build a poster icon with a small status badge."""
+        """Build a poster icon with a small static status overlay."""
         icon_pixmap = QPixmap(POSTER_WIDTH, POSTER_HEIGHT)
         icon_pixmap.fill(QColor(SURFACE_COLOR))
 
         poster_path = item_data.get("poster_path")
+        has_poster = False
         if poster_path and Path(str(poster_path)).exists():
             poster = QPixmap(str(poster_path))
             if not poster.isNull():
@@ -533,50 +608,218 @@ class LibraryView(QFrame):
                 x = (scaled.width() - POSTER_WIDTH) // 2
                 y = (scaled.height() - POSTER_HEIGHT) // 2
                 icon_pixmap = scaled.copy(x, y, POSTER_WIDTH, POSTER_HEIGHT)
+                has_poster = True
 
         painter = QPainter(icon_pixmap)
         try:
-            status_text = self._status_badge_text(item_data)
-            if status_text:
-                badge_height = 22
-                badge_rect = icon_pixmap.rect().adjusted(
-                    0, POSTER_HEIGHT - badge_height, 0, 0
-                )
-                painter.fillRect(badge_rect, QColor(0, 0, 0, 190))
-                painter.setPen(QColor("white"))
-                font = QFont()
-                font.setPointSize(8)
-                font.setBold(True)
-                painter.setFont(font)
-                painter.drawText(
-                    badge_rect,
-                    Qt.AlignCenter,  # type: ignore[attr-defined]
-                    status_text,
-                )
+            if not has_poster:
+                self._draw_placeholder_label(painter, icon_pixmap.rect(), item_data)
+            indicator = self._status_indicator(item_data)
+            if indicator:
+                self._draw_status_indicator(painter, icon_pixmap.rect(), indicator)
         finally:
             painter.end()
 
         return QIcon(icon_pixmap)
 
-    def _status_badge_text(self, item_data: dict[str, Any]) -> str:
-        """Return compact status text for the poster badge."""
+    def _draw_placeholder_label(
+        self, painter: QPainter, poster_rect: QRect, item_data: dict[str, Any]
+    ) -> None:
+        """Draw season or episode numbers on generated placeholder posters."""
+        label = self._placeholder_label(item_data)
+        number = self._placeholder_number(item_data)
+        if not label or not number:
+            return
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        label_font = QFont()
+        label_font.setPointSize(scaled(13))
+        label_font.setBold(True)
+        painter.setFont(label_font)
+        painter.setPen(QColor(TEXT_SECONDARY))
+        painter.drawText(
+            poster_rect.adjusted(0, scaled(24), 0, 0),
+            Qt.AlignHCenter | Qt.AlignTop,  # type: ignore[attr-defined]
+            label,
+        )
+
+        number_font = QFont()
+        number_font.setPointSize(scaled(46))
+        number_font.setBold(True)
+        painter.setFont(number_font)
+        painter.setPen(QColor(TEXT_PRIMARY))
+        painter.drawText(
+            poster_rect.adjusted(scaled(4), scaled(42), -scaled(4), -scaled(20)),
+            Qt.AlignCenter,  # type: ignore[attr-defined]
+            number,
+        )
+
+    def _placeholder_label(self, item_data: dict[str, Any]) -> str:
+        """Return the short placeholder label for season or episode rows."""
+        item_type = item_data.get("type")
+        if item_type == "season":
+            return self.tr("Season")
+        if item_type == "episode":
+            return self.tr("Episode")
+        return ""
+
+    def _placeholder_number(self, item_data: dict[str, Any]) -> str:
+        """Return the numeric placeholder text for season or episode rows."""
+        item_type = item_data.get("type")
+        if item_type == "season":
+            return str(item_data.get("season_number") or "")
+        if item_type == "episode":
+            return str(item_data.get("episode_number") or "")
+        return ""
+
+    def _status_indicator(self, item_data: dict[str, Any]) -> dict[str, Any]:
+        """Return status indicator metadata for the poster overlay."""
         item_type = item_data.get("type")
         state = item_data.get("state")
         progress = item_data.get("download_progress") or 0
 
         if item_type == "series":
-            return "SERIES"
+            return {"kind": "series", "color": INFO_COLOR, "text": "TV"}
         if state == "COMPLETED":
-            return "PLAY"
+            return {"kind": "play", "color": SUCCESS_COLOR, "text": ""}
         if state == "DOWNLOADING":
-            return f"{progress}%"
+            return {
+                "kind": "hourglass",
+                "color": WARNING_COLOR,
+                "text": f"{progress}%",
+            }
         if state == "QUEUED":
-            return "QUEUED"
+            return {"kind": "download", "color": TEXT_SECONDARY, "text": ""}
         if state == "ERROR":
-            return "ERROR"
+            return {"kind": "warning", "color": ERROR_COLOR, "text": ""}
         if state == "PENDING":
-            return "GET"
-        return ""
+            return {"kind": "download", "color": PRIMARY_COLOR, "text": ""}
+        return {}
+
+    def _draw_status_indicator(
+        self, painter: QPainter, poster_rect: QRect, indicator: dict[str, Any]
+    ) -> None:
+        """Draw a compact status symbol onto the generated poster pixmap."""
+        badge_size = scaled(30)
+        margin = scaled(5)
+        badge_rect = QRect(
+            poster_rect.right() - badge_size - margin,
+            poster_rect.bottom() - badge_size - margin,
+            badge_size,
+            badge_size,
+        )
+        color = QColor(str(indicator["color"]))
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(QColor(0, 0, 0, 190))
+        painter.setPen(Qt.NoPen)  # type: ignore[attr-defined]
+        painter.drawRoundedRect(badge_rect, 5, 5)
+
+        symbol_rect = badge_rect.adjusted(scaled(7), scaled(6), -scaled(7), -scaled(6))
+        painter.setBrush(color)
+        painter.setPen(QPen(color, 2))
+
+        kind = indicator["kind"]
+        if kind == "download":
+            self._draw_download_symbol(painter, symbol_rect)
+        elif kind == "hourglass":
+            self._draw_hourglass_symbol(painter, symbol_rect)
+        elif kind == "play":
+            self._draw_play_symbol(painter, symbol_rect)
+        elif kind == "warning":
+            self._draw_warning_symbol(painter, symbol_rect)
+        elif kind == "series":
+            self._draw_series_symbol(painter, symbol_rect)
+
+        text = str(indicator.get("text") or "")
+        if text and kind == "hourglass":
+            text_rect = poster_rect.adjusted(
+                0, poster_rect.height() - scaled(20), -scaled(36), 0
+            )
+            painter.fillRect(text_rect, QColor(0, 0, 0, 150))
+            painter.setPen(QColor("white"))
+            font = QFont()
+            font.setPointSize(scaled(8))
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(
+                text_rect,
+                Qt.AlignCenter,  # type: ignore[attr-defined]
+                text,
+            )
+
+    def _draw_download_symbol(self, painter: QPainter, rect: QRect) -> None:
+        """Draw a compact download arrow symbol."""
+        center_x = rect.center().x()
+        painter.drawLine(center_x, rect.top(), center_x, rect.bottom() - scaled(5))
+        painter.drawLine(
+            center_x, rect.bottom() - scaled(5), rect.left() + scaled(2), rect.center().y()
+        )
+        painter.drawLine(
+            center_x, rect.bottom() - scaled(5), rect.right() - scaled(2), rect.center().y()
+        )
+        painter.drawLine(
+            rect.left() + scaled(1), rect.bottom(), rect.right() - scaled(1), rect.bottom()
+        )
+
+    def _draw_hourglass_symbol(self, painter: QPainter, rect: QRect) -> None:
+        """Draw a compact hourglass symbol."""
+        painter.drawLine(rect.left(), rect.top(), rect.right(), rect.top())
+        painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+        painter.drawLine(
+            rect.left() + scaled(2),
+            rect.top() + scaled(2),
+            rect.right() - scaled(2),
+            rect.bottom() - scaled(2),
+        )
+        painter.drawLine(
+            rect.right() - scaled(2),
+            rect.top() + scaled(2),
+            rect.left() + scaled(2),
+            rect.bottom() - scaled(2),
+        )
+
+    def _draw_play_symbol(self, painter: QPainter, rect: QRect) -> None:
+        """Draw a compact play triangle symbol."""
+        triangle = QPolygon(
+            [
+                QPoint(rect.left() + scaled(2), rect.top()),
+                QPoint(rect.left() + scaled(2), rect.bottom()),
+                QPoint(rect.right(), rect.center().y()),
+            ]
+        )
+        painter.drawPolygon(triangle)
+
+    def _draw_warning_symbol(self, painter: QPainter, rect: QRect) -> None:
+        """Draw a compact warning triangle symbol."""
+        triangle = QPolygon(
+            [
+                QPoint(rect.center().x(), rect.top()),
+                QPoint(rect.left(), rect.bottom()),
+                QPoint(rect.right(), rect.bottom()),
+            ]
+        )
+        painter.drawPolygon(triangle)
+        painter.setPen(QPen(QColor("white"), 2))
+        painter.drawLine(
+            rect.center().x(),
+            rect.top() + scaled(5),
+            rect.center().x(),
+            rect.bottom() - scaled(5),
+        )
+        painter.drawPoint(rect.center().x(), rect.bottom() - scaled(1))
+
+    def _draw_series_symbol(self, painter: QPainter, rect: QRect) -> None:
+        """Draw a compact TV symbol for series rows."""
+        screen_rect = rect.adjusted(0, scaled(2), 0, -scaled(3))
+        painter.drawRect(screen_rect)
+        painter.drawLine(
+            screen_rect.center().x(),
+            screen_rect.bottom(),
+            screen_rect.center().x(),
+            rect.bottom(),
+        )
 
     def clear(self) -> None:
         """Clear all items from the view."""

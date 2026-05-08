@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import MagicMock
 from pathlib import Path
 
-from src.config import DownloadState
+from src.config import DownloadState, PipelineState
 import src.controllers.app_controller as app_controller_module
 from src.controllers.app_controller import (
     AppController,
@@ -740,6 +740,8 @@ class TestAppControllerAdvanced:
                 "state": DownloadState.COMPLETED.value,
                 "pipeline_state": None,
                 "download_progress": 100,
+                "resume_position_seconds": 42,
+                "watched_at": "2026-05-08 12:00:00",
             }
         )
 
@@ -750,6 +752,8 @@ class TestAppControllerAdvanced:
         assert len(items) == 1
         assert items[0]["file_id"] == 1
         assert items[0]["state"] == DownloadState.COMPLETED.value
+        assert items[0]["resume_position_seconds"] == 42
+        assert items[0]["watched_at"] == "2026-05-08 12:00:00"
 
     def test_refresh_library_with_series(
         self, controller: AppController, mock_main_window: MagicMock
@@ -854,6 +858,8 @@ class TestAppControllerAdvanced:
                     "episode_number": 1,
                     "episode_title": "Pilot",
                     "state": DownloadState.PENDING.value,
+                    "resume_position_seconds": 90,
+                    "watched_at": "2026-05-08 12:00:00",
                 }
             ]
         )
@@ -862,6 +868,9 @@ class TestAppControllerAdvanced:
 
         assert controller._current_season_id == 1
         mock_main_window.library_view.set_items.assert_called_once()
+        items = mock_main_window.library_view.set_items.call_args[0][0]
+        assert items[0]["resume_position_seconds"] == 90
+        assert items[0]["watched_at"] == "2026-05-08 12:00:00"
 
     def test_load_episodes_without_window(self, controller: AppController) -> None:
         """Test load_episodes does nothing without main window."""
@@ -1240,6 +1249,70 @@ class TestAppControllerAdvanced:
         call_args = mock_main_window.library_view.update_item_by_file_id.call_args
         assert call_args[0][0] == 1
         assert call_args[0][1]["download_progress"] == 50
+
+    def test_on_download_progress_for_active_season_updates_episode_rows(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+    ) -> None:
+        """Test season progress updates visible episodes, not a matching movie ID."""
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "movie-1",
+                        "type": "movie",
+                        "title": "Movie",
+                        "magnet": "magnet:?movie",
+                    },
+                    {
+                        "id": "series-1",
+                        "type": "series",
+                        "title": "Series",
+                        "seasons": [
+                            {
+                                "season_number": 1,
+                                "magnet": "magnet:?season",
+                                "episodes": [{"number": 1, "title": "Pilot"}],
+                            }
+                        ],
+                    },
+                ]
+            }
+        )
+        season_id = db_manager.get_seasons("series-1")[0]["id"]
+        controller._main_window = mock_main_window
+        controller._current_season_id = season_id
+        controller._active_download_types[season_id] = "season"
+
+        controller._on_download_progress(season_id, 42, 1500.0, 100.0)
+
+        mock_main_window.library_view.update_all_items.assert_called_once_with(
+            {"state": DownloadState.DOWNLOADING.value, "download_progress": 42}
+        )
+        mock_main_window.library_view.update_item_by_file_id.assert_not_called()
+        assert db_manager.get_seasons("series-1")[0]["state"] == "DOWNLOADING"
+
+    def test_completed_episode_without_subs_starts_pipeline(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test Enter on a downloaded episode starts subtitle processing first."""
+        controller._main_window = mock_main_window
+        controller._pipeline_service = MagicMock()
+        controller._pipeline_service.is_busy.return_value = False
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": 77,
+            "file_id": 77,
+            "type": "episode",
+            "title": "Pilot",
+            "state": DownloadState.COMPLETED.value,
+            "pipeline_state": PipelineState.NONE.value,
+        }
+
+        controller.activate_selected()
+
+        controller._pipeline_service.start_process.assert_called_once_with(77)
 
     def test_on_download_completed(
         self, controller: AppController, mock_main_window: MagicMock
@@ -2119,6 +2192,7 @@ class TestAppControllerPlayerMethods:
         # Resume position should be cleared (set to 0 by _on_playback_finished)
         video = db_manager.get_video_file(video["id"])
         assert video["resume_position_seconds"] == 0
+        assert video["watched_at"] is not None
 
     def test_on_playback_finished_db_error(
         self,

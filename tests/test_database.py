@@ -59,6 +59,90 @@ class TestSchema:
         }
         assert expected_tables.issubset(tables)
 
+    def test_initialize_database_migrates_removed_voiceover_states(
+        self, tmp_path: Path
+    ) -> None:
+        """Verify removed voiceover pipeline states migrate to SUBS_READY."""
+        db_path = tmp_path / "test_migration.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            CREATE TABLE video_files (
+                id INTEGER,
+                media_item_id TEXT,
+                state TEXT,
+                pipeline_state TEXT
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO video_files (id, pipeline_state) VALUES (?, ?)",
+            (1, "GENERATING_TTS"),
+        )
+        conn.commit()
+        conn.close()
+
+        initialize_database(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        cursor.execute("SELECT pipeline_state FROM video_files WHERE id = ?", (1,))
+        pipeline_state = cursor.fetchone()[0]
+        conn.close()
+
+        assert pipeline_state == PipelineState.SUBS_READY.value
+
+    def test_initialize_database_drops_removed_voiceovers_table(
+        self, tmp_path: Path
+    ) -> None:
+        """Verify obsolete voiceovers table is removed during initialization."""
+        db_path = tmp_path / "test_voiceovers_migration.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE voiceovers (id INTEGER)")
+        conn.commit()
+        conn.close()
+
+        initialize_database(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='voiceovers'"
+        )
+        voiceovers_table = cursor.fetchone()
+        conn.close()
+
+        assert voiceovers_table is None
+
+    def test_initialize_database_adds_watched_at_to_existing_video_files(
+        self, tmp_path: Path
+    ) -> None:
+        """Verify watched_at is added to existing video_files tables."""
+        db_path = tmp_path / "test_watched_at_migration.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            CREATE TABLE video_files (
+                id INTEGER,
+                media_item_id TEXT,
+                state TEXT,
+                pipeline_state TEXT
+            )
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        initialize_database(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(video_files)")
+        columns = {row[1] for row in cursor.fetchall()}
+        conn.close()
+
+        assert "watched_at" in columns
+
 
 class TestDatabaseManager:
     """Tests for DatabaseManager class."""
@@ -454,6 +538,53 @@ class TestDatabaseManager:
         video = db_manager.get_video_file(video["id"])
         assert video["resume_position_seconds"] == 3600
 
+    def test_mark_video_file_watched(self, db_manager: DatabaseManager) -> None:
+        """Test marking a video file watched clears resume and sets timestamp."""
+        content = {
+            "items": [
+                {
+                    "id": "movie-test",
+                    "type": "movie",
+                    "title": "Test Movie",
+                    "magnet": "magnet:?test",
+                    "subtitle_id": None,
+                }
+            ]
+        }
+        db_manager.upsert_content(content)
+        video = db_manager.get_video_details("movie-test")
+        db_manager.update_resume_position(video["id"], 3600)
+
+        db_manager.mark_video_file_watched(video["id"])
+
+        video = db_manager.get_video_file(video["id"])
+        assert video["resume_position_seconds"] == 0
+        assert video["watched_at"] is not None
+
+    def test_clear_video_file_watch_state(self, db_manager: DatabaseManager) -> None:
+        """Test clearing watch state clears resume and watched timestamp."""
+        content = {
+            "items": [
+                {
+                    "id": "movie-test",
+                    "type": "movie",
+                    "title": "Test Movie",
+                    "magnet": "magnet:?test",
+                    "subtitle_id": None,
+                }
+            ]
+        }
+        db_manager.upsert_content(content)
+        video = db_manager.get_video_details("movie-test")
+        db_manager.update_resume_position(video["id"], 120)
+        db_manager.mark_video_file_watched(video["id"])
+
+        db_manager.clear_video_file_watch_state(video["id"])
+
+        video = db_manager.get_video_file(video["id"])
+        assert video["resume_position_seconds"] == 0
+        assert video["watched_at"] is None
+
     def test_translation_progress(self, db_manager: DatabaseManager) -> None:
         """Test translation progress tracking."""
         content = {
@@ -592,6 +723,8 @@ class TestDatabaseManager:
         sub_id_pl = db_manager.add_subtitle(
             video["id"], "pl", "/path/to/pl.srt", is_translated=True
         )
+        assert sub_id_en > 0
+        assert sub_id_pl > 0
 
         # Get subtitles
         subtitles = db_manager.get_subtitles(video["id"])
@@ -916,6 +1049,8 @@ class TestResetState:
         db_manager.update_file_state(file_id, DownloadState.COMPLETED, 100)
         db_manager.update_file_path(file_id, "/path/to/movie.mp4")
         db_manager.update_pipeline_state(file_id, PipelineState.SUBS_READY)
+        db_manager.update_resume_position(file_id, 120)
+        db_manager.mark_video_file_watched(file_id)
 
         # Verify completed state
         video = db_manager.get_video_file(file_id)
@@ -932,6 +1067,8 @@ class TestResetState:
         assert video["file_path"] is None
         assert video["pipeline_state"] == "NONE"
         assert video["download_progress"] == 0
+        assert video["resume_position_seconds"] == 0
+        assert video["watched_at"] is None
 
     def test_reset_video_file_state(self, db_manager: DatabaseManager) -> None:
         """Test resetting individual video file state."""
@@ -957,6 +1094,8 @@ class TestResetState:
         db_manager.update_file_state(file_id, DownloadState.COMPLETED, 100)
         db_manager.update_file_path(file_id, "/path/to/movie.mp4")
         db_manager.update_pipeline_state(file_id, PipelineState.SUBS_READY)
+        db_manager.update_resume_position(file_id, 120)
+        db_manager.mark_video_file_watched(file_id)
 
         # Reset state
         db_manager.reset_video_file_state(file_id)
@@ -967,6 +1106,8 @@ class TestResetState:
         assert video["file_path"] is None
         assert video["pipeline_state"] == "NONE"
         assert video["download_progress"] == 0
+        assert video["resume_position_seconds"] == 0
+        assert video["watched_at"] is None
 
 
 class TestDatabaseThreadSafety:

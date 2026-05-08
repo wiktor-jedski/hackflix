@@ -19,6 +19,7 @@ from src.ui.styles import (
     TEXT_PRIMARY,
     TEXT_SECONDARY,
     WARNING_COLOR,
+    scaled,
 )
 
 
@@ -77,7 +78,7 @@ class ConfirmDialog(QDialog):
         layout.setContentsMargins(
             DIALOG_PADDING, DIALOG_PADDING, DIALOG_PADDING, DIALOG_PADDING
         )
-        layout.setSpacing(16)
+        layout.setSpacing(scaled(16))
 
         # Warning icon and title
         self._title_label = QLabel(self._title)

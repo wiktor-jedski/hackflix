@@ -265,7 +265,7 @@ class TorrentService(QThread):
             self._unregister_handle(context_id)
         elif event_name == "season_completed":
             logger.info("Torrent worker completed season context %d", context_id)
-            self.season_completed.emit(context_id)
+            self._complete_worker_season_download(context_id, event)
             self._unregister_handle(context_id)
         elif event_name == "error":
             logger.error(
@@ -345,6 +345,47 @@ class TorrentService(QThread):
             float(event.get("download_rate", 0.0)),
             int(event.get("total_wanted_done", 0)),
             int(event.get("total_wanted", 0)),
+        )
+
+    def _complete_worker_season_download(
+        self, season_id: int, event: dict[str, Any]
+    ) -> None:
+        """Match worker-reported season files to episode rows."""
+        episodes = self._db_manager.get_episodes(season_id)
+        if not episodes:
+            error_msg = "No episodes found for season"
+            logger.error("Download error for season %d: %s", season_id, error_msg)
+            self.download_error.emit(season_id, error_msg)
+            return
+
+        video_files = [
+            (Path(str(file_data["path"])), int(file_data["size"]))
+            for file_data in event.get("files", [])
+            if file_data.get("path") and file_data.get("size") is not None
+        ]
+        if not video_files:
+            error_msg = "No video files found in torrent"
+            logger.error("Download error for season %d: %s", season_id, error_msg)
+            self.download_error.emit(season_id, error_msg)
+            return
+
+        matches = self._match_episode_files(episodes, video_files)
+        if not matches:
+            error_msg = "Could not match any video files to episodes"
+            logger.error("Download error for season %d: %s", season_id, error_msg)
+            self.download_error.emit(season_id, error_msg)
+            return
+
+        for episode_id, video_path in matches.items():
+            self.download_completed.emit(episode_id, str(video_path))
+            logger.info("Episode %d completed: %s", episode_id, video_path)
+
+        self.season_completed.emit(season_id)
+        logger.info(
+            "Season %d download completed: %d/%d episodes matched",
+            season_id,
+            len(matches),
+            len(episodes),
         )
 
     def _send_worker_command(self, command: dict[str, Any]) -> bool:

@@ -99,6 +99,11 @@ class TestCreateTranslationSource:
 
         assert "Movies" in library_strings
         assert "Series" in library_strings
+        assert "Play" in library_strings
+        assert "Downloading {progress}%" in library_strings
+        assert "Error" in library_strings
+        assert "Queued" in library_strings
+        assert "Download" in library_strings
 
     def test_status_bar_strings(self) -> None:
         """Test StatusBar translation strings exist."""

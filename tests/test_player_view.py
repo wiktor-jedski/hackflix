@@ -10,6 +10,7 @@ from src.ui.components.player_view import (
     OSDWidget,
     PlayerView,
 )
+from src.ui.styles import scaled
 
 
 class TestOSDWidget:
@@ -372,7 +373,7 @@ class TestPlayerView:
             player_view._audio_track_overlay.x()
             + player_view._audio_track_overlay.width()
         )
-        expected_right = player_view.width() - 20
+        expected_right = player_view.width() - scaled(20)
         assert abs(track_overlay_right - expected_right) <= 1
 
     def test_osd_timer_resets_on_activity(self, player_view: PlayerView) -> None:

@@ -25,8 +25,10 @@ from src.ui.styles import (
     TEXT_PRIMARY,
     TOAST_MARGIN,
     TOAST_MIN_HEIGHT,
+    TOAST_SPACING,
     TOAST_WIDTH,
     WARNING_COLOR,
+    scaled,
 )
 
 logger = logging.getLogger(__name__)
@@ -100,7 +102,7 @@ class ToastNotification(QFrame):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setContentsMargins(scaled(12), scaled(12), scaled(12), scaled(12))
 
         self._message_label = QLabel(self._message)
         self._message_label.setWordWrap(True)
@@ -241,7 +243,7 @@ class ToastManager:
         y = TOAST_MARGIN
         for i in range(index):
             if i < len(self._toasts):
-                y += self._toasts[i].height() + 8  # 8px spacing between toasts
+                y += self._toasts[i].height() + TOAST_SPACING
 
         return x, y
 

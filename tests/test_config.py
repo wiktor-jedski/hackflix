@@ -153,6 +153,20 @@ class TestSetupLogging:
             assert root_logger.level == logging.INFO
             assert len(root_logger.handlers) >= 1
 
+    def test_configures_root_logger_with_default_config(self, tmp_path: Path) -> None:
+        """Verify setup_logging uses default config when none is provided."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        with mock.patch("src.config.LOG_DIR", log_dir):
+            root_logger = logging.getLogger()
+            root_logger.handlers.clear()
+
+            setup_logging()
+
+            assert root_logger.level == logging.INFO
+            assert len(root_logger.handlers) >= 1
+
     def test_debug_mode(self, tmp_path: Path) -> None:
         """Verify debug mode sets DEBUG level."""
         log_dir = tmp_path / "logs"

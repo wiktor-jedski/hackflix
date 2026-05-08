@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS video_files (
     download_progress INTEGER DEFAULT 0,
     pipeline_state TEXT DEFAULT 'NONE' CHECK(pipeline_state IN ('NONE', 'FETCHING_SUBS', 'TRANSLATING', 'SUBS_READY', 'FAILED')),
     resume_position_seconds INTEGER DEFAULT 0,
+    watched_at TIMESTAMP,
     FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
     FOREIGN KEY (season_id) REFERENCES seasons(id) ON DELETE CASCADE
 );
@@ -108,6 +109,12 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn: Active database connection.
     """
     cursor = conn.cursor()
+
+    cursor.execute("PRAGMA table_info(video_files)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "watched_at" not in columns:
+        logger.info("Migrating: Adding video_files.watched_at")
+        cursor.execute("ALTER TABLE video_files ADD COLUMN watched_at TIMESTAMP")
 
     # Migration: Convert removed voiceover pipeline states to SUBS_READY
     cursor.execute(

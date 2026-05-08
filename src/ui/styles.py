@@ -4,6 +4,8 @@ This module contains color definitions, dimensions, and style
 constants used throughout the UI components.
 """
 
+import os
+
 # =============================================================================
 # Color Palette
 # =============================================================================
@@ -37,30 +39,49 @@ FOCUS_BORDER_COLOR = "#e94560"  # Focus indicator
 # Dimensions
 # =============================================================================
 
+
+def _ui_scale() -> float:
+    """Return the global UI scale factor."""
+    raw_value = os.environ.get("HACKFLIX_UI_SCALE", "1.45")
+    try:
+        value = float(raw_value)
+    except ValueError:
+        return 1.45
+    return max(1.0, min(value, 2.25))
+
+
+UI_SCALE = _ui_scale()
+
+
+def scaled(value: int) -> int:
+    """Scale a base pixel value for TV-distance readability."""
+    return int(round(value * UI_SCALE))
+
+
 # Library view
-ROW_HEIGHT = 120  # Height of each library item row
-POSTER_WIDTH = 80  # Poster thumbnail width
-POSTER_HEIGHT = 120  # Poster thumbnail height (matches row height)
-STATUS_ICON_SIZE = 32  # Status icon dimensions
-ITEM_PADDING = 12  # Padding inside items
-ITEM_SPACING = 8  # Spacing between items
+ROW_HEIGHT = scaled(170)  # Height of each library item row
+POSTER_WIDTH = scaled(115)  # Poster thumbnail width
+POSTER_HEIGHT = scaled(170)  # Poster thumbnail height (matches row height)
+STATUS_ICON_SIZE = scaled(32)  # Status icon dimensions
+ITEM_PADDING = scaled(12)  # Padding inside items
+ITEM_SPACING = scaled(8)  # Spacing between items
 
 # Status bar
-STATUS_BAR_HEIGHT = 40  # Bottom status bar height
+STATUS_BAR_HEIGHT = scaled(40)  # Bottom status bar height
 
 # Toast notifications
-TOAST_WIDTH = 320  # Toast notification width
-TOAST_MIN_HEIGHT = 60  # Minimum toast height
-TOAST_MARGIN = 16  # Margin from window edges
-TOAST_SPACING = 8  # Spacing between stacked toasts
+TOAST_WIDTH = scaled(320)  # Toast notification width
+TOAST_MIN_HEIGHT = scaled(60)  # Minimum toast height
+TOAST_MARGIN = scaled(16)  # Margin from window edges
+TOAST_SPACING = scaled(8)  # Spacing between stacked toasts
 
 # Search overlay
-SEARCH_WIDTH = 400  # Search modal width
-SEARCH_INPUT_HEIGHT = 48  # Search input height
+SEARCH_WIDTH = scaled(400)  # Search modal width
+SEARCH_INPUT_HEIGHT = scaled(48)  # Search input height
 
 # Dialogs
-DIALOG_WIDTH = 400  # Confirmation dialog width
-DIALOG_PADDING = 24  # Dialog content padding
+DIALOG_WIDTH = scaled(400)  # Confirmation dialog width
+DIALOG_PADDING = scaled(24)  # Dialog content padding
 
 # =============================================================================
 # Typography
@@ -69,10 +90,10 @@ DIALOG_PADDING = 24  # Dialog content padding
 FONT_FAMILY = "Segoe UI, Roboto, Ubuntu, sans-serif"
 
 # Font sizes
-FONT_SIZE_TITLE = 18  # Item titles
-FONT_SIZE_BODY = 14  # Body text, metadata
-FONT_SIZE_SMALL = 12  # Small labels, hints
-FONT_SIZE_LARGE = 24  # Large headings
+FONT_SIZE_TITLE = scaled(32)  # Item titles
+FONT_SIZE_BODY = scaled(20)  # Body text, metadata
+FONT_SIZE_SMALL = scaled(16)  # Small labels, hints
+FONT_SIZE_LARGE = scaled(38)  # Large headings
 
 # Font weights
 FONT_WEIGHT_NORMAL = 400
@@ -129,7 +150,7 @@ def get_stylesheet() -> str:
         QListView::item {{
             background-color: {SURFACE_COLOR};
             border-radius: 4px;
-            margin: 4px 8px;
+            margin: {scaled(4)}px {scaled(8)}px;
             padding: {ITEM_PADDING}px;
         }}
 
@@ -144,15 +165,15 @@ def get_stylesheet() -> str:
         /* Scroll Bar */
         QScrollBar:vertical {{
             background-color: {BACKGROUND_COLOR};
-            width: 12px;
+            width: {scaled(12)}px;
             margin: 0;
         }}
 
         QScrollBar::handle:vertical {{
             background-color: {SURFACE_HOVER_COLOR};
             border-radius: 6px;
-            min-height: 40px;
-            margin: 2px;
+            min-height: {scaled(40)}px;
+            margin: {scaled(2)}px;
         }}
 
         QScrollBar::handle:vertical:hover {{
@@ -179,7 +200,7 @@ def get_stylesheet() -> str:
             background-color: {SURFACE_COLOR};
             border: 2px solid {SECONDARY_COLOR};
             border-radius: 4px;
-            padding: 8px 12px;
+            padding: {scaled(8)}px {scaled(12)}px;
             font-size: {FONT_SIZE_BODY}px;
             color: {TEXT_PRIMARY};
         }}
@@ -200,7 +221,7 @@ def get_stylesheet() -> str:
             color: {TEXT_PRIMARY};
             border: none;
             border-radius: 4px;
-            padding: 8px 16px;
+            padding: {scaled(8)}px {scaled(16)}px;
             font-weight: {FONT_WEIGHT_MEDIUM};
         }}
 

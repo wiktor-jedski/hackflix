@@ -15,6 +15,7 @@ from src.ui.styles import (
     SURFACE_COLOR,
     TEXT_PRIMARY,
     TEXT_SECONDARY,
+    scaled,
 )
 
 
@@ -50,13 +51,13 @@ class StatusBar(QFrame):
             }}
             QLabel {{
                 font-size: {FONT_SIZE_SMALL}px;
-                padding: 0 8px;
+                padding: 0 {scaled(8)}px;
             }}
         """)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 0, 16, 0)
-        layout.setSpacing(16)
+        layout.setContentsMargins(scaled(16), 0, scaled(16), 0)
+        layout.setSpacing(scaled(16))
 
         # Left: Connection status
         self._connection_indicator = QLabel()
@@ -67,7 +68,7 @@ class StatusBar(QFrame):
         connection_container = QWidget()
         connection_layout = QHBoxLayout(connection_container)
         connection_layout.setContentsMargins(0, 0, 0, 0)
-        connection_layout.setSpacing(4)
+        connection_layout.setSpacing(scaled(4))
         connection_layout.addWidget(self._connection_indicator)
         connection_layout.addWidget(self._connection_label)
         layout.addWidget(connection_container, alignment=Qt.AlignLeft)  # type: ignore[attr-defined]

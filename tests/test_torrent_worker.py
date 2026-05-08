@@ -54,3 +54,32 @@ def test_get_listen_interfaces_falls_back_on_probe_error(
 
     with mock.patch.object(torrent_worker.socket, "socket", side_effect=OSError):
         assert torrent_worker.get_listen_interfaces() == "0.0.0.0:6881,[::]:6881"
+
+
+def test_get_video_files_returns_video_paths(tmp_path) -> None:
+    """Video file metadata is exported for process-backend season matching."""
+    handle = mock.MagicMock()
+    status = mock.MagicMock()
+    status.save_path = str(tmp_path)
+    handle.status.return_value = status
+
+    files = mock.MagicMock()
+    files.num_files.return_value = 3
+    files.file_path.side_effect = ["readme.txt", "Show.S01E01.mkv", "Show.S01E02.mp4"]
+    files.file_size.side_effect = [1000, 1100]
+    torrent_info = mock.MagicMock()
+    torrent_info.files.return_value = files
+    handle.torrent_file.return_value = torrent_info
+
+    assert torrent_worker.get_video_files(handle) == [
+        {"path": str(tmp_path / "Show.S01E01.mkv"), "size": 1000},
+        {"path": str(tmp_path / "Show.S01E02.mp4"), "size": 1100},
+    ]
+
+
+def test_get_video_files_returns_empty_without_torrent_info() -> None:
+    """Missing torrent metadata returns no video files."""
+    handle = mock.MagicMock()
+    handle.torrent_file.return_value = None
+
+    assert torrent_worker.get_video_files(handle) == []

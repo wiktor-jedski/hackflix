@@ -22,9 +22,11 @@ from src.config import OSD_FADE_TIMEOUT_MS
 from src.ui.styles import (
     BACKGROUND_COLOR,
     FONT_SIZE_LARGE,
+    FONT_SIZE_BODY,
     SURFACE_COLOR,
     TEXT_PRIMARY,
     TEXT_SECONDARY,
+    scaled,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,8 +60,8 @@ class OSDWidget(QFrame):
         """)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(24, 16, 24, 16)
-        layout.setSpacing(32)
+        layout.setContentsMargins(scaled(24), scaled(16), scaled(24), scaled(16))
+        layout.setSpacing(scaled(32))
 
         # Create icon labels
         self._pause_icon = self._create_icon_label("pause_icon")
@@ -80,7 +82,7 @@ class OSDWidget(QFrame):
         self._volume_icon.hide()
         self._audio_track_icon.hide()
 
-        self.setFixedHeight(80)
+        self.setFixedHeight(scaled(80))
         self.hide()
 
     def _create_icon_label(self, name: str) -> QLabel:
@@ -99,8 +101,8 @@ class OSDWidget(QFrame):
             QLabel {{
                 color: {TEXT_PRIMARY};
                 font-size: {FONT_SIZE_LARGE}px;
-                min-width: 48px;
-                min-height: 48px;
+                min-width: {scaled(48)}px;
+                min-height: {scaled(48)}px;
             }}
         """)
         return label
@@ -112,7 +114,7 @@ class OSDWidget(QFrame):
         self._opacity_effect.setOpacity(1.0)
 
         self._fade_animation = QPropertyAnimation(self._opacity_effect, b"opacity")
-        self._fade_animation.setDuration(300)
+        self._fade_animation.setDuration(scaled(300))
         self._fade_animation.finished.connect(self._on_fade_finished)
 
     def _on_fade_finished(self) -> None:
@@ -223,14 +225,14 @@ class AudioTrackOverlay(QFrame):
         """)
 
         self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(16, 16, 16, 16)
-        self._layout.setSpacing(8)
+        self._layout.setContentsMargins(scaled(16), scaled(16), scaled(16), scaled(16))
+        self._layout.setSpacing(scaled(8))
 
         self._title_label = QLabel("Audio Tracks")
         self._title_label.setStyleSheet(f"""
             QLabel {{
                 color: {TEXT_PRIMARY};
-                font-size: 16px;
+                font-size: {FONT_SIZE_BODY}px;
                 font-weight: bold;
             }}
         """)
@@ -239,10 +241,10 @@ class AudioTrackOverlay(QFrame):
         self._tracks_container = QWidget()
         self._tracks_layout = QVBoxLayout(self._tracks_container)
         self._tracks_layout.setContentsMargins(0, 0, 0, 0)
-        self._tracks_layout.setSpacing(4)
+        self._tracks_layout.setSpacing(scaled(4))
         self._layout.addWidget(self._tracks_container)
 
-        self.setFixedWidth(300)
+        self.setFixedWidth(scaled(300))
         self.hide()
 
     def set_tracks(self, tracks: list[dict[str, Any]]) -> None:
@@ -256,8 +258,11 @@ class AudioTrackOverlay(QFrame):
         # Clear existing track labels
         while self._tracks_layout.count():
             item = self._tracks_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
 
         # Add new track labels
         for track in tracks:
@@ -266,8 +271,8 @@ class AudioTrackOverlay(QFrame):
             label.setStyleSheet(f"""
                 QLabel {{
                     color: {TEXT_PRIMARY if is_current else TEXT_SECONDARY};
-                    font-size: 14px;
-                    padding: 8px;
+                    font-size: {FONT_SIZE_BODY}px;
+                    padding: {scaled(8)}px;
                     background-color: {"rgba(233, 69, 96, 100)" if is_current else "transparent"};
                     border-radius: 4px;
                 }}
@@ -328,7 +333,7 @@ class PlayerView(QFrame):
         self._video_frame = QFrame()
         self._video_frame.setObjectName("VideoFrame")
         self._video_frame.setStyleSheet("background-color: black;")
-        self._video_frame.setMinimumSize(640, 480)
+        self._video_frame.setMinimumSize(scaled(640), scaled(480))
         layout.addWidget(self._video_frame)
 
         # OSD overlay (positioned at bottom center)
@@ -367,14 +372,14 @@ class PlayerView(QFrame):
     def _position_overlays(self) -> None:
         """Position OSD overlays within the view."""
         # Position OSD at bottom center
-        osd_width = min(400, self.width() - 40)
+        osd_width = min(scaled(400), self.width() - scaled(40))
         self._osd.setFixedWidth(osd_width)
         osd_x = (self.width() - osd_width) // 2
-        osd_y = self.height() - self._osd.height() - 40
+        osd_y = self.height() - self._osd.height() - scaled(40)
         self._osd.move(osd_x, osd_y)
 
         # Position audio track overlay at right side
-        track_x = self.width() - self._audio_track_overlay.width() - 20
+        track_x = self.width() - self._audio_track_overlay.width() - scaled(20)
         track_y = (self.height() - self._audio_track_overlay.height()) // 2
         self._audio_track_overlay.move(track_x, track_y)
 

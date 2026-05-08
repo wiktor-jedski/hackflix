@@ -26,6 +26,7 @@ from src.ui.styles import (
     SURFACE_COLOR,
     TEXT_PRIMARY,
     TEXT_SECONDARY,
+    scaled,
 )
 
 
@@ -73,8 +74,8 @@ class SearchOverlay(QFrame):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(scaled(24), scaled(24), scaled(24), scaled(24))
+        layout.setSpacing(scaled(16))
 
         # Title
         self._title_label = QLabel(self.tr("Search"))
@@ -95,7 +96,7 @@ class SearchOverlay(QFrame):
             background-color: {BACKGROUND_COLOR};
             border: 2px solid {SECONDARY_COLOR};
             border-radius: 4px;
-            padding: 8px 12px;
+            padding: {scaled(8)}px {scaled(12)}px;
             font-size: {FONT_SIZE_BODY}px;
             color: {TEXT_PRIMARY};
             selection-background-color: {PRIMARY_COLOR};

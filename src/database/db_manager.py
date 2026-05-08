@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from src.config import DownloadState, PipelineState
-from src.database.schema import SCHEMA_SQL
+from src.database.schema import SCHEMA_SQL, _run_migrations
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +81,7 @@ class DatabaseManager:
         try:
             conn = self._get_connection()
             conn.executescript(SCHEMA_SQL)
+            _run_migrations(conn)
             conn.commit()
             self._close_connection(conn)
             logger.info("Database initialized successfully")
@@ -617,6 +618,64 @@ class DatabaseManager:
             logger.error("Failed to update resume position: %s", e)
             raise
 
+    def mark_video_file_watched(self, file_id: int) -> None:
+        """Mark a video file as watched and clear its resume position.
+
+        Args:
+            file_id: ID of the video file.
+
+        Raises:
+            sqlite3.Error: If update fails.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                UPDATE video_files
+                SET resume_position_seconds = 0, watched_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (file_id,),
+            )
+
+            conn.commit()
+            self._close_connection(conn)
+            logger.debug("Marked video file %d watched", file_id)
+        except sqlite3.Error as e:
+            logger.error("Failed to mark video file watched: %s", e)
+            raise
+
+    def clear_video_file_watch_state(self, file_id: int) -> None:
+        """Clear watched and resume state for a video file.
+
+        Args:
+            file_id: ID of the video file.
+
+        Raises:
+            sqlite3.Error: If update fails.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                UPDATE video_files
+                SET resume_position_seconds = 0, watched_at = NULL
+                WHERE id = ?
+                """,
+                (file_id,),
+            )
+
+            conn.commit()
+            self._close_connection(conn)
+            logger.debug("Cleared watch state for video file %d", file_id)
+        except sqlite3.Error as e:
+            logger.error("Failed to clear video file watch state: %s", e)
+            raise
+
     def get_translation_progress(self, file_id: int) -> dict[str, Any] | None:
         """Get translation batch progress for resumable translation.
 
@@ -889,7 +948,9 @@ class DatabaseManager:
             cursor.execute(
                 """
                 UPDATE video_files
-                SET state = ?, pipeline_state = ?, file_path = NULL, download_progress = 0
+                SET state = ?, pipeline_state = ?, file_path = NULL,
+                    download_progress = 0, resume_position_seconds = 0,
+                    watched_at = NULL
                 WHERE media_item_id = ?
                 """,
                 (DownloadState.PENDING.value, PipelineState.NONE.value, media_id),
@@ -920,7 +981,9 @@ class DatabaseManager:
             cursor.execute(
                 """
                 UPDATE video_files
-                SET state = ?, pipeline_state = ?, file_path = NULL, download_progress = 0
+                SET state = ?, pipeline_state = ?, file_path = NULL,
+                    download_progress = 0, resume_position_seconds = 0,
+                    watched_at = NULL
                 WHERE id = ?
                 """,
                 (DownloadState.PENDING.value, PipelineState.NONE.value, file_id),
