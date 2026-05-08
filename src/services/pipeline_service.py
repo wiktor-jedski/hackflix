@@ -114,6 +114,7 @@ class PipelineService(QThread):
                 return
 
             video_path = Path(video_file["file_path"])
+            video_name = video_path.stem
             video_folder = video_path.parent
             subtitle_id = video_file.get("subtitle_id")
             needs_translation = video_file.get("needs_translation", False)
@@ -148,7 +149,9 @@ class PipelineService(QThread):
 
             if needs_translation:
                 self._translate_subtitles(video_folder, self._video_file_id)
+                Path(video_folder / "pl.srt").rename(f"{video_folder}/{video_name}.srt")
             else:
+                Path(video_folder / "original.srt").rename(f"{video_folder}/{video_name}.srt")
                 # If no translation needed, mark as ready after fetching
                 self._update_pipeline_state(PipelineState.SUBS_READY)
 

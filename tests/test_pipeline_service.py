@@ -19,6 +19,7 @@ import pytest
 
 from src.config import PipelineState
 from src.services.pipeline_service import PipelineService, PipelineSignals
+from pathlib import Path
 
 
 @pytest.fixture(autouse=True)
@@ -529,6 +530,9 @@ class TestPipelineServiceDatabasePersistence:
         video_path.touch()
         video_file_id = 1
 
+        original_srt = video_folder / "original.srt"
+        original_srt.write_text("1\n00:00:01,000 --> 00:00:04,000\nHello\n")
+
         mock_db_manager.get_video_file.return_value = {
             "id": video_file_id,
             "file_path": str(video_path),
@@ -840,6 +844,9 @@ class TestPipelineServiceCompleteFlow:
         video_path.touch()
         video_file_id = 1
 
+        original_srt = video_folder / "original.srt"
+        original_srt.write_text("1\n00:00:01,000 --> 00:00:04,000\nHello\n")
+
         mock_db_manager.get_video_file.return_value = {
             "id": video_file_id,
             "file_path": str(video_path),
@@ -973,6 +980,7 @@ class TestPipelineServiceEndToEndIntegration:
 
         video_folder = tmp_path
         video_path = video_folder / "video.mp4"
+        video_name = video_path.stem
         video_path.touch()
         video_file_id = 1
 
@@ -1050,7 +1058,7 @@ How are you?
             pipeline_service.wait()
 
             mock_finished.emit.assert_called_once_with(video_file_id, True)
-            assert (video_folder / "pl.srt").exists()
+            assert Path(f"{video_folder}/{video_name}.srt").exists()
 
 
 class TestPipelineServiceOpenSubtitlesFailure:
