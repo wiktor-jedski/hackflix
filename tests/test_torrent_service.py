@@ -1197,6 +1197,39 @@ class TestTorrentServiceAddMagnet:
         update.assert_not_called()
         assert service._contexts == {}
 
+    def test_process_backend_season_progress_emits_db_id(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Verify namespaced worker IDs are converted before progress is emitted."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(db_manager=db_manager)
+        service._use_process_backend = True
+        context = DownloadContext(DownloadType.SEASON, 7)
+        service._contexts[-7] = context
+        progress_updates: list[tuple[int, int, float, float]] = []
+        service.download_progress.connect(
+            lambda context_id, progress, down, up: progress_updates.append(
+                (context_id, progress, down, up)
+            )
+        )
+
+        service._handle_worker_event(
+            {
+                "event": "progress",
+                "id": -7,
+                "progress": 42,
+                "download_rate": 1500.0,
+                "upload_rate": 100.0,
+            }
+        )
+
+        assert progress_updates == [(7, 42, 1500.0, 100.0)]
+
     def test_malformed_worker_stdout_is_ignored(
         self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
     ) -> None:

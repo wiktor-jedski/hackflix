@@ -292,8 +292,10 @@ class TorrentService(QThread):
             if not self._should_emit_worker_progress(context_id, event):
                 return
             self._log_worker_progress(context_id, event)
+            context = self._contexts.get(context_id)
+            db_id = context.id if context else self._context_db_id(context_id)
             self.download_progress.emit(
-                context_id,
+                db_id,
                 int(event["progress"]),
                 float(event["download_rate"]),
                 float(event["upload_rate"]),
