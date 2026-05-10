@@ -23,6 +23,7 @@ from src.ui.styles import (
     BACKGROUND_COLOR,
     FONT_SIZE_LARGE,
     FONT_SIZE_BODY,
+    FONT_SIZE_TITLE,
     SURFACE_COLOR,
     TEXT_PRIMARY,
     TEXT_SECONDARY,
@@ -361,11 +362,11 @@ class PlayerView(QFrame):
         self._subtitle_label.setStyleSheet(f"""
             QLabel#SubtitleOverlay {{
                 color: white;
-                background-color: rgba(0, 0, 0, 150);
-                border-radius: 6px;
-                padding: {scaled(8)}px {scaled(16)}px;
-                font-size: {FONT_SIZE_LARGE}px;
-                font-weight: 700;
+                background-color: transparent;
+                padding: 0;
+                font-family: Arial, Helvetica, sans-serif;
+                font-size: {FONT_SIZE_TITLE}px;
+                font-weight: 400;
             }}
         """)
         self._subtitle_label.hide()

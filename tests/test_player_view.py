@@ -229,6 +229,10 @@ class TestPlayerView:
         """Test that PlayerView has a subtitle overlay label."""
         assert player_view._subtitle_label is not None
         assert player_view._subtitle_label.objectName() == "SubtitleOverlay"
+        assert (
+            "background-color: transparent" in player_view._subtitle_label.styleSheet()
+        )
+        assert "rgba(0, 0, 0" not in player_view._subtitle_label.styleSheet()
 
     def test_get_video_frame_id(self, player_view: PlayerView) -> None:
         """Test get_video_frame_id returns an integer."""
