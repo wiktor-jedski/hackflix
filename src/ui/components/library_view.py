@@ -230,10 +230,10 @@ class LibraryView(QFrame):
         Args:
             items: List of item dictionaries with keys matching LibraryItemRole.
         """
-        self._items = items
+        self._items = [dict(item) for item in items]
         self._model.clear()
 
-        for item_data in items:
+        for item_data in self._items:
             model_item = QStandardItem()
             model_item.setText(self._format_item_text(item_data))
             font = QFont()
@@ -241,43 +241,70 @@ class LibraryView(QFrame):
             font.setBold(True)
             model_item.setFont(font)
             model_item.setIcon(self._build_item_icon(item_data))
-            model_item.setData(item_data.get("id"), LibraryItemRole.IdRole)
-            model_item.setData(item_data.get("type"), LibraryItemRole.TypeRole)
-            model_item.setData(item_data.get("title"), LibraryItemRole.TitleRole)
-            model_item.setData(item_data.get("genres"), LibraryItemRole.GenresRole)
-            model_item.setData(
-                item_data.get("poster_path"), LibraryItemRole.PosterPathRole
+            self._set_item_role_data(
+                model_item, LibraryItemRole.IdRole, item_data.get("id")
             )
-            model_item.setData(
-                item_data.get("state"), LibraryItemRole.DownloadStateRole
+            self._set_item_role_data(
+                model_item, LibraryItemRole.TypeRole, item_data.get("type")
             )
-            model_item.setData(
-                item_data.get("pipeline_state"), LibraryItemRole.PipelineStateRole
+            self._set_item_role_data(
+                model_item, LibraryItemRole.TitleRole, item_data.get("title")
             )
-            model_item.setData(
-                item_data.get("download_progress"), LibraryItemRole.DownloadProgressRole
+            self._set_item_role_data(
+                model_item, LibraryItemRole.GenresRole, item_data.get("genres")
             )
-            model_item.setData(
-                item_data.get("season_count"), LibraryItemRole.SeasonCountRole
+            self._set_item_role_data(
+                model_item, LibraryItemRole.PosterPathRole, item_data.get("poster_path")
             )
-            model_item.setData(
-                item_data.get("episode_count"), LibraryItemRole.EpisodeCountRole
+            self._set_item_role_data(
+                model_item, LibraryItemRole.DownloadStateRole, item_data.get("state")
             )
-            model_item.setData(
-                item_data.get("season_number"), LibraryItemRole.SeasonNumberRole
+            self._set_item_role_data(
+                model_item,
+                LibraryItemRole.PipelineStateRole,
+                item_data.get("pipeline_state"),
             )
-            model_item.setData(
-                item_data.get("episode_number"), LibraryItemRole.EpisodeNumberRole
+            self._set_item_role_data(
+                model_item,
+                LibraryItemRole.DownloadProgressRole,
+                item_data.get("download_progress"),
             )
-            model_item.setData(
-                item_data.get("episode_title"), LibraryItemRole.EpisodeTitleRole
+            self._set_item_role_data(
+                model_item,
+                LibraryItemRole.SeasonCountRole,
+                item_data.get("season_count"),
             )
-            model_item.setData(item_data.get("file_id"), LibraryItemRole.FileIdRole)
-            model_item.setData(
-                item_data.get("resume_position_seconds"),
+            self._set_item_role_data(
+                model_item,
+                LibraryItemRole.EpisodeCountRole,
+                item_data.get("episode_count"),
+            )
+            self._set_item_role_data(
+                model_item,
+                LibraryItemRole.SeasonNumberRole,
+                item_data.get("season_number"),
+            )
+            self._set_item_role_data(
+                model_item,
+                LibraryItemRole.EpisodeNumberRole,
+                item_data.get("episode_number"),
+            )
+            self._set_item_role_data(
+                model_item,
+                LibraryItemRole.EpisodeTitleRole,
+                item_data.get("episode_title"),
+            )
+            self._set_item_role_data(
+                model_item, LibraryItemRole.FileIdRole, item_data.get("file_id")
+            )
+            self._set_item_role_data(
+                model_item,
                 LibraryItemRole.ResumePositionRole,
+                item_data.get("resume_position_seconds"),
             )
-            model_item.setData(item_data.get("watched_at"), LibraryItemRole.WatchedAtRole)
+            self._set_item_role_data(
+                model_item, LibraryItemRole.WatchedAtRole, item_data.get("watched_at")
+            )
             model_item.setSizeHint(QSize(-1, ROW_HEIGHT))
 
             self._model.appendRow(model_item)
@@ -287,6 +314,18 @@ class LibraryView(QFrame):
             self._list_view.setCurrentIndex(self._model.index(0, 0))
 
         logger.debug("LibraryView set %d items", len(items))
+
+    def _set_item_role_data(self, item: QStandardItem, role: int, value: Any) -> None:
+        """Set Qt item role data without storing explicit Python None values."""
+        if value is None:
+            return
+        item.setData(value, role)
+
+    def _replace_item_role_data(
+        self, item: QStandardItem, role: int, value: Any
+    ) -> None:
+        """Replace Qt item role data while avoiding PySide None ownership issues."""
+        item.setData("" if value is None else value, role)
 
     def get_items(self) -> list[dict[str, Any]]:
         """Get the current items.
@@ -344,10 +383,9 @@ class LibraryView(QFrame):
         Returns:
             True if item found and selected, False otherwise.
         """
-        for row in range(self._model.rowCount()):
-            index = self._model.index(row, 0)
-            if index.data(LibraryItemRole.IdRole) == item_id:
-                self._list_view.setCurrentIndex(index)
+        for row, item_data in enumerate(self._items):
+            if item_data.get("id") == item_id:
+                self._list_view.setCurrentIndex(self._model.index(row, 0))
                 return True
         return False
 
@@ -383,24 +421,10 @@ class LibraryView(QFrame):
         Returns:
             Dictionary with item data.
         """
-        return {
-            "id": index.data(LibraryItemRole.IdRole),
-            "type": index.data(LibraryItemRole.TypeRole),
-            "title": index.data(LibraryItemRole.TitleRole),
-            "genres": index.data(LibraryItemRole.GenresRole),
-            "poster_path": index.data(LibraryItemRole.PosterPathRole),
-            "state": index.data(LibraryItemRole.DownloadStateRole),
-            "pipeline_state": index.data(LibraryItemRole.PipelineStateRole),
-            "download_progress": index.data(LibraryItemRole.DownloadProgressRole),
-            "season_count": index.data(LibraryItemRole.SeasonCountRole),
-            "episode_count": index.data(LibraryItemRole.EpisodeCountRole),
-            "season_number": index.data(LibraryItemRole.SeasonNumberRole),
-            "episode_number": index.data(LibraryItemRole.EpisodeNumberRole),
-            "episode_title": index.data(LibraryItemRole.EpisodeTitleRole),
-            "file_id": index.data(LibraryItemRole.FileIdRole),
-            "resume_position_seconds": index.data(LibraryItemRole.ResumePositionRole),
-            "watched_at": index.data(LibraryItemRole.WatchedAtRole),
-        }
+        row = index.row()
+        if row < 0 or row >= len(self._items):
+            return {}
+        return dict(self._items[row])
 
     def _on_selection_changed(
         self, current: QModelIndex, previous: QModelIndex
@@ -434,10 +458,9 @@ class LibraryView(QFrame):
             item_id: ID of the item to update.
             updates: Dictionary of field updates.
         """
-        for row in range(self._model.rowCount()):
-            index = self._model.index(row, 0)
-            if index.data(LibraryItemRole.IdRole) == item_id:
-                self._apply_updates(index, updates)
+        for row, item_data in enumerate(self._items):
+            if item_data.get("id") == item_id:
+                self._apply_updates(row, updates)
                 break
 
     def update_all_items(self, updates: dict[str, Any]) -> None:
@@ -446,8 +469,8 @@ class LibraryView(QFrame):
         Args:
             updates: Dictionary of field updates.
         """
-        for row in range(self._model.rowCount()):
-            self._apply_updates(self._model.index(row, 0), updates)
+        for row in range(len(self._items)):
+            self._apply_updates(row, updates)
 
     def update_item_by_file_id(self, file_id: int, updates: dict[str, Any]) -> None:
         """Update a specific item's data by file_id.
@@ -456,62 +479,53 @@ class LibraryView(QFrame):
             file_id: File ID of the item to update.
             updates: Dictionary of field updates.
         """
-        for row in range(self._model.rowCount()):
-            index = self._model.index(row, 0)
-            if index.data(LibraryItemRole.FileIdRole) == file_id:
-                self._apply_updates(index, updates)
+        for row, item_data in enumerate(self._items):
+            if item_data.get("file_id") == file_id:
+                self._apply_updates(row, updates)
                 break
 
-    def _apply_updates(self, index: QModelIndex, updates: dict[str, Any]) -> None:
-        """Apply updates to an item at the given index.
+    def _apply_updates(self, row: int, updates: dict[str, Any]) -> None:
+        """Apply updates to an item at the given row.
 
         Args:
-            index: Model index of the item.
+            row: Model row of the item.
             updates: Dictionary of field updates.
         """
-        item = self._model.itemFromIndex(index)
+        item = self._model.item(row)
         if item:
             changed = False
+            icon_changed = False
+            item_data = self._items[row]
             if "state" in updates:
-                if item.data(LibraryItemRole.DownloadStateRole) != updates["state"]:
-                    item.setData(updates["state"], LibraryItemRole.DownloadStateRole)
+                if item_data.get("state") != updates["state"]:
+                    item_data["state"] = updates["state"]
                     changed = True
+                    icon_changed = True
             if "download_progress" in updates:
-                if (
-                    item.data(LibraryItemRole.DownloadProgressRole)
-                    != updates["download_progress"]
-                ):
-                    item.setData(
-                        updates["download_progress"],
-                        LibraryItemRole.DownloadProgressRole,
-                    )
+                if item_data.get("download_progress") != updates["download_progress"]:
+                    item_data["download_progress"] = updates["download_progress"]
                     changed = True
             if "pipeline_state" in updates:
-                if (
-                    item.data(LibraryItemRole.PipelineStateRole)
-                    != updates["pipeline_state"]
-                ):
-                    item.setData(
-                        updates["pipeline_state"], LibraryItemRole.PipelineStateRole
-                    )
+                if item_data.get("pipeline_state") != updates["pipeline_state"]:
+                    item_data["pipeline_state"] = updates["pipeline_state"]
                     changed = True
             if "resume_position_seconds" in updates:
                 if (
-                    item.data(LibraryItemRole.ResumePositionRole)
+                    item_data.get("resume_position_seconds")
                     != updates["resume_position_seconds"]
                 ):
-                    item.setData(
-                        updates["resume_position_seconds"],
-                        LibraryItemRole.ResumePositionRole,
-                    )
+                    item_data["resume_position_seconds"] = updates[
+                        "resume_position_seconds"
+                    ]
                     changed = True
             if "watched_at" in updates:
-                if item.data(LibraryItemRole.WatchedAtRole) != updates["watched_at"]:
-                    item.setData(updates["watched_at"], LibraryItemRole.WatchedAtRole)
+                if item_data.get("watched_at") != updates["watched_at"]:
+                    item_data["watched_at"] = updates["watched_at"]
                     changed = True
             if changed:
-                item.setText(self._format_item_text_from_model_item(item))
-                item.setIcon(self._build_item_icon_from_model_item(item))
+                item.setText(self._format_item_text(item_data))
+                if icon_changed:
+                    item.setIcon(self._build_item_icon(item_data))
                 self._list_view.viewport().update()
 
     def _format_item_text(self, item_data: dict[str, Any]) -> str:
@@ -754,13 +768,22 @@ class LibraryView(QFrame):
         center_x = rect.center().x()
         painter.drawLine(center_x, rect.top(), center_x, rect.bottom() - scaled(5))
         painter.drawLine(
-            center_x, rect.bottom() - scaled(5), rect.left() + scaled(2), rect.center().y()
+            center_x,
+            rect.bottom() - scaled(5),
+            rect.left() + scaled(2),
+            rect.center().y(),
         )
         painter.drawLine(
-            center_x, rect.bottom() - scaled(5), rect.right() - scaled(2), rect.center().y()
+            center_x,
+            rect.bottom() - scaled(5),
+            rect.right() - scaled(2),
+            rect.center().y(),
         )
         painter.drawLine(
-            rect.left() + scaled(1), rect.bottom(), rect.right() - scaled(1), rect.bottom()
+            rect.left() + scaled(1),
+            rect.bottom(),
+            rect.right() - scaled(1),
+            rect.bottom(),
         )
 
     def _draw_hourglass_symbol(self, painter: QPainter, rect: QRect) -> None:

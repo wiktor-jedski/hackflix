@@ -253,13 +253,15 @@ class TestLibraryView:
     ) -> None:
         """Test generated placeholders show season and episode labels."""
         assert library_view._placeholder_label({"type": "season"}) == "Season"
-        assert library_view._placeholder_number(
-            {"type": "season", "season_number": 3}
-        ) == "3"
+        assert (
+            library_view._placeholder_number({"type": "season", "season_number": 3})
+            == "3"
+        )
         assert library_view._placeholder_label({"type": "episode"}) == "Episode"
-        assert library_view._placeholder_number(
-            {"type": "episode", "episode_number": 12}
-        ) == "12"
+        assert (
+            library_view._placeholder_number({"type": "episode", "episode_number": 12})
+            == "12"
+        )
 
     def test_placeholder_label_empty_for_movie(self, library_view: LibraryView) -> None:
         """Test movie placeholders do not get season or episode labels."""
@@ -436,8 +438,88 @@ class TestLibraryView:
         # The update should not raise an exception
         # Visual verification would require rendering
         item = library_view._model.item(0)
-        assert item.data(LibraryItemRole.DownloadProgressRole) == 50
+        assert library_view.get_items()[0]["download_progress"] == 50
         assert item.text().startswith("[Downloading 50%]")
+
+    def test_set_items_does_not_store_explicit_none_role_values(
+        self, library_view: LibraryView
+    ) -> None:
+        """Test optional empty fields are left unset in Qt item roles."""
+        library_view.set_items(
+            [
+                {
+                    "id": 3,
+                    "type": "season",
+                    "title": "Season 3",
+                    "season_number": 3,
+                    "state": DownloadState.PENDING.value,
+                }
+            ]
+        )
+
+        item = library_view._model.item(0)
+        assert item.data(LibraryItemRole.GenresRole) is None
+        assert item.data(LibraryItemRole.PosterPathRole) is None
+
+    def test_update_all_items_handles_rows_with_missing_optional_fields(
+        self, library_view: LibraryView
+    ) -> None:
+        """Test season progress updates work when optional roles are unset."""
+        library_view.set_items(
+            [
+                {
+                    "id": 10,
+                    "type": "episode",
+                    "title": "Episode 1",
+                    "episode_number": 1,
+                    "state": DownloadState.PENDING.value,
+                },
+                {
+                    "id": 11,
+                    "type": "episode",
+                    "title": "Episode 2",
+                    "episode_number": 2,
+                    "state": DownloadState.PENDING.value,
+                },
+            ]
+        )
+
+        library_view.update_all_items(
+            {"state": DownloadState.DOWNLOADING.value, "download_progress": 49}
+        )
+
+        for row in range(library_view._model.rowCount()):
+            item = library_view._model.item(row)
+            assert (
+                library_view.get_items()[row]["state"]
+                == DownloadState.DOWNLOADING.value
+            )
+            assert library_view.get_items()[row]["download_progress"] == 49
+            assert item.text().startswith("[Downloading 49%]")
+
+    def test_progress_update_does_not_rebuild_icon(
+        self, library_view: LibraryView, sample_items: list[dict], mocker
+    ) -> None:
+        """Test progress-only updates avoid repeated Qt icon regeneration."""
+        sample_items[0]["state"] = DownloadState.DOWNLOADING.value
+        sample_items[0]["download_progress"] = 10
+        library_view.set_items(sample_items)
+        build_icon = mocker.spy(library_view, "_build_item_icon_from_model_item")
+
+        library_view.update_item("movie-1", {"download_progress": 11})
+
+        build_icon.assert_not_called()
+
+    def test_state_update_rebuilds_icon(
+        self, library_view: LibraryView, sample_items: list[dict], mocker
+    ) -> None:
+        """Test state changes still refresh the status badge icon."""
+        library_view.set_items(sample_items)
+        build_icon = mocker.spy(library_view, "_build_item_icon")
+
+        library_view.update_item("movie-1", {"state": DownloadState.DOWNLOADING.value})
+
+        build_icon.assert_called_once()
 
     def test_update_item_by_file_id(
         self, library_view: LibraryView, sample_items: list[dict]
@@ -455,7 +537,7 @@ class TestLibraryView:
         )
 
         item = library_view._model.item(0)
-        assert item.data(LibraryItemRole.DownloadStateRole) == DownloadState.ERROR.value
+        assert library_view.get_items()[0]["state"] == DownloadState.ERROR.value
         assert item.text().startswith("[Error]")
 
     def test_update_item_by_file_id_not_found(
