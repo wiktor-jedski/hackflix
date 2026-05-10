@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_VOLUME_STEP = 5
 DEFAULT_SEEK_SECONDS = 10
 DEFAULT_TIME_UPDATE_INTERVAL_MS = 500
+SUBTITLE_EXTENSIONS = (".srt",)
 
 
 class PlayerService(QObject):
@@ -115,11 +116,12 @@ class PlayerService(QObject):
             self.error_occurred.emit(f"VLC initialization failed: {e}")
             raise
 
-    def load_video(self, file_path: str) -> None:
+    def load_video(self, file_path: str, subtitle_path: str | None = None) -> None:
         """Load a video file.
 
         Args:
             file_path: Path to the video file.
+            subtitle_path: Optional subtitle file to attach before playback starts.
 
         Raises:
             vlc.VLCException: If media loading fails.
@@ -145,6 +147,16 @@ class PlayerService(QObject):
             if not self._current_media:
                 raise vlc.VLCException("Failed to create media from file")
 
+            if subtitle_path:
+                subtitle_file = Path(subtitle_path)
+                if subtitle_file.exists():
+                    self._current_media.add_option(f":sub-file={subtitle_path}")
+                    logger.info(
+                        "Attached subtitle file before playback: %s", subtitle_path
+                    )
+                else:
+                    logger.warning("Subtitle file not found: %s", subtitle_path)
+
             self._player.set_media(self._current_media)
             self._player.play()
 
@@ -157,6 +169,30 @@ class PlayerService(QObject):
             logger.error("Failed to load video: %s", e)
             self.error_occurred.emit(f"Failed to load video: {e}")
             raise
+
+    def find_matching_subtitle(self, file_path: str) -> str | None:
+        """Find an external subtitle file matching the video filename.
+
+        Args:
+            file_path: Path to the video file.
+
+        Returns:
+            Matching subtitle path, or None when no matching subtitle exists.
+        """
+        video_path = Path(file_path)
+        for extension in SUBTITLE_EXTENSIONS:
+            exact_match = video_path.with_suffix(extension)
+            if exact_match.exists():
+                return str(exact_match)
+
+        for extension in SUBTITLE_EXTENSIONS:
+            for subtitle_file in sorted(
+                video_path.parent.glob(f"{video_path.stem}.*{extension}")
+            ):
+                if subtitle_file.is_file():
+                    return str(subtitle_file)
+
+        return None
 
     def load_subtitle(self, path: str) -> None:
         """Load a subtitle file.

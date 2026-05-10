@@ -188,6 +188,41 @@ class TestPlayerServiceLoadVideo:
         mock_vlc_module._mock_player.set_media.assert_called_once()
         mock_vlc_module._mock_player.play.assert_called_once()
 
+    def test_load_video_with_subtitle(
+        self,
+        mock_vlc_module: mock.MagicMock,
+        initialized_service: Any,
+        tmp_path: Path,
+    ) -> None:
+        """Test subtitle is attached before playback starts."""
+        video_file = tmp_path / "test.mp4"
+        subtitle_file = tmp_path / "test.srt"
+        video_file.touch()
+        subtitle_file.touch()
+
+        initialized_service.load_video(str(video_file), str(subtitle_file))
+
+        mock_vlc_module._mock_media.add_option.assert_called_once_with(
+            f":sub-file={subtitle_file}"
+        )
+        mock_vlc_module._mock_player.set_media.assert_called_once()
+        mock_vlc_module._mock_player.play.assert_called_once()
+
+    def test_load_video_with_missing_subtitle(
+        self,
+        mock_vlc_module: mock.MagicMock,
+        initialized_service: Any,
+        tmp_path: Path,
+    ) -> None:
+        """Test missing subtitle does not block playback."""
+        video_file = tmp_path / "test.mp4"
+        video_file.touch()
+
+        initialized_service.load_video(str(video_file), str(tmp_path / "missing.srt"))
+
+        mock_vlc_module._mock_media.add_option.assert_not_called()
+        mock_vlc_module._mock_player.play.assert_called_once()
+
     def test_load_video_file_not_found(
         self,
         mock_vlc_module: mock.MagicMock,
@@ -746,6 +781,47 @@ class TestPlayerServiceSubtitles:
 
         service = PlayerService()
         service.load_subtitle("/some/subtitle.srt")  # Should not raise
+
+    def test_find_matching_subtitle_exact_stem(
+        self,
+        playing_service: Any,
+        tmp_path: Path,
+    ) -> None:
+        """Test finding a subtitle with the same video stem."""
+        video_file = tmp_path / "movie.mkv"
+        subtitle_file = tmp_path / "movie.srt"
+        video_file.touch()
+        subtitle_file.touch()
+
+        assert playing_service.find_matching_subtitle(str(video_file)) == str(
+            subtitle_file
+        )
+
+    def test_find_matching_subtitle_language_suffix(
+        self,
+        playing_service: Any,
+        tmp_path: Path,
+    ) -> None:
+        """Test finding a subtitle with a language suffix."""
+        video_file = tmp_path / "movie.mkv"
+        subtitle_file = tmp_path / "movie.en.srt"
+        video_file.touch()
+        subtitle_file.touch()
+
+        assert playing_service.find_matching_subtitle(str(video_file)) == str(
+            subtitle_file
+        )
+
+    def test_find_matching_subtitle_none(
+        self,
+        playing_service: Any,
+        tmp_path: Path,
+    ) -> None:
+        """Test no subtitle match returns None."""
+        video_file = tmp_path / "movie.mkv"
+        video_file.touch()
+
+        assert playing_service.find_matching_subtitle(str(video_file)) is None
 
 
 class TestPlayerServiceStateAndRelease:

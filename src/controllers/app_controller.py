@@ -1621,6 +1621,9 @@ class AppController(QObject):
             if subtitle_path:
                 break
 
+        if not subtitle_path:
+            subtitle_path = self._player_service.find_matching_subtitle(file_path)
+
         # Store current file ID for resume position saving
         self._current_playing_file_id = video_file_id
 
@@ -1637,11 +1640,7 @@ class AppController(QObject):
             self._player_service.initialize(frame_id)
 
             # Load and start playback
-            self._player_service.load_video(file_path)
-
-            # Load subtitle if available
-            if subtitle_path:
-                self._player_service.load_subtitle(subtitle_path)
+            self._player_service.load_video(file_path, subtitle_path)
 
             # Resume from saved position if available
             resume_position = video.get("resume_position_seconds", 0)

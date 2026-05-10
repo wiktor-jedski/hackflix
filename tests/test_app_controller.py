@@ -1711,6 +1711,7 @@ class TestAppControllerPlayerMethods:
         service.is_playing.return_value = True
         service.get_position_seconds.return_value = 120
         service.get_current_audio_track.return_value = {"name": "English"}
+        service.find_matching_subtitle.return_value = None
         return service
 
     # =========================================================================
@@ -1819,7 +1820,9 @@ class TestAppControllerPlayerMethods:
 
         mock_main_window.show_player.assert_called_once()
         mock_player_service.initialize.assert_called_once_with(12345)
-        mock_player_service.load_video.assert_called_once_with("/path/to/video.mp4")
+        mock_player_service.load_video.assert_called_once_with(
+            "/path/to/video.mp4", None
+        )
 
     def test_play_media_with_resume_position(
         self,
@@ -1886,7 +1889,10 @@ class TestAppControllerPlayerMethods:
         controller.play_media(video["id"])
 
         # Should load Polish subtitle (priority over original)
-        mock_player_service.load_subtitle.assert_called_once_with("/path/to/polish.srt")
+        mock_player_service.load_video.assert_called_once_with(
+            "/path/to/video.mp4", "/path/to/polish.srt"
+        )
+        mock_player_service.load_subtitle.assert_not_called()
 
     def test_play_media_with_original_subtitle(
         self,
@@ -1920,9 +1926,10 @@ class TestAppControllerPlayerMethods:
         controller.play_media(video["id"])
 
         # Should load original subtitle
-        mock_player_service.load_subtitle.assert_called_once_with(
-            "/path/to/original.srt"
+        mock_player_service.load_video.assert_called_once_with(
+            "/path/to/video.mp4", "/path/to/original.srt"
         )
+        mock_player_service.load_subtitle.assert_not_called()
 
     def test_play_media_without_subtitles(
         self,
@@ -1953,8 +1960,47 @@ class TestAppControllerPlayerMethods:
         controller._player_service = mock_player_service
         controller.play_media(video["id"])
 
-        # Should not call load_subtitle
+        # Should not load subtitles
+        mock_player_service.load_video.assert_called_once_with(
+            "/path/to/video.mp4", None
+        )
         mock_player_service.load_subtitle.assert_not_called()
+
+    def test_play_media_uses_matching_subtitle_fallback(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+        db_manager: DatabaseManager,
+    ) -> None:
+        """Test play_media uses same-directory subtitle when DB has no subtitles."""
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "test-movie",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
+        video = db_manager.get_video_details("test-movie")
+        db_manager.update_file_path(video["id"], "/path/to/video.mp4")
+        mock_player_service.find_matching_subtitle.return_value = "/path/to/video.srt"
+
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller.play_media(video["id"])
+
+        mock_player_service.find_matching_subtitle.assert_called_once_with(
+            "/path/to/video.mp4"
+        )
+        mock_player_service.load_video.assert_called_once_with(
+            "/path/to/video.mp4", "/path/to/video.srt"
+        )
 
     def test_play_media_file_not_found_error(
         self,
