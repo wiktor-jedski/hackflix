@@ -324,7 +324,7 @@ class TestPipelineServiceFailedRecovery:
             "pipeline_state": PipelineState.FAILED.value,
         }
 
-        original_srt = video_folder / "original.srt"
+        original_srt = video_folder / "video.original.srt"
         original_srt.write_text("1\n00:00:01,000 --> 00:00:04,000\nOriginal text\n")
 
         mock_open_subtitles = MagicMock()
@@ -384,7 +384,7 @@ class TestPipelineServiceFailedRecovery:
         }
         mock_db_manager.get_translation_progress.return_value = {"completed_batches": 3}
 
-        original_srt = video_folder / "original.srt"
+        original_srt = video_folder / "video.original.srt"
         original_srt.write_text("1\n00:00:01,000 --> 00:00:04,000\nOriginal text\n")
 
         mock_open_subtitles = MagicMock()
@@ -554,6 +554,28 @@ class TestPipelineServiceDatabasePersistence:
 
 class TestPipelineServiceFetchSubtitlesIntegration:
     """Integration tests for _fetch_subtitles method."""
+
+    def test_get_subtitle_paths_without_translation(self, pipeline_service, tmp_path):
+        """Verify non-translated subtitles use the video stem for playback."""
+        video_path = tmp_path / "movie.mkv"
+
+        source_srt, playback_srt = pipeline_service._get_subtitle_paths(
+            video_path, False
+        )
+
+        assert source_srt == tmp_path / "movie.srt"
+        assert playback_srt == tmp_path / "movie.srt"
+
+    def test_get_subtitle_paths_with_translation(self, pipeline_service, tmp_path):
+        """Verify translated subtitles avoid source subtitle collisions."""
+        video_path = tmp_path / "episode.mkv"
+
+        source_srt, playback_srt = pipeline_service._get_subtitle_paths(
+            video_path, True
+        )
+
+        assert source_srt == tmp_path / "episode.original.srt"
+        assert playback_srt == tmp_path / "episode.srt"
 
     def test_fetch_subtitles_success(self, pipeline_service, mock_db_manager, tmp_path):
         """Verify _fetch_subtitles downloads and saves subtitles."""
@@ -791,7 +813,7 @@ class TestPipelineServiceGeminiAPIErrorHandling:
         video_path = video_folder / "video.mp4"
         video_path.touch()
 
-        original_srt = video_folder / "original.srt"
+        original_srt = video_folder / "video.original.srt"
         original_srt.write_text("1\n00:00:01,000 --> 00:00:04,000\nHello\n")
 
         mock_db_manager.get_video_file.return_value = {
@@ -882,7 +904,7 @@ class TestPipelineServiceCompleteFlow:
         video_path.touch()
         video_file_id = 1
 
-        original_srt = video_folder / "original.srt"
+        original_srt = video_folder / "video.original.srt"
         original_srt.write_text("1\n00:00:01,000 --> 00:00:04,000\nHello\n")
 
         mock_db_manager.get_video_file.return_value = {
@@ -988,7 +1010,7 @@ How are you?
 00:00:10,000 --> 00:00:15,000
 [Sound effect]
 """
-        original_srt = video_folder / "original.srt"
+        original_srt = video_folder / "video.original.srt"
         original_srt.write_text(srt_content)
 
         mock_db_manager.get_video_file.return_value = {
@@ -1050,7 +1072,7 @@ How are you?
             pipeline_service.wait()
 
             mock_finished.emit.assert_called_once_with(video_file_id, True)
-            assert (video_folder / "pl.srt").exists()
+            assert (video_folder / "video.srt").exists()
 
 
 class TestPipelineServiceOpenSubtitlesFailure:

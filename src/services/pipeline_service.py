@@ -139,7 +139,10 @@ class PipelineService(QThread):
                 self.signals.pipeline_finished.emit(self._video_file_id, True)
                 return
 
-            self._fetch_subtitles(subtitle_id, video_folder)
+            original_srt, playback_srt = self._get_subtitle_paths(
+                video_path, bool(needs_translation)
+            )
+            self._fetch_subtitles(subtitle_id, video_folder, original_srt)
 
             if self._should_stop:
                 self._emit_update(PipelineState.NONE, "Cancelled")
@@ -147,7 +150,9 @@ class PipelineService(QThread):
                 return
 
             if needs_translation:
-                self._translate_subtitles(video_folder, self._video_file_id)
+                self._translate_subtitles(
+                    video_folder, self._video_file_id, original_srt, playback_srt
+                )
             else:
                 # If no translation needed, mark as ready after fetching
                 self._update_pipeline_state(PipelineState.SUBS_READY)
@@ -192,22 +197,44 @@ class PipelineService(QThread):
         self._current_state = state
         self.db_manager.update_pipeline_state(self._video_file_id, state)
 
-    def _fetch_subtitles(self, subtitle_id: int, video_folder: Path) -> Path:
+    def _get_subtitle_paths(
+        self, video_path: Path, needs_translation: bool
+    ) -> tuple[Path, Path]:
+        """Build source and playback subtitle paths for a video file.
+
+        Args:
+            video_path: Path to the video file.
+            needs_translation: Whether the subtitle will be translated.
+
+        Returns:
+            Tuple of (source subtitle path, playback subtitle path).
+        """
+        playback_srt = video_path.with_suffix(".srt")
+        if not needs_translation:
+            return playback_srt, playback_srt
+
+        return video_path.with_suffix(".original.srt"), playback_srt
+
+    def _fetch_subtitles(
+        self, subtitle_id: int, video_folder: Path, output_path: Path | None = None
+    ) -> Path:
         """Fetch subtitles from OpenSubtitles API.
 
         Args:
             subtitle_id: OpenSubtitles ID to download.
             video_folder: Destination folder for subtitle files.
+            output_path: Optional explicit output path.
 
         Returns:
-            Path to the downloaded original.srt file.
+            Path to the downloaded subtitle file.
         """
         self._emit_update(PipelineState.FETCHING_SUBS, "Downloading subtitles...")
 
         from src.utils.opensubtitles_client import OpenSubtitlesClient
 
         client = OpenSubtitlesClient()
-        output_path = video_folder / "original.srt"
+        if output_path is None:
+            output_path = video_folder / "original.srt"
         client.download_subtitle(subtitle_id, output_path)
 
         self.db_manager.add_subtitle(
@@ -217,12 +244,20 @@ class PipelineService(QThread):
         logger.info("Subtitles downloaded to %s", output_path)
         return output_path
 
-    def _translate_subtitles(self, video_folder: Path, video_file_id: int) -> list:
+    def _translate_subtitles(
+        self,
+        video_folder: Path,
+        video_file_id: int,
+        original_srt: Path | None = None,
+        translated_srt: Path | None = None,
+    ) -> list:
         """Translate subtitles using Gemini API with resumable batching.
 
         Args:
             video_folder: Folder containing subtitle files.
             video_file_id: Database ID for progress tracking.
+            original_srt: Optional source subtitle path.
+            translated_srt: Optional translated subtitle path.
 
         Returns:
             List of translated SubtitleLine objects.
@@ -232,8 +267,10 @@ class PipelineService(QThread):
         from src.utils.subtitle_parser import parse_srt_file
         from src.utils.gemini_client import GeminiTranslator
 
-        original_srt = video_folder / "original.srt"
-        translated_srt = video_folder / "pl.srt"
+        if original_srt is None:
+            original_srt = video_folder / "original.srt"
+        if translated_srt is None:
+            translated_srt = video_folder / "pl.srt"
 
         subtitle_lines = parse_srt_file(original_srt)
 

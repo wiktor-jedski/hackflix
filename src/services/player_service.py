@@ -160,6 +160,11 @@ class PlayerService(QObject):
             self._player.set_media(self._current_media)
             self._player.play()
 
+            if subtitle_path and subtitle_file.exists():
+                self._player.video_set_subtitle_file(subtitle_path)
+                self._activate_first_subtitle_track()
+                QTimer.singleShot(500, self._activate_first_subtitle_track)
+
             # Reset audio track index
             self._current_audio_track_index = 0
 
@@ -169,6 +174,27 @@ class PlayerService(QObject):
             logger.error("Failed to load video: %s", e)
             self.error_occurred.emit(f"Failed to load video: {e}")
             raise
+
+    def _activate_first_subtitle_track(self) -> None:
+        """Select the first available VLC subtitle track."""
+        if not self._player:
+            return
+
+        try:
+            descriptions = self._player.video_get_spu_description()
+            for track_id, track_name in descriptions or []:
+                if track_id == -1:
+                    continue
+                self._player.video_set_spu(track_id)
+                logger.info(
+                    "Activated subtitle track: id=%s, name=%s",
+                    track_id,
+                    track_name,
+                )
+                return
+            logger.warning("No selectable subtitle track found")
+        except Exception as e:
+            logger.error("Failed to activate subtitle track: %s", e)
 
     def find_matching_subtitle(self, file_path: str) -> str | None:
         """Find an external subtitle file matching the video filename.

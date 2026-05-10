@@ -40,6 +40,10 @@ def mock_vlc_module():
         (1, b"English"),
         (2, b"Polish (Voiceover)"),
     ]
+    mock_player.video_get_spu_description.return_value = [
+        (-1, b"Disable"),
+        (1, b"Subtitle Track 1"),
+    ]
     mock_instance.media_player_new.return_value = mock_player
 
     # Setup Media mock
@@ -207,6 +211,10 @@ class TestPlayerServiceLoadVideo:
         )
         mock_vlc_module._mock_player.set_media.assert_called_once()
         mock_vlc_module._mock_player.play.assert_called_once()
+        mock_vlc_module._mock_player.video_set_subtitle_file.assert_called_once_with(
+            str(subtitle_file)
+        )
+        mock_vlc_module._mock_player.video_set_spu.assert_called_once_with(1)
 
     def test_load_video_with_missing_subtitle(
         self,
@@ -781,6 +789,44 @@ class TestPlayerServiceSubtitles:
 
         service = PlayerService()
         service.load_subtitle("/some/subtitle.srt")  # Should not raise
+
+    def test_activate_first_subtitle_track(
+        self,
+        mock_vlc_module: mock.MagicMock,
+        playing_service: Any,
+    ) -> None:
+        """Test selecting the first available subtitle track."""
+        playing_service._activate_first_subtitle_track()
+
+        mock_vlc_module._mock_player.video_set_spu.assert_called_once_with(1)
+
+    def test_activate_first_subtitle_track_no_tracks(
+        self,
+        mock_vlc_module: mock.MagicMock,
+        playing_service: Any,
+    ) -> None:
+        """Test subtitle activation when VLC has no selectable subtitle tracks."""
+        mock_vlc_module._mock_player.video_get_spu_description.return_value = [
+            (-1, b"Disable")
+        ]
+
+        playing_service._activate_first_subtitle_track()
+
+        mock_vlc_module._mock_player.video_set_spu.assert_not_called()
+
+    def test_activate_first_subtitle_track_error(
+        self,
+        mock_vlc_module: mock.MagicMock,
+        playing_service: Any,
+    ) -> None:
+        """Test subtitle activation handles VLC errors."""
+        mock_vlc_module._mock_player.video_get_spu_description.side_effect = Exception(
+            "SPU error"
+        )
+
+        playing_service._activate_first_subtitle_track()
+
+        mock_vlc_module._mock_player.video_set_spu.assert_not_called()
 
     def test_find_matching_subtitle_exact_stem(
         self,
