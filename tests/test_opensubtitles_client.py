@@ -325,6 +325,37 @@ class TestSearchSubtitles:
                 assert call_params["languages"] == "pl"
                 assert call_params["limit"] == 5
 
+    def test_search_with_raw_params(self):
+        """Verify search accepts precise OpenSubtitles query parameters."""
+        with patch("src.utils.opensubtitles_client.OPENSUBTITLES_API_KEY", "test-key"):
+            client = OpenSubtitlesClient()
+
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"data": []}
+
+            with patch.object(
+                client.session, "get", return_value=mock_response
+            ) as mock_get:
+                client.search_subtitles_with_params(
+                    {
+                        "parent_imdb_id": 306414,
+                        "season_number": 1,
+                        "episode_number": 2,
+                        "languages": "pl",
+                        "type": "episode",
+                    },
+                    limit=20,
+                )
+
+                call_params = mock_get.call_args[1]["params"]
+                assert call_params["parent_imdb_id"] == 306414
+                assert call_params["season_number"] == 1
+                assert call_params["episode_number"] == 2
+                assert call_params["languages"] == "pl"
+                assert call_params["type"] == "episode"
+                assert call_params["limit"] == 20
+
     def test_search_handles_request_error(self):
         """Verify search returns empty list on request error."""
         with patch("src.utils.opensubtitles_client.OPENSUBTITLES_API_KEY", "test-key"):

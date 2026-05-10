@@ -128,14 +128,35 @@ class OpenSubtitlesClient:
         Returns:
             List of subtitle metadata dictionaries.
         """
+        return self.search_subtitles_with_params(
+            params={
+                "query": query,
+                "languages": language,
+            },
+            limit=limit,
+        )
+
+    def search_subtitles_with_params(
+        self,
+        params: dict,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Search for subtitles with raw OpenSubtitles query parameters.
+
+        Args:
+            params: OpenSubtitles /subtitles query parameters.
+            limit: Maximum number of results.
+
+        Returns:
+            List of subtitle metadata dictionaries.
+        """
+        request_params = dict(params)
+        request_params["limit"] = limit
+
         try:
             response = self.session.get(
                 f"{self.BASE_URL}/subtitles",
-                params={
-                    "query": query,
-                    "languages": language,
-                    "limit": limit,
-                },
+                params=request_params,
                 timeout=30,
             )
 
