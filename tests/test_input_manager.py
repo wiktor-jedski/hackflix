@@ -86,6 +86,8 @@ class TestInputManager:
         assert input_manager._map_key_to_action(space_event) == Action.TOGGLE_PAUSE
         assert input_manager._map_key_to_action(m_event) == Action.TOGGLE_MUTE
         assert input_manager._map_key_to_action(l_event) == Action.CYCLE_AUDIO
+        v_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_V, Qt.NoModifier)
+        assert input_manager._map_key_to_action(v_event) == Action.CYCLE_SUBTITLE
 
     def test_unmapped_key_returns_none(self, input_manager: InputManager) -> None:
         """Test that unmapped keys return Action.NONE."""
@@ -250,6 +252,8 @@ class TestInputManager:
             else isinstance(obj, cls),
         ):
             result = input_manager.eventFilter(widget, auto_repeat_event)
+
+        assert result is True
 
         # Auto-repeat should be blocked (return True to consume event)
         # Note: Due to the nature of mocking, we primarily test that debounced

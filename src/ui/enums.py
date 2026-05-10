@@ -44,6 +44,7 @@ class Action(Enum):
     VOLUME_DOWN = auto()  # Down arrow in player
     TOGGLE_MUTE = auto()  # M key in player
     CYCLE_AUDIO = auto()  # L key in player
+    CYCLE_SUBTITLE = auto()  # V key in player
 
 
 class AppState(Enum):

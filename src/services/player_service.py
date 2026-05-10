@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_VOLUME_STEP = 5
 DEFAULT_SEEK_SECONDS = 10
 DEFAULT_TIME_UPDATE_INTERVAL_MS = 500
+SUBTITLE_ACTIVATION_RETRY_MS = (500, 1500, 3000)
 SUBTITLE_EXTENSIONS = (".srt",)
 
 
@@ -59,6 +60,9 @@ class PlayerService(QObject):
         self._is_muted = False
         self._pre_mute_volume = 100
         self._current_audio_track_index = 0
+        self._current_subtitle_track_index = 0
+        self._external_subtitle_track_id: int | None = None
+        self._subtitle_track_user_selected = False
 
         # Timer for time updates
         self._time_timer: QTimer | None = None
@@ -147,10 +151,13 @@ class PlayerService(QObject):
             if not self._current_media:
                 raise vlc.VLCException("Failed to create media from file")
 
+            self._external_subtitle_track_id = None
+            self._subtitle_track_user_selected = False
+
             if subtitle_path:
                 subtitle_file = Path(subtitle_path)
                 if subtitle_file.exists():
-                    self._current_media.add_option(f":sub-file={subtitle_path}")
+                    self._attach_subtitle_to_media(subtitle_file)
                     logger.info(
                         "Attached subtitle file before playback: %s", subtitle_path
                     )
@@ -161,12 +168,12 @@ class PlayerService(QObject):
             self._player.play()
 
             if subtitle_path and subtitle_file.exists():
-                self._player.video_set_subtitle_file(subtitle_path)
-                self._activate_first_subtitle_track()
-                QTimer.singleShot(500, self._activate_first_subtitle_track)
+                self._load_and_activate_subtitle(subtitle_file, warn_if_missing=False)
+                self._schedule_subtitle_load_and_activation(subtitle_file)
 
             # Reset audio track index
             self._current_audio_track_index = 0
+            self._current_subtitle_track_index = 0
 
             logger.info("Loaded video: %s", file_path)
 
@@ -175,10 +182,51 @@ class PlayerService(QObject):
             self.error_occurred.emit(f"Failed to load video: {e}")
             raise
 
-    def _activate_first_subtitle_track(self) -> None:
-        """Select the first available VLC subtitle track."""
+    def _attach_subtitle_to_media(self, subtitle_file: Path) -> None:
+        """Attach an external subtitle to the current VLC media."""
+        if not self._current_media:
+            return
+
+        subtitle_uri = subtitle_file.resolve().as_uri()
+        slaves_add = getattr(self._current_media, "slaves_add", None)
+        if callable(slaves_add):
+            subtitle_slave_type = getattr(vlc.MediaSlaveType, "subtitle")
+            slaves_add(subtitle_slave_type, 4, subtitle_uri)
+
+        self._current_media.add_option(f":sub-file={subtitle_uri}")
+
+    def _load_subtitle_file(self, subtitle_file: Path) -> None:
+        """Load an external subtitle file into the active VLC player."""
         if not self._player:
             return
+
+        subtitle_path = str(subtitle_file)
+        loaded = self._player.video_set_subtitle_file(subtitle_path)
+        logger.info("Subtitle file load result for %s: %s", subtitle_path, loaded)
+
+    def _load_and_activate_subtitle(
+        self, subtitle_file: Path, warn_if_missing: bool = True
+    ) -> None:
+        """Load a specific external subtitle file and select a visible SPU track."""
+        self._load_subtitle_file(subtitle_file)
+        if not self._subtitle_track_user_selected:
+            self._activate_first_subtitle_track(warn_if_missing=warn_if_missing)
+
+    def _schedule_subtitle_load_and_activation(self, subtitle_file: Path) -> None:
+        """Retry external subtitle loading while VLC starts playback."""
+        final_delay = SUBTITLE_ACTIVATION_RETRY_MS[-1]
+        for delay_ms in SUBTITLE_ACTIVATION_RETRY_MS:
+            QTimer.singleShot(
+                delay_ms,
+                lambda warn=delay_ms == final_delay: self._load_and_activate_subtitle(
+                    subtitle_file, warn_if_missing=warn
+                ),
+            )
+
+    def _activate_first_subtitle_track(self, warn_if_missing: bool = True) -> bool:
+        """Select the first available VLC subtitle track."""
+        if not self._player:
+            return False
 
         try:
             descriptions = self._player.video_get_spu_description()
@@ -186,15 +234,18 @@ class PlayerService(QObject):
                 if track_id == -1:
                     continue
                 self._player.video_set_spu(track_id)
+                self._external_subtitle_track_id = track_id
                 logger.info(
                     "Activated subtitle track: id=%s, name=%s",
                     track_id,
                     track_name,
                 )
-                return
-            logger.warning("No selectable subtitle track found")
+                return True
+            if warn_if_missing:
+                logger.warning("No selectable subtitle track found")
         except Exception as e:
             logger.error("Failed to activate subtitle track: %s", e)
+        return False
 
     def find_matching_subtitle(self, file_path: str) -> str | None:
         """Find an external subtitle file matching the video filename.
@@ -236,10 +287,87 @@ class PlayerService(QObject):
             return
 
         try:
-            self._player.video_set_subtitle_file(path)
+            self._external_subtitle_track_id = None
+            self._subtitle_track_user_selected = False
+            self._load_and_activate_subtitle(subtitle_file, warn_if_missing=False)
+            self._schedule_subtitle_load_and_activation(subtitle_file)
             logger.info("Loaded subtitle file: %s", path)
         except Exception as e:
             logger.error("Failed to load subtitle: %s", e)
+
+    def get_subtitle_tracks(self) -> list[dict[str, Any]]:
+        """Get list of available subtitle tracks.
+
+        Returns:
+            List of dicts with 'id', 'name', and 'is_current' keys.
+        """
+        if not self._player:
+            return []
+
+        tracks: list[dict[str, Any]] = []
+        track_description = self._player.video_get_spu_description()
+
+        if track_description:
+            current_track_id = self._player.video_get_spu()
+            for track_id, track_name in track_description:
+                tracks.append(
+                    {
+                        "id": track_id,
+                        "name": self._decode_track_name(track_name, track_id),
+                        "is_current": track_id == current_track_id,
+                    }
+                )
+
+        return tracks
+
+    def cycle_subtitle_track(self) -> None:
+        """Cycle through available subtitle tracks sequentially."""
+        if not self._player:
+            return
+
+        tracks = self.get_subtitle_tracks()
+        if len(tracks) <= 1:
+            logger.debug("No alternate subtitle tracks available")
+            return
+
+        current_index = 0
+        for i, track in enumerate(tracks):
+            if track["is_current"]:
+                current_index = i
+                break
+
+        next_index = (current_index + 1) % len(tracks)
+        next_track = tracks[next_index]
+
+        self._player.video_set_spu(next_track["id"])
+        self._current_subtitle_track_index = next_index
+        self._subtitle_track_user_selected = True
+
+        logger.info(
+            "Switched subtitle track: %s -> %s",
+            tracks[current_index]["name"],
+            next_track["name"],
+        )
+
+    def get_current_subtitle_track(self) -> dict[str, Any] | None:
+        """Get the currently active subtitle track."""
+        tracks = self.get_subtitle_tracks()
+        for track in tracks:
+            if track["is_current"]:
+                return track
+        return None
+
+    def get_external_subtitle_track_id(self) -> int | None:
+        """Return the VLC track id selected for the loaded external subtitle."""
+        return self._external_subtitle_track_id
+
+    def _decode_track_name(self, track_name: Any, track_id: int) -> str:
+        """Decode a VLC track name into a UI-safe string."""
+        if track_id == -1:
+            return "Subtitles Off"
+        if isinstance(track_name, bytes):
+            return track_name.decode("utf-8", errors="replace")
+        return str(track_name)
 
     def toggle_pause(self) -> None:
         """Toggle pause state of playback."""

@@ -182,6 +182,17 @@ class OSDWidget(QFrame):
         self._audio_track_icon.show()
         self._show_osd()
 
+    def show_subtitle_track(self, track_name: str) -> None:
+        """Show subtitle track indicator.
+
+        Args:
+            track_name: Name of the current subtitle track.
+        """
+        self._hide_all_icons()
+        self._audio_track_icon.setText("🔤")
+        self._audio_track_icon.show()
+        self._show_osd()
+
     def _show_osd(self) -> None:
         """Show the OSD with full opacity."""
         self._fade_animation.stop()
@@ -342,6 +353,23 @@ class PlayerView(QFrame):
         # Audio track overlay (positioned at right)
         self._audio_track_overlay = AudioTrackOverlay(self)
 
+        self._subtitle_label = QLabel(self)
+        self._subtitle_label.setObjectName("SubtitleOverlay")
+        self._subtitle_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
+        self._subtitle_label.setWordWrap(True)
+        self._subtitle_label.setAttribute(Qt.WA_TransparentForMouseEvents)  # type: ignore[attr-defined]
+        self._subtitle_label.setStyleSheet(f"""
+            QLabel#SubtitleOverlay {{
+                color: white;
+                background-color: rgba(0, 0, 0, 150);
+                border-radius: 6px;
+                padding: {scaled(8)}px {scaled(16)}px;
+                font-size: {FONT_SIZE_LARGE}px;
+                font-weight: 700;
+            }}
+        """)
+        self._subtitle_label.hide()
+
         logger.debug("PlayerView UI initialized")
 
     def _setup_osd_timer(self) -> None:
@@ -382,6 +410,17 @@ class PlayerView(QFrame):
         track_x = self.width() - self._audio_track_overlay.width() - scaled(20)
         track_y = (self.height() - self._audio_track_overlay.height()) // 2
         self._audio_track_overlay.move(track_x, track_y)
+
+        subtitle_width = max(scaled(320), int(self.width() * 0.82))
+        subtitle_height = scaled(112)
+        subtitle_x = (self.width() - subtitle_width) // 2
+        subtitle_y = max(scaled(20), self.height() - subtitle_height - scaled(96))
+        self._subtitle_label.setGeometry(
+            subtitle_x, subtitle_y, subtitle_width, subtitle_height
+        )
+        self._subtitle_label.raise_()
+        self._osd.raise_()
+        self._audio_track_overlay.raise_()
 
     def showEvent(self, event: Any) -> None:
         """Handle show event to emit view ready signal.
@@ -442,6 +481,34 @@ class PlayerView(QFrame):
         self._osd.show_audio_track(track_name)
         self._reset_osd_timer()
 
+    def show_subtitle_track_indicator(self, track_name: str) -> None:
+        """Show the subtitle track OSD indicator.
+
+        Args:
+            track_name: Name of the current subtitle track.
+        """
+        self._osd.show_subtitle_track(track_name)
+        self._reset_osd_timer()
+
+    def set_subtitle_text(self, text: str) -> None:
+        """Display subtitle text over the player.
+
+        Args:
+            text: Subtitle text to render. Empty text hides the overlay.
+        """
+        if not text:
+            self.clear_subtitle_text()
+            return
+
+        self._subtitle_label.setText(text)
+        self._subtitle_label.show()
+        self._subtitle_label.raise_()
+
+    def clear_subtitle_text(self) -> None:
+        """Hide the subtitle text overlay."""
+        self._subtitle_label.clear()
+        self._subtitle_label.hide()
+
     def show_audio_track_overlay(self, tracks: list[dict[str, Any]]) -> None:
         """Show the audio track selection overlay.
 
@@ -495,6 +562,7 @@ class PlayerView(QFrame):
         """
         self.show_cursor()
         self.hide_audio_track_overlay()
+        self.clear_subtitle_text()
         if self._osd_timer:
             self._osd_timer.stop()
         self._osd.hide()

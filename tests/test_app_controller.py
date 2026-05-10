@@ -594,6 +594,14 @@ class TestPlayerActiveHandler:
         assert result is True
         controller.player_cycle_audio.assert_called_once()
 
+    def test_cycle_subtitle(
+        self, handler: PlayerActiveHandler, controller: MagicMock
+    ) -> None:
+        """Test cycle subtitle action."""
+        result = handler.handle_action(Action.CYCLE_SUBTITLE, {})
+        assert result is True
+        controller.player_cycle_subtitle.assert_called_once()
+
     def test_unhandled_action(
         self, handler: PlayerActiveHandler, controller: MagicMock
     ) -> None:
@@ -1445,13 +1453,16 @@ class TestAppControllerAdvanced:
         mock_main_window.library_view.update_item_by_file_id.assert_not_called()
         assert db_manager.get_seasons("series-1")[0]["state"] == "DOWNLOADING"
 
-    def test_completed_episode_without_subs_starts_pipeline(
+    def test_completed_episode_with_subs_starts_pipeline(
         self, controller: AppController, mock_main_window: MagicMock
     ) -> None:
         """Test Enter on a downloaded episode starts subtitle processing first."""
         controller._main_window = mock_main_window
         controller._pipeline_service = MagicMock()
         controller._pipeline_service.is_busy.return_value = False
+        controller._db_manager.get_video_file = MagicMock(
+            return_value={"id": 77, "subtitle_id": 12345}
+        )
         mock_main_window.library_view.get_selected_item.return_value = {
             "id": 77,
             "file_id": 77,
@@ -1464,6 +1475,61 @@ class TestAppControllerAdvanced:
         controller.activate_selected()
 
         controller._pipeline_service.start_process.assert_called_once_with(77)
+        assert 77 in controller._play_after_pipeline_ids
+
+    def test_completed_episode_without_subs_plays_immediately(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test Enter on a downloaded episode without subtitle_id starts playback."""
+        controller._main_window = mock_main_window
+        controller._db_manager.get_video_file = MagicMock(
+            return_value={"id": 77, "subtitle_id": None}
+        )
+        controller.play_media = MagicMock()
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": 77,
+            "file_id": 77,
+            "type": "episode",
+            "title": "Pilot",
+            "state": DownloadState.COMPLETED.value,
+            "pipeline_state": PipelineState.NONE.value,
+        }
+
+        controller.activate_selected()
+
+        controller.play_media.assert_called_once_with(77)
+
+    def test_pipeline_finished_after_play_request_starts_media(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test user-started episode pipeline continues into playback on success."""
+        controller._main_window = mock_main_window
+        controller._pipeline_service = MagicMock()
+        controller._pipeline_service.is_busy.return_value = False
+        controller._play_after_pipeline_ids.add(77)
+        controller.play_media = MagicMock()
+
+        controller._on_pipeline_finished(77, True)
+
+        controller.play_media.assert_called_once_with(77)
+        assert 77 not in controller._play_after_pipeline_ids
+
+    def test_pipeline_finished_refreshes_episode_view_without_reset(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test background pipeline refreshes current episode drilldown."""
+        controller._main_window = mock_main_window
+        controller._pipeline_service = MagicMock()
+        controller._pipeline_service.is_busy.return_value = False
+        controller._current_state = AppState.SERIES_DRILLDOWN_EPISODES
+        controller._current_season_id = 5
+        controller.load_episodes = MagicMock()
+        controller.refresh_library = MagicMock()
+
+        controller._on_pipeline_finished(77, True)
+
+        controller.load_episodes.assert_called_once_with(5)
+        controller.refresh_library.assert_not_called()
 
     def test_on_download_completed(
         self, controller: AppController, mock_main_window: MagicMock
@@ -1862,8 +1928,14 @@ class TestAppControllerPlayerMethods:
         mock_main_window: MagicMock,
         mock_player_service: MagicMock,
         db_manager: DatabaseManager,
+        tmp_path: Path,
     ) -> None:
         """Test play_media loads subtitles (Polish priority)."""
+        original_subtitle = tmp_path / "original-en.srt"
+        polish_subtitle = tmp_path / "polish.srt"
+        original_subtitle.touch()
+        polish_subtitle.touch()
+
         # Insert media and video file
         db_manager.upsert_content(
             {
@@ -1881,8 +1953,8 @@ class TestAppControllerPlayerMethods:
         video = db_manager.get_video_details("test-movie")
         db_manager.update_file_path(video["id"], "/path/to/video.mp4")
         # Add Polish and original subtitles
-        db_manager.add_subtitle(video["id"], "original", "/path/to/original.srt")
-        db_manager.add_subtitle(video["id"], "polish", "/path/to/polish.srt")
+        db_manager.add_subtitle(video["id"], "original", str(original_subtitle))
+        db_manager.add_subtitle(video["id"], "polish", str(polish_subtitle))
 
         controller._main_window = mock_main_window
         controller._player_service = mock_player_service
@@ -1890,7 +1962,7 @@ class TestAppControllerPlayerMethods:
 
         # Should load Polish subtitle (priority over original)
         mock_player_service.load_video.assert_called_once_with(
-            "/path/to/video.mp4", "/path/to/polish.srt"
+            "/path/to/video.mp4", str(polish_subtitle)
         )
         mock_player_service.load_subtitle.assert_not_called()
 
@@ -1900,8 +1972,12 @@ class TestAppControllerPlayerMethods:
         mock_main_window: MagicMock,
         mock_player_service: MagicMock,
         db_manager: DatabaseManager,
+        tmp_path: Path,
     ) -> None:
         """Test play_media loads original subtitle when Polish not available."""
+        original_subtitle = tmp_path / "original-en.srt"
+        original_subtitle.touch()
+
         # Insert media and video file
         db_manager.upsert_content(
             {
@@ -1919,7 +1995,7 @@ class TestAppControllerPlayerMethods:
         video = db_manager.get_video_details("test-movie")
         db_manager.update_file_path(video["id"], "/path/to/video.mp4")
         # Add only original subtitle
-        db_manager.add_subtitle(video["id"], "original", "/path/to/original.srt")
+        db_manager.add_subtitle(video["id"], "original", str(original_subtitle))
 
         controller._main_window = mock_main_window
         controller._player_service = mock_player_service
@@ -1927,9 +2003,51 @@ class TestAppControllerPlayerMethods:
 
         # Should load original subtitle
         mock_player_service.load_video.assert_called_once_with(
-            "/path/to/video.mp4", "/path/to/original.srt"
+            "/path/to/video.mp4", str(original_subtitle)
         )
         mock_player_service.load_subtitle.assert_not_called()
+
+    def test_play_media_prefers_matching_subtitle_over_generic_original(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Test stale generic original.srt does not override video-name subtitles."""
+        video_file = tmp_path / "episode.mkv"
+        matching_subtitle = tmp_path / "episode.srt"
+        generic_subtitle = tmp_path / "original.srt"
+        video_file.touch()
+        matching_subtitle.touch()
+        generic_subtitle.touch()
+
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "test-movie",
+                        "type": "movie",
+                        "title": "Test Movie",
+                        "magnet": "magnet:?test",
+                        "subtitle_id": None,
+                    }
+                ]
+            }
+        )
+        video = db_manager.get_video_details("test-movie")
+        db_manager.update_file_path(video["id"], str(video_file))
+        db_manager.add_subtitle(video["id"], "original", str(generic_subtitle))
+        mock_player_service.find_matching_subtitle.return_value = str(matching_subtitle)
+
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller.play_media(video["id"])
+
+        mock_player_service.load_video.assert_called_once_with(
+            str(video_file), str(matching_subtitle)
+        )
 
     def test_play_media_without_subtitles(
         self,
@@ -2001,6 +2119,83 @@ class TestAppControllerPlayerMethods:
         mock_player_service.load_video.assert_called_once_with(
             "/path/to/video.mp4", "/path/to/video.srt"
         )
+
+    def test_episode_subtitle_overlay_renders_active_cue(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Test series episodes render selected SRT text through the overlay."""
+        video_file = tmp_path / "episode.mkv"
+        subtitle_file = tmp_path / "episode.en.srt"
+        video_file.touch()
+        subtitle_file.write_text(
+            "1\n00:00:05,000 --> 00:00:08,000\nHello episode\n\n",
+            encoding="utf-8",
+        )
+
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "test-series",
+                        "type": "series",
+                        "title": "Test Series",
+                        "seasons": [
+                            {
+                                "season_number": 1,
+                                "episodes": [
+                                    {
+                                        "number": 1,
+                                        "title": "Pilot",
+                                        "subtitle_id": 123,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+        season = db_manager.get_seasons("test-series")[0]
+        episode = db_manager.get_episodes(season["id"])[0]
+        db_manager.update_file_path(episode["id"], str(video_file))
+        db_manager.add_subtitle(episode["id"], "original", str(subtitle_file))
+
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        controller.play_media(episode["id"])
+
+        assert controller._episode_subtitle_overlay_enabled is True
+        mock_main_window.player_view.reset_mock()
+
+        controller._on_time_changed(6000, 120000)
+
+        mock_main_window.player_view.set_subtitle_text.assert_called_once_with(
+            "Hello episode"
+        )
+
+    def test_episode_subtitle_overlay_clears_after_cue(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+    ) -> None:
+        """Test the episode subtitle overlay clears when no cue is active."""
+        from src.utils.subtitle_parser import SubtitleLine
+
+        controller._main_window = mock_main_window
+        controller._episode_subtitle_overlay_enabled = True
+        controller._current_subtitle_lines = [
+            SubtitleLine(1, 5000, 8000, "Hello episode")
+        ]
+        controller._current_subtitle_display_text = "Hello episode"
+
+        controller._on_time_changed(9000, 120000)
+
+        mock_main_window.player_view.clear_subtitle_text.assert_called_once()
 
     def test_play_media_file_not_found_error(
         self,
@@ -2350,6 +2545,49 @@ class TestAppControllerPlayerMethods:
 
         mock_player_service.cycle_audio_track.assert_called_once()
         mock_main_window.player_view.show_audio_track_indicator.assert_not_called()
+
+    def test_player_cycle_subtitle_no_services(self, controller: AppController) -> None:
+        """Test player_cycle_subtitle returns early without services."""
+        controller.player_cycle_subtitle()
+        # Should not raise
+
+    def test_player_cycle_subtitle_success(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test player_cycle_subtitle cycles track and shows indicator."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        mock_player_service.get_current_subtitle_track.return_value = {
+            "id": 1,
+            "name": "Track 1",
+            "is_current": True,
+        }
+
+        controller.player_cycle_subtitle()
+
+        mock_player_service.cycle_subtitle_track.assert_called_once()
+        mock_main_window.player_view.show_subtitle_track_indicator.assert_called_once_with(
+            "Track 1"
+        )
+
+    def test_player_cycle_subtitle_no_track(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test player_cycle_subtitle when no track info available."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        mock_player_service.get_current_subtitle_track.return_value = None
+
+        controller.player_cycle_subtitle()
+
+        mock_player_service.cycle_subtitle_track.assert_called_once()
+        mock_main_window.player_view.show_subtitle_track_indicator.assert_not_called()
 
     # =========================================================================
     # Player event handler tests

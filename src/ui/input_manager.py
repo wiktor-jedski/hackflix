@@ -48,6 +48,7 @@ class InputManager(QObject):
         Qt.Key_Space,  # type: ignore[attr-defined]
         Qt.Key_M,  # type: ignore[attr-defined]
         Qt.Key_L,  # type: ignore[attr-defined]
+        Qt.Key_V,  # type: ignore[attr-defined]
     }
 
     # Keys that allow auto-repeat for fast scrolling
@@ -69,7 +70,7 @@ class InputManager(QObject):
         self._debounce_timer.start()
         self._last_debounced_key: int | None = None
 
-    def eventFilter(  # type: ignore[override]
+    def eventFilter(
         self, watched: Optional[QObject], event: Optional[QEvent]
     ) -> bool:
         """Filter and process keyboard events.
@@ -173,6 +174,8 @@ class InputManager(QObject):
             return Action.TOGGLE_MUTE
         if key == Qt.Key_L:  # type: ignore[attr-defined]
             return Action.CYCLE_AUDIO
+        if key == Qt.Key_V:  # type: ignore[attr-defined]
+            return Action.CYCLE_SUBTITLE
         return Action.NONE
 
     def _check_debounce(self, key: int) -> bool:

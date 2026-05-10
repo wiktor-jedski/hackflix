@@ -225,6 +225,11 @@ class TestPlayerView:
         assert player_view._audio_track_overlay is not None
         assert isinstance(player_view._audio_track_overlay, AudioTrackOverlay)
 
+    def test_has_subtitle_overlay(self, player_view: PlayerView) -> None:
+        """Test that PlayerView has a subtitle overlay label."""
+        assert player_view._subtitle_label is not None
+        assert player_view._subtitle_label.objectName() == "SubtitleOverlay"
+
     def test_get_video_frame_id(self, player_view: PlayerView) -> None:
         """Test get_video_frame_id returns an integer."""
         frame_id = player_view.get_video_frame_id()
@@ -254,6 +259,23 @@ class TestPlayerView:
         player_view.show()
         player_view.show_audio_track_indicator(track_name="English")
         assert player_view._osd.isVisible()
+
+    def test_set_subtitle_text(self, player_view: PlayerView) -> None:
+        """Test set_subtitle_text shows subtitle overlay text."""
+        player_view.show()
+        player_view.set_subtitle_text("Hello episode")
+        assert player_view._subtitle_label.isVisible()
+        assert player_view._subtitle_label.text() == "Hello episode"
+
+    def test_clear_subtitle_text(self, player_view: PlayerView) -> None:
+        """Test clear_subtitle_text hides subtitle overlay text."""
+        player_view.show()
+        player_view.set_subtitle_text("Hello episode")
+
+        player_view.clear_subtitle_text()
+
+        assert not player_view._subtitle_label.isVisible()
+        assert player_view._subtitle_label.text() == ""
 
     def test_show_audio_track_overlay(
         self, player_view: PlayerView, sample_tracks: list[dict[str, Any]]
@@ -349,8 +371,7 @@ class TestPlayerView:
         player_view._on_osd_timeout()
         # Fade animation should be running
         assert (
-            player_view._osd._fade_animation.state()
-            == QAbstractAnimation.State.Running
+            player_view._osd._fade_animation.state() == QAbstractAnimation.State.Running
         )
 
     def test_resize_repositions_overlays(self, player_view: PlayerView) -> None:

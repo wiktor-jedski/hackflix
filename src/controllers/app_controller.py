@@ -19,6 +19,11 @@ from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from src.config import CACHE_DIR, MEDIA_LIBRARY_PATH, DownloadState, PipelineState
 from src.database.db_manager import DatabaseManager
 from src.ui.enums import Action, AppState, MediaTab
+from src.utils.subtitle_parser import (
+    SubtitleLine,
+    SubtitleParseError,
+    parse_srt_file,
+)
 
 if TYPE_CHECKING:
     from src.services.metadata_service import MetadataService
@@ -334,9 +339,13 @@ class PlayerActiveHandler(StateHandler):
             self._controller.player_toggle_mute()
             return True
 
-        # Audio track cycling
+        # Audio and subtitle track cycling
         if action == Action.CYCLE_AUDIO:
             self._controller.player_cycle_audio()
+            return True
+
+        if action == Action.CYCLE_SUBTITLE:
+            self._controller.player_cycle_subtitle()
             return True
 
         # Exit player
@@ -401,12 +410,16 @@ class AppController(QObject):
         self._active_download_types: dict[int, str] = {}
         self._pending_episode_pipeline_by_season: dict[int, int] = {}
         self._pending_pipeline_ids: list[int] = []
+        self._play_after_pipeline_ids: set[int] = set()
         self._delete_worker: DeleteWorker | None = None
 
         # Player state
         self._current_playing_file_id: int | None = None
         self._playback_start_time: float | None = None
         self._resumed_from_position: int = 0
+        self._current_subtitle_lines: list[SubtitleLine] = []
+        self._current_subtitle_display_text = ""
+        self._episode_subtitle_overlay_enabled = False
 
         logger.info("AppController initialized")
 
@@ -927,9 +940,10 @@ class AppController(QObject):
             self.transition_to(AppState.SERIES_DRILLDOWN_EPISODES)
 
         elif item_state == DownloadState.COMPLETED.value:
-            if item_type == "episode" and not self._episode_subtitles_ready(item):
+            if item_type == "episode" and self._episode_needs_pipeline(item):
                 file_id = item.get("file_id") or item.get("id")
                 if file_id is not None:
+                    self._play_after_pipeline_ids.add(int(file_id))
                     self.start_pipeline(int(file_id))
                 return
 
@@ -1099,6 +1113,21 @@ class AppController(QObject):
         """Return whether an episode has completed subtitle processing."""
         pipeline_state = item.get("pipeline_state")
         return pipeline_state == PipelineState.SUBS_READY.value
+
+    def _episode_needs_pipeline(self, item: dict[str, Any]) -> bool:
+        """Return whether an episode must process subtitles before playback."""
+        if self._episode_subtitles_ready(item):
+            return False
+
+        file_id = item.get("file_id") or item.get("id")
+        if file_id is None:
+            return False
+
+        video = self._db_manager.get_video_file(int(file_id))
+        if video is None:
+            return False
+
+        return video.get("subtitle_id") is not None
 
     def navigate_back(self) -> None:
         """Navigate back to the previous context."""
@@ -1535,8 +1564,27 @@ class AppController(QObject):
                     )
                 },
             )
-        self.refresh_library()
+        should_play = success and file_id in self._play_after_pipeline_ids
+        self._play_after_pipeline_ids.discard(file_id)
+        if should_play:
+            self.play_media(file_id)
+        else:
+            self._refresh_current_view()
         self._start_next_pending_pipeline()
+
+    def _refresh_current_view(self) -> None:
+        """Refresh the active library/drilldown view without resetting context."""
+        if self._current_state == AppState.SERIES_DRILLDOWN_EPISODES:
+            if self._current_season_id is not None:
+                self.load_episodes(self._current_season_id)
+            return
+
+        if self._current_state == AppState.SERIES_DRILLDOWN_SEASONS:
+            if self._current_series_id is not None:
+                self.load_seasons(self._current_series_id)
+            return
+
+        self.refresh_library()
 
     @Slot(int, str)
     def _on_pipeline_error(self, file_id: int, error: str) -> None:
@@ -1610,19 +1658,8 @@ class AppController(QObject):
             logger.error("Video file has no file_path: %d", video_file_id)
             return
 
-        # Check for subtitles (prefer Polish translated, fallback to original)
-        subtitles = self._db_manager.get_subtitles(video_file_id)
-        subtitle_path = None
-        for lang_code in ["polish", "original"]:
-            for sub in subtitles:
-                if sub.get("language_code") == lang_code:
-                    subtitle_path = sub.get("file_path")
-                    break
-            if subtitle_path:
-                break
-
-        if not subtitle_path:
-            subtitle_path = self._player_service.find_matching_subtitle(file_path)
+        subtitle_path = self._select_subtitle_path(video_file_id, file_path)
+        self._prepare_episode_subtitle_overlay(video, subtitle_path)
 
         # Store current file ID for resume position saving
         self._current_playing_file_id = video_file_id
@@ -1641,6 +1678,7 @@ class AppController(QObject):
 
             # Load and start playback
             self._player_service.load_video(file_path, subtitle_path)
+            self._main_window.player_view.clear_subtitle_text()
 
             # Resume from saved position if available
             resume_position = video.get("resume_position_seconds", 0)
@@ -1651,9 +1689,11 @@ class AppController(QObject):
                 logger.info("Resuming playback from %d seconds", resume_position)
 
             logger.info(
-                "Started playback: %s (file_id=%d)",
+                "Started playback: %s (file_id=%d, subtitle_path=%s, overlay=%s)",
                 video.get("media_title", file_path),
                 video_file_id,
+                subtitle_path,
+                self._episode_subtitle_overlay_enabled,
             )
 
         except FileNotFoundError as e:
@@ -1668,6 +1708,87 @@ class AppController(QObject):
             )
             logger.error("Playback error: %s", e)
             self.stop_player()
+
+    def _select_subtitle_path(self, video_file_id: int, file_path: str) -> str | None:
+        """Select the subtitle file to pass to VLC for playback."""
+        subtitles = self._db_manager.get_subtitles(video_file_id)
+        matching_subtitle = (
+            self._player_service.find_matching_subtitle(file_path)
+            if self._player_service
+            else None
+        )
+
+        preferred_db_subtitle = self._existing_db_subtitle_path(
+            subtitles, ["polish"], allow_generic=True
+        )
+        if preferred_db_subtitle:
+            return preferred_db_subtitle
+
+        if matching_subtitle:
+            return matching_subtitle
+
+        return self._existing_db_subtitle_path(
+            subtitles, ["original"], allow_generic=False
+        )
+
+    def _prepare_episode_subtitle_overlay(
+        self, video: dict[str, Any], subtitle_path: str | None
+    ) -> None:
+        """Load subtitle text for the episode fallback overlay."""
+        self._current_subtitle_lines = []
+        self._current_subtitle_display_text = ""
+        self._episode_subtitle_overlay_enabled = False
+
+        if video.get("media_type") != "series" or not subtitle_path:
+            return
+
+        try:
+            self._current_subtitle_lines = parse_srt_file(Path(subtitle_path))
+        except (FileNotFoundError, SubtitleParseError, UnicodeDecodeError) as e:
+            logger.warning(
+                "Episode subtitle overlay unavailable for %s: %s", subtitle_path, e
+            )
+            return
+        except OSError as e:
+            logger.warning(
+                "Could not read episode subtitle file %s: %s", subtitle_path, e
+            )
+            return
+
+        self._episode_subtitle_overlay_enabled = bool(self._current_subtitle_lines)
+        logger.info(
+            "Prepared episode subtitle overlay: %d cues from %s",
+            len(self._current_subtitle_lines),
+            subtitle_path,
+        )
+
+    def _existing_db_subtitle_path(
+        self,
+        subtitles: list[dict[str, Any]],
+        language_codes: list[str],
+        allow_generic: bool,
+    ) -> str | None:
+        """Return the first existing DB subtitle path matching the requested languages."""
+        generic_names = {"original.srt", "pl.srt"}
+        for lang_code in language_codes:
+            for sub in subtitles:
+                if sub.get("language_code") != lang_code:
+                    continue
+
+                raw_path = sub.get("file_path")
+                if not raw_path:
+                    continue
+
+                subtitle_path = Path(str(raw_path))
+                if not allow_generic and subtitle_path.name in generic_names:
+                    continue
+
+                if subtitle_path.exists():
+                    return str(subtitle_path)
+
+                logger.warning("Ignoring missing subtitle file: %s", subtitle_path)
+
+        return None
 
     def stop_player(self, save_position: bool = True) -> None:
         """Stop playback and return to library.
@@ -1688,8 +1809,12 @@ class AppController(QObject):
 
         # Clear current file ID
         self._current_playing_file_id = None
+        self._current_subtitle_lines = []
+        self._current_subtitle_display_text = ""
+        self._episode_subtitle_overlay_enabled = False
 
         # Hide player view
+        self._main_window.player_view.clear_subtitle_text()
         self._main_window.hide_player()
 
         # Navigate back to previous context
@@ -1777,6 +1902,34 @@ class AppController(QObject):
                 current_track["name"]
             )
 
+    def player_cycle_subtitle(self) -> None:
+        """Cycle through available subtitle tracks."""
+        if not self._player_service or not self._main_window:
+            return
+
+        self._player_service.cycle_subtitle_track()
+        current_track = self._player_service.get_current_subtitle_track()
+        if current_track:
+            self._sync_episode_subtitle_overlay_to_track(current_track)
+            self._main_window.player_view.show_subtitle_track_indicator(
+                current_track["name"]
+            )
+
+    def _sync_episode_subtitle_overlay_to_track(self, track: dict[str, Any]) -> None:
+        """Enable the episode overlay only while the external subtitle track is active."""
+        if not self._current_subtitle_lines or not self._player_service:
+            self._episode_subtitle_overlay_enabled = False
+            if self._main_window:
+                self._main_window.player_view.clear_subtitle_text()
+            return
+
+        external_track_id = self._player_service.get_external_subtitle_track_id()
+        self._episode_subtitle_overlay_enabled = (
+            external_track_id is not None and track.get("id") == external_track_id
+        )
+        if not self._episode_subtitle_overlay_enabled and self._main_window:
+            self._main_window.player_view.clear_subtitle_text()
+
     @Slot()
     def _on_playback_finished(self) -> None:
         """Handle playback finished event."""
@@ -1815,8 +1968,35 @@ class AppController(QObject):
             current_ms: Current playback position in milliseconds.
             total_ms: Total media duration in milliseconds.
         """
-        # Could update status bar or progress indicator here
-        pass
+        self._update_episode_subtitle_overlay(current_ms)
+
+    def _update_episode_subtitle_overlay(self, current_ms: int) -> None:
+        """Render the active episode subtitle cue in the player overlay."""
+        if (
+            not self._main_window
+            or not self._episode_subtitle_overlay_enabled
+            or not self._current_subtitle_lines
+        ):
+            return
+
+        subtitle_text = self._subtitle_text_at(current_ms)
+        if subtitle_text == self._current_subtitle_display_text:
+            return
+
+        self._current_subtitle_display_text = subtitle_text
+        if subtitle_text:
+            self._main_window.player_view.set_subtitle_text(subtitle_text)
+        else:
+            self._main_window.player_view.clear_subtitle_text()
+
+    def _subtitle_text_at(self, current_ms: int) -> str:
+        """Return the subtitle text active at a playback timestamp."""
+        for line in self._current_subtitle_lines:
+            if line.start_ms <= current_ms <= line.end_ms:
+                return line.text_translated or line.text_source
+            if line.start_ms > current_ms:
+                break
+        return ""
 
     @Slot(str)
     def _on_player_error(self, error: str) -> None:
