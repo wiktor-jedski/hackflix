@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib
+import sys
 from unittest import mock
 
 import pytest
@@ -83,3 +85,68 @@ def test_get_video_files_returns_empty_without_torrent_info() -> None:
     handle.torrent_file.return_value = None
 
     assert torrent_worker.get_video_files(handle) == []
+
+
+def test_handle_command_processes_multiple_adds() -> None:
+    """Verify add commands register distinct movie and season contexts."""
+    mock_lt = mock.MagicMock()
+    mock_lt.torrent_status.states.checking_files = 0
+    mock_lt.torrent_status.states.downloading_metadata = 1
+    mock_lt.torrent_status.states.downloading = 2
+    mock_lt.torrent_status.states.finished = 3
+    mock_lt.torrent_status.states.seeding = 4
+    mock_lt.torrent_status.states.allocating = 5
+    mock_lt.torrent_status.states.checking_resume_data = 6
+
+    modules_to_remove = [
+        module_name
+        for module_name in sys.modules
+        if module_name == "src.services.torrent_worker" or "libtorrent" in module_name
+    ]
+    for module_name in modules_to_remove:
+        del sys.modules[module_name]
+
+    with mock.patch.dict("sys.modules", {"libtorrent": mock_lt}):
+        torrent_worker = importlib.import_module("src.services.torrent_worker")
+
+    session = mock.MagicMock()
+    movie_handle = mock.MagicMock()
+    movie_handle.info_hash.return_value = "movie_hash"
+    season_handle = mock.MagicMock()
+    season_handle.info_hash.return_value = "season_hash"
+    session.add_torrent.side_effect = [movie_handle, season_handle]
+    handles: dict[int, object] = {}
+    handle_to_context: dict[str, int] = {}
+    contexts: dict[int, str] = {}
+
+    keep_running = torrent_worker.handle_command(
+        {
+            "command": "add",
+            "type": "movie",
+            "id": 16,
+            "magnet": "magnet:?movie",
+            "download_dir": "/downloads",
+        },
+        session,
+        handles,
+        handle_to_context,
+        contexts,
+    )
+    keep_running = torrent_worker.handle_command(
+        {
+            "command": "add",
+            "type": "season",
+            "id": -1,
+            "magnet": "magnet:?season",
+            "download_dir": "/downloads",
+        },
+        session,
+        handles,
+        handle_to_context,
+        contexts,
+    )
+
+    assert keep_running is True
+    assert handles == {16: movie_handle, -1: season_handle}
+    assert handle_to_context == {"movie_hash": 16, "season_hash": -1}
+    assert contexts == {16: "movie", -1: "season"}

@@ -96,6 +96,58 @@ def get_video_files(handle: Any) -> list[dict[str, Any]]:
     return video_files
 
 
+def handle_command(
+    command: dict[str, Any],
+    session: Any,
+    handles: dict[int, Any],
+    handle_to_context: dict[str, int],
+    contexts: dict[int, str],
+) -> bool:
+    """Handle one command from the parent process.
+
+    Returns:
+        True to keep running, False to stop the worker.
+    """
+    command_name = command.get("command")
+
+    if command_name == "stop":
+        return False
+
+    if command_name == "add":
+        context_id = int(command["id"])
+        if context_id in handles:
+            emit(
+                {
+                    "event": "error",
+                    "id": context_id,
+                    "message": "Torrent already exists",
+                }
+            )
+            return True
+        try:
+            atp = lt.parse_magnet_uri(command["magnet"])
+            atp.save_path = command["download_dir"]
+            handle = session.add_torrent(atp)
+            if command.get("sequential"):
+                handle.set_sequential_download(True)
+            handles[context_id] = handle
+            handle_to_context[str(handle.info_hash())] = context_id
+            contexts[context_id] = command["type"]
+            emit({"event": "added", "id": context_id})
+        except Exception as e:
+            emit({"event": "error", "id": context_id, "message": str(e)})
+
+    if command_name == "cancel":
+        context_id = int(command["id"])
+        handle = handles.pop(context_id, None)
+        contexts.pop(context_id, None)
+        if handle is not None:
+            handle_to_context.pop(str(handle.info_hash()), None)
+            session.remove_torrent(handle)
+
+    return True
+
+
 def main() -> int:
     """Run the worker command loop."""
     listen_interfaces = get_listen_interfaces()
@@ -119,52 +171,31 @@ def main() -> int:
     handles: dict[int, Any] = {}
     handle_to_context: dict[str, int] = {}
     contexts: dict[int, str] = {}
+    stdin_fd = sys.stdin.fileno()
+    os.set_blocking(stdin_fd, False)
+    command_buffer = ""
 
     emit({"event": "ready", "listen_interfaces": listen_interfaces})
 
     while True:
-        readable, _, _ = select.select([sys.stdin], [], [], 0.5)
+        readable, _, _ = select.select([stdin_fd], [], [], 0.5)
         if readable:
-            line = sys.stdin.readline()
-            if not line:
+            try:
+                chunk = os.read(stdin_fd, 65536)
+            except BlockingIOError:
+                chunk = b""
+            if not chunk:
                 return 0
-            command = json.loads(line)
-            command_name = command.get("command")
-
-            if command_name == "stop":
-                return 0
-
-            if command_name == "add":
-                context_id = int(command["id"])
-                if context_id in handles:
-                    emit(
-                        {
-                            "event": "error",
-                            "id": context_id,
-                            "message": "Torrent already exists",
-                        }
-                    )
+            command_buffer += chunk.decode()
+            while "\n" in command_buffer:
+                line, command_buffer = command_buffer.split("\n", 1)
+                if not line:
                     continue
-                try:
-                    atp = lt.parse_magnet_uri(command["magnet"])
-                    atp.save_path = command["download_dir"]
-                    handle = session.add_torrent(atp)
-                    if command.get("sequential"):
-                        handle.set_sequential_download(True)
-                    handles[context_id] = handle
-                    handle_to_context[str(handle.info_hash())] = context_id
-                    contexts[context_id] = command["type"]
-                    emit({"event": "added", "id": context_id})
-                except Exception as e:
-                    emit({"event": "error", "id": context_id, "message": str(e)})
-
-            if command_name == "cancel":
-                context_id = int(command["id"])
-                handle = handles.pop(context_id, None)
-                contexts.pop(context_id, None)
-                if handle is not None:
-                    handle_to_context.pop(str(handle.info_hash()), None)
-                    session.remove_torrent(handle)
+                command = json.loads(line)
+                if not handle_command(
+                    command, session, handles, handle_to_context, contexts
+                ):
+                    return 0
 
         for alert in session.pop_alerts():
             if isinstance(alert, lt.torrent_error_alert):

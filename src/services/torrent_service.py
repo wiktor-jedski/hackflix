@@ -1059,8 +1059,9 @@ class TorrentService(QObject):
             context_id = self._context_id(context)
             if context_id in self._contexts:
                 logger.warning(
-                    "Torrent already exists for %s %d",
+                    "Torrent already exists for %s %d (worker context %d)",
                     context.download_type.value,
+                    context.id,
                     context_id,
                 )
                 return False
@@ -1106,7 +1107,7 @@ class TorrentService(QObject):
             logger.warning(
                 "Torrent already exists for %s %d",
                 context.download_type.value,
-                context_id,
+                context.id,
             )
             return False
 
