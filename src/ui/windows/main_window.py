@@ -9,9 +9,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QTimer
-from PySide6.QtGui import QCloseEvent, QResizeEvent, QShowEvent
-from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication
+from src.qt import QTimer
+from src.qt import QCloseEvent, QResizeEvent, QShowEvent
+from src.qt import QMainWindow, QVBoxLayout, QWidget, QApplication
 
 from src.ui.components.confirm_dialog import ConfirmDialog
 from src.ui.components.library_view import LibraryView
@@ -298,7 +298,7 @@ class MainWindow(QMainWindow):
         """
         self._status_bar.set_storage_usage(usage)
 
-    def resizeEvent(self, event: QResizeEvent) -> None:
+    def resizeEvent(self, event: QResizeEvent | None) -> None:  # type: ignore[invalid-method-override]
         """Handle window resize.
 
         Args:
@@ -320,7 +320,7 @@ class MainWindow(QMainWindow):
         if self._search_background.isVisible() and central:
             self._search_background.setGeometry(central.rect())
 
-    def showEvent(self, event: QShowEvent) -> None:
+    def showEvent(self, event: QShowEvent | None) -> None:  # type: ignore[invalid-method-override]
         """Handle window show event.
 
         Args:
@@ -332,7 +332,7 @@ class MainWindow(QMainWindow):
             self.showFullScreen()
         self._library_view.set_focus()
 
-    def closeEvent(self, event: QCloseEvent) -> None:
+    def closeEvent(self, event: QCloseEvent | None) -> None:  # type: ignore[invalid-method-override]
         """Handle window close event.
 
         Args:

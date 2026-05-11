@@ -4,9 +4,9 @@ This module provides the SearchOverlay widget for text-based
 filtering of the media library.
 """
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPalette
-from PySide6.QtWidgets import (
+from src.qt import Qt, Signal
+from src.qt import QColor, QKeyEvent, QMouseEvent, QPalette
+from src.qt import (
     QFrame,
     QLabel,
     QLineEdit,
@@ -60,7 +60,7 @@ class SearchOverlay(QFrame):
         self.setFixedWidth(SEARCH_WIDTH)
 
         # Required for QFrame to render background-color from stylesheet
-        self.setAttribute(Qt.WA_StyledBackground, True)  # type: ignore[attr-defined]
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self.setStyleSheet(f"""
             QFrame#SearchOverlay {{
@@ -84,7 +84,7 @@ class SearchOverlay(QFrame):
             font-weight: bold;
             color: {TEXT_PRIMARY};
         """)
-        self._title_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
+        self._title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._title_label)
 
         # Search input
@@ -120,7 +120,7 @@ class SearchOverlay(QFrame):
             font-size: {FONT_SIZE_SMALL}px;
             color: {TEXT_SECONDARY};
         """)
-        self._hint_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
+        self._hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._hint_label)
 
         # Compute proper size based on contents
@@ -129,7 +129,7 @@ class SearchOverlay(QFrame):
         # Hide by default
         self.hide()
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[invalid-method-override]
         """Handle key press events.
 
         Args:
@@ -137,10 +137,10 @@ class SearchOverlay(QFrame):
         """
         key = event.key()
 
-        if key in (Qt.Key_Return, Qt.Key_Enter):  # type: ignore[attr-defined]
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self._on_return_pressed()
             event.accept()
-        elif key == Qt.Key_Escape:  # type: ignore[attr-defined]
+        elif key == Qt.Key.Key_Escape:
             # Cancel search
             self.search_cancelled.emit()
             self.hide()
@@ -212,7 +212,7 @@ class SearchOverlayBackground(QWidget):
         self.setStyleSheet("background-color: rgba(0, 0, 0, 0.7);")
         self.hide()
 
-    def mousePressEvent(self, event: QMouseEvent) -> None:
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # type: ignore[invalid-method-override]
         """Handle mouse press to close overlay.
 
         Args:

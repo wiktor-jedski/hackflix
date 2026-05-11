@@ -192,7 +192,7 @@ class TestUIThreadSafety:
         for py_file in ui_dir.rglob("*.py"):
             content = py_file.read_text()
             try:
-                tree = ast.parse(content)
+                ast.parse(content)
             except SyntaxError:
                 continue
 

@@ -3,9 +3,9 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PySide6.QtCore import QModelIndex, QRect, QSize, Qt
-from PySide6.QtGui import QColor, QPainter, QPixmap
-from PySide6.QtWidgets import QStyle, QStyleOptionViewItem
+from src.qt import QModelIndex, QRect, QSize, Qt
+from src.qt import QColor, QPainter, QPixmap
+from src.qt import QStyle, QStyleOptionViewItem
 
 from src.config import DownloadState
 from src.ui.components.library_item_delegate import (
@@ -40,8 +40,8 @@ class TestLibraryItemRole:
         assert len(roles) == len(set(roles))
 
     def test_roles_start_from_user_role(self) -> None:
-        """Test that roles start from Qt.UserRole."""
-        assert LibraryItemRole.IdRole > Qt.UserRole
+        """Test that roles start from Qt.ItemDataRole.UserRole."""
+        assert LibraryItemRole.IdRole > Qt.ItemDataRole.UserRole
 
 
 class TestLibraryItemDelegateInit:
@@ -132,7 +132,7 @@ class TestLibraryItemDelegateDrawBackground:
         """Test background drawing when selected."""
         option = MagicMock(spec=QStyleOptionViewItem)
         option.rect = QRect(0, 0, 800, 100)
-        option.state = QStyle.State_Selected
+        option.state = QStyle.StateFlag.State_Selected
 
         delegate._draw_background(painter, option)
 
@@ -149,7 +149,7 @@ class TestLibraryItemDelegateDrawBackground:
         """Test background drawing on hover."""
         option = MagicMock(spec=QStyleOptionViewItem)
         option.rect = QRect(0, 0, 800, 100)
-        option.state = QStyle.State_MouseOver
+        option.state = QStyle.StateFlag.State_MouseOver
 
         delegate._draw_background(painter, option)
 
@@ -161,7 +161,7 @@ class TestLibraryItemDelegateDrawBackground:
         """Test background drawing in normal state."""
         option = MagicMock(spec=QStyleOptionViewItem)
         option.rect = QRect(0, 0, 800, 100)
-        option.state = QStyle.State_None
+        option.state = QStyle.StateFlag.State_None
 
         delegate._draw_background(painter, option)
 
@@ -331,6 +331,7 @@ class TestLibraryItemDelegateGetCachedPoster:
         result = delegate._get_cached_poster("new_path")
 
         mock_qpixmap.assert_called_once_with("new_path")
+        assert result is mock_pixmap
         assert "new_path" in delegate._poster_cache
 
     @patch("src.ui.components.library_item_delegate.Path")
@@ -349,6 +350,7 @@ class TestLibraryItemDelegateGetCachedPoster:
         result = delegate._get_cached_poster("missing_path")
 
         mock_qpixmap.assert_called_once_with()  # Empty pixmap
+        assert result is mock_pixmap
         assert "missing_path" in delegate._poster_cache
 
 
@@ -596,7 +598,7 @@ class TestLibraryItemDelegatePaint:
         """Test that paint calls all drawing methods."""
         option = MagicMock(spec=QStyleOptionViewItem)
         option.rect = QRect(0, 0, 800, 120)
-        option.state = QStyle.State_None
+        option.state = QStyle.StateFlag.State_None
 
         index = MagicMock(spec=QModelIndex)
         index.data.side_effect = lambda role: {
@@ -621,7 +623,7 @@ class TestLibraryItemDelegatePaint:
         """Test painting with selected state."""
         option = MagicMock(spec=QStyleOptionViewItem)
         option.rect = QRect(0, 0, 800, 120)
-        option.state = QStyle.State_Selected
+        option.state = QStyle.StateFlag.State_Selected
 
         index = MagicMock(spec=QModelIndex)
         index.data.return_value = None

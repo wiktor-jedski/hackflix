@@ -9,8 +9,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QPoint, QRect, QModelIndex, QSize, Qt, Signal
-from PySide6.QtGui import (
+from src.qt import QPoint, QRect, QModelIndex, QSize, Qt, Signal
+from src.qt import (
     QColor,
     QFont,
     QIcon,
@@ -21,7 +21,7 @@ from PySide6.QtGui import (
     QStandardItem,
     QStandardItemModel,
 )
-from PySide6.QtWidgets import (
+from src.qt import (
     QAbstractItemView,
     QFrame,
     QHBoxLayout,
@@ -109,12 +109,12 @@ class LibraryView(QFrame):
             QAbstractItemView.ScrollMode.ScrollPerPixel
         )
         self._list_view.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarAlwaysOff  # type: ignore[attr-defined]
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         self._list_view.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection
         )
-        self._list_view.setFocusPolicy(Qt.StrongFocus)  # type: ignore[attr-defined]
+        self._list_view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._list_view.setUniformItemSizes(True)
         self._list_view.setSpacing(4)
         self._list_view.setIconSize(QSize(POSTER_WIDTH, POSTER_HEIGHT))
@@ -156,13 +156,13 @@ class LibraryView(QFrame):
         # Movies tab
         self._movies_tab = QLabel(self.tr("Movies"))
         self._movies_tab.setObjectName("MoviesTab")
-        self._movies_tab.setCursor(Qt.PointingHandCursor)  # type: ignore[attr-defined]
+        self._movies_tab.setCursor(Qt.CursorShape.PointingHandCursor)
         layout.addWidget(self._movies_tab)
 
         # Series tab
         self._series_tab = QLabel(self.tr("Series"))
         self._series_tab.setObjectName("SeriesTab")
-        self._series_tab.setCursor(Qt.PointingHandCursor)  # type: ignore[attr-defined]
+        self._series_tab.setCursor(Qt.CursorShape.PointingHandCursor)
         layout.addWidget(self._series_tab)
 
         layout.addStretch()
@@ -616,8 +616,8 @@ class LibraryView(QFrame):
             if not poster.isNull():
                 scaled = poster.scaled(
                     icon_pixmap.size(),
-                    Qt.KeepAspectRatioByExpanding,  # type: ignore[attr-defined]
-                    Qt.SmoothTransformation,  # type: ignore[attr-defined]
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation,
                 )
                 x = (scaled.width() - POSTER_WIDTH) // 2
                 y = (scaled.height() - POSTER_HEIGHT) // 2
@@ -654,7 +654,7 @@ class LibraryView(QFrame):
         painter.setPen(QColor(TEXT_SECONDARY))
         painter.drawText(
             poster_rect.adjusted(0, scaled(24), 0, 0),
-            Qt.AlignHCenter | Qt.AlignTop,  # type: ignore[attr-defined]
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
             label,
         )
 
@@ -665,7 +665,7 @@ class LibraryView(QFrame):
         painter.setPen(QColor(TEXT_PRIMARY))
         painter.drawText(
             poster_rect.adjusted(scaled(4), scaled(42), -scaled(4), -scaled(20)),
-            Qt.AlignCenter,  # type: ignore[attr-defined]
+            Qt.AlignmentFlag.AlignCenter,
             number,
         )
 
@@ -727,7 +727,7 @@ class LibraryView(QFrame):
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setBrush(QColor(0, 0, 0, 190))
-        painter.setPen(Qt.NoPen)  # type: ignore[attr-defined]
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(badge_rect, 5, 5)
 
         symbol_rect = badge_rect.adjusted(scaled(7), scaled(6), -scaled(7), -scaled(6))
@@ -759,7 +759,7 @@ class LibraryView(QFrame):
             painter.setFont(font)
             painter.drawText(
                 text_rect,
-                Qt.AlignCenter,  # type: ignore[attr-defined]
+                Qt.AlignmentFlag.AlignCenter,
                 text,
             )
 

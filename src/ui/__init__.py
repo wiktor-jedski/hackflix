@@ -1,6 +1,6 @@
 """UI module for Hackflix.
 
-This module provides the PySide6-based user interface components
+This module provides the PyQt6-based user interface components
 following a Signal-Driven MVC architecture.
 """
 

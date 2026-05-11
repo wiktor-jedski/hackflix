@@ -4,9 +4,9 @@ This module provides the ConfirmDialog widget for confirming
 destructive actions like file deletion.
 """
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget
+from src.qt import Qt
+from src.qt import QKeyEvent
+from src.qt import QDialog, QLabel, QVBoxLayout, QWidget
 
 from src.ui.styles import (
     DIALOG_PADDING,
@@ -60,7 +60,7 @@ class ConfirmDialog(QDialog):
 
         # Remove window frame for cleaner look
         self.setWindowFlags(
-            Qt.Dialog | Qt.FramelessWindowHint  # type: ignore[attr-defined]
+            Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint
         )
 
         self.setStyleSheet(f"""
@@ -87,7 +87,7 @@ class ConfirmDialog(QDialog):
             font-weight: bold;
             color: {WARNING_COLOR};
         """)
-        self._title_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
+        self._title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._title_label)
 
         # Message
@@ -97,7 +97,7 @@ class ConfirmDialog(QDialog):
             color: {TEXT_PRIMARY};
         """)
         self._message_label.setWordWrap(True)
-        self._message_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
+        self._message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._message_label)
 
         # Hint text
@@ -106,21 +106,24 @@ class ConfirmDialog(QDialog):
             font-size: {FONT_SIZE_SMALL}px;
             color: {TEXT_SECONDARY};
         """)
-        self._hint_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
+        self._hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._hint_label)
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:
+    def keyPressEvent(self, event: QKeyEvent | None) -> None:  # type: ignore[invalid-method-override]
         """Handle key press events.
 
         Args:
             event: The key event.
         """
+        if event is None:
+            return
+
         key = event.key()
 
-        if key in (Qt.Key_Return, Qt.Key_Enter):  # type: ignore[attr-defined]
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.accept()
             event.accept()
-        elif key == Qt.Key_Escape:  # type: ignore[attr-defined]
+        elif key == Qt.Key.Key_Escape:
             self.reject()
             event.accept()
         else:

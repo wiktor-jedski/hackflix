@@ -25,7 +25,7 @@ uv run ty check
 
 ## Architecture
 
-**Signal-Driven MVC with PyQt5:**
+**Signal-Driven MVC with PyQt6:**
 - **View (UI):** Dumb components that display data and emit signals. No business logic. Located in `src/ui/`.
 - **Controller:** Connects Views to Services, handles state and routing. `src/controllers/app_controller.py`.
 - **Model:** Raw sqlite3 with per-operation connections (no ORM). Located in `src/database/`.

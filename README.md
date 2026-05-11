@@ -1,6 +1,6 @@
 # hackflix
 
-A movie and TV library application for Raspberry Pi 5 (and other Linux desktops). It syncs a remote catalog, downloads selected titles via libtorrent, automatically fetches and translates subtitles to Polish, and plays them through VLC. Built with PySide6 in a signal-driven MVC architecture.
+A movie and TV library application for Raspberry Pi 5 (and other Linux desktops). It syncs a remote catalog, downloads selected titles via libtorrent, automatically fetches and translates subtitles to Polish, and plays them through VLC. Built with PyQt6 in a signal-driven MVC architecture.
 
 ## Features
 
@@ -92,7 +92,7 @@ After a movie download completes, if the catalog supplies a `subtitle_id` for th
 
 ## Architecture
 
-Signal-Driven MVC with PySide6:
+Signal-Driven MVC with PyQt6:
 
 - **View (UI)**: Dumb components in `src/ui/` — display data and emit signals. No business logic, no service or DB imports.
 - **Controller**: `src/controllers/app_controller.py` — state machine, signal routing, and orchestration.

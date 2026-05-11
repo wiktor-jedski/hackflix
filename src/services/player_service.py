@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import vlc
-from PySide6.QtCore import QObject, QTimer, Signal
+from src.qt import QObject, QTimer, Signal
 
 logger = logging.getLogger(__name__)
 
@@ -100,11 +100,11 @@ class PlayerService(QObject):
             # Set up event manager for end-of-playback detection
             event_manager = self._player.event_manager()
             event_manager.event_attach(
-                vlc.EventType.MediaPlayerEndReached,  # type: ignore[attr-defined]
+                vlc.EventType.MediaPlayerEndReached,  # type: ignore[unresolved-attribute]
                 self._on_end_reached,
             )
             event_manager.event_attach(
-                vlc.EventType.MediaPlayerEncounteredError,  # type: ignore[attr-defined]
+                vlc.EventType.MediaPlayerEncounteredError,  # type: ignore[unresolved-attribute]
                 self._on_error,
             )
 

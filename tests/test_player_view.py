@@ -3,7 +3,7 @@
 from typing import Any
 
 import pytest
-from PySide6.QtCore import QAbstractAnimation, Qt
+from src.qt import QAbstractAnimation, Qt
 
 from src.ui.components.player_view import (
     AudioTrackOverlay,
@@ -308,14 +308,14 @@ class TestPlayerView:
         """Test hide_cursor hides the mouse cursor."""
         player_view.hide_cursor()
         assert player_view._cursor_hidden
-        assert player_view.cursor().shape() == Qt.BlankCursor
+        assert player_view.cursor().shape() == Qt.CursorShape.BlankCursor
 
     def test_show_cursor(self, player_view: PlayerView) -> None:
         """Test show_cursor shows the mouse cursor."""
         player_view.hide_cursor()
         player_view.show_cursor()
         assert not player_view._cursor_hidden
-        assert player_view.cursor().shape() == Qt.ArrowCursor
+        assert player_view.cursor().shape() == Qt.CursorShape.ArrowCursor
 
     def test_show_cursor_when_not_hidden(self, player_view: PlayerView) -> None:
         """Test show_cursor does nothing when cursor not hidden."""
@@ -328,7 +328,7 @@ class TestPlayerView:
         player_view.hide_cursor()
         player_view.hide_cursor()  # Call again
         assert player_view._cursor_hidden
-        assert player_view.cursor().shape() == Qt.BlankCursor
+        assert player_view.cursor().shape() == Qt.CursorShape.BlankCursor
 
     def test_enter_fullscreen(self, player_view: PlayerView) -> None:
         """Test enter_fullscreen hides cursor."""

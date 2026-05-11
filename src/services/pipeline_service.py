@@ -17,7 +17,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from src.qt import QObject, QThread, Signal, Slot
 
 from src.config import PipelineState
 

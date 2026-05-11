@@ -7,9 +7,9 @@ with On-Screen Display (OSD) controls.
 import logging
 from typing import Any
 
-from PySide6.QtCore import QPropertyAnimation, Qt, QTimer, Signal
-from PySide6.QtGui import QCursor
-from PySide6.QtWidgets import (
+from src.qt import QPropertyAnimation, Qt, QTimer, Signal
+from src.qt import QCursor
+from src.qt import (
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -97,7 +97,7 @@ class OSDWidget(QFrame):
         """
         label = QLabel()
         label.setObjectName(name)
-        label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setStyleSheet(f"""
             QLabel {{
                 color: {TEXT_PRIMARY};
@@ -356,9 +356,9 @@ class PlayerView(QFrame):
 
         self._subtitle_label = QLabel(self)
         self._subtitle_label.setObjectName("SubtitleOverlay")
-        self._subtitle_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
+        self._subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._subtitle_label.setWordWrap(True)
-        self._subtitle_label.setAttribute(Qt.WA_TransparentForMouseEvents)  # type: ignore[attr-defined]
+        self._subtitle_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._subtitle_label.setStyleSheet(f"""
             QLabel#SubtitleOverlay {{
                 color: white;
@@ -389,7 +389,7 @@ class PlayerView(QFrame):
             self._osd_timer.stop()
             self._osd_timer.start(OSD_FADE_TIMEOUT_MS)
 
-    def resizeEvent(self, event: Any) -> None:
+    def resizeEvent(self, event: Any) -> None:  # type: ignore[invalid-method-override]
         """Handle resize to reposition OSD overlays.
 
         Args:
@@ -423,7 +423,7 @@ class PlayerView(QFrame):
         self._osd.raise_()
         self._audio_track_overlay.raise_()
 
-    def showEvent(self, event: Any) -> None:
+    def showEvent(self, event: Any) -> None:  # type: ignore[invalid-method-override]
         """Handle show event to emit view ready signal.
 
         Args:
@@ -535,14 +535,14 @@ class PlayerView(QFrame):
     def hide_cursor(self) -> None:
         """Hide the mouse cursor for full-screen experience."""
         if not self._cursor_hidden:
-            self.setCursor(QCursor(Qt.BlankCursor))  # type: ignore[attr-defined]
+            self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
             self._cursor_hidden = True
             logger.debug("Mouse cursor hidden")
 
     def show_cursor(self) -> None:
         """Show the mouse cursor."""
         if self._cursor_hidden:
-            self.setCursor(QCursor(Qt.ArrowCursor))  # type: ignore[attr-defined]
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
             self._cursor_hidden = False
             logger.debug("Mouse cursor shown")
 

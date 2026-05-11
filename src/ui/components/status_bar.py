@@ -4,8 +4,8 @@ This module provides the StatusBar widget that displays connection status,
 sync information, and storage usage at the bottom of the main window.
 """
 
-from PySide6.QtCore import Qt, Slot
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QWidget
+from src.qt import Qt, Slot
+from src.qt import QFrame, QHBoxLayout, QLabel, QWidget
 
 from src.ui.styles import (
     ERROR_COLOR,
@@ -71,19 +71,19 @@ class StatusBar(QFrame):
         connection_layout.setSpacing(scaled(4))
         connection_layout.addWidget(self._connection_indicator)
         connection_layout.addWidget(self._connection_label)
-        layout.addWidget(connection_container, alignment=Qt.AlignLeft)  # type: ignore[attr-defined]
+        layout.addWidget(connection_container, alignment=Qt.AlignmentFlag.AlignLeft)
 
         # Center: Sync status
         self._sync_label = QLabel()
         self._sync_label.setObjectName("SyncLabel")
         self._sync_label.setStyleSheet(f"color: {TEXT_SECONDARY};")
-        layout.addWidget(self._sync_label, alignment=Qt.AlignCenter)  # type: ignore[attr-defined]
+        layout.addWidget(self._sync_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Right: Storage usage
         self._storage_label = QLabel()
         self._storage_label.setObjectName("StorageLabel")
         self._storage_label.setStyleSheet(f"color: {TEXT_SECONDARY};")
-        layout.addWidget(self._storage_label, alignment=Qt.AlignRight)  # type: ignore[attr-defined]
+        layout.addWidget(self._storage_label, alignment=Qt.AlignmentFlag.AlignRight)
 
         # Set initial values
         self.set_connection_status(False)

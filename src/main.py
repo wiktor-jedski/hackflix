@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 
-from PySide6.QtWidgets import QApplication
+from src.qt import QApplication
 
 from src.config import (
     CACHE_DIR,
@@ -139,7 +139,7 @@ def main() -> int:
     logger.info("Hackflix initialization complete")
 
     # Create Qt application
-    # Force X11 backend for PySide6 compatibility with Wayland
+    # Force X11 backend for PyQt6 compatibility with Wayland
     if os.environ.get("XDG_SESSION_TYPE") == "wayland":
         os.environ["QT_QPA_PLATFORM"] = "xcb"
 

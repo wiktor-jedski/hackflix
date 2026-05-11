@@ -1,8 +1,8 @@
 """Tests for SearchOverlay component."""
 
 import pytest
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget
+from src.qt import Qt
+from src.qt import QWidget
 
 from src.ui.components.search_overlay import SearchOverlay, SearchOverlayBackground
 
@@ -67,7 +67,7 @@ class TestSearchOverlay:
         overlay._search_input.setText("test query")
 
         with qtbot.waitSignal(overlay.search_committed, timeout=100) as blocker:
-            qtbot.keyClick(overlay, Qt.Key_Return)
+            qtbot.keyClick(overlay, Qt.Key.Key_Return)
 
         assert blocker.args == ["test query"]
 
@@ -78,13 +78,13 @@ class TestSearchOverlay:
         overlay.show_search()
 
         with qtbot.waitSignal(overlay.search_cancelled, timeout=100):
-            qtbot.keyClick(overlay, Qt.Key_Escape)
+            qtbot.keyClick(overlay, Qt.Key.Key_Escape)
 
     def test_enter_hides_overlay(self, overlay: SearchOverlay, qtbot) -> None:
         """Test that Enter hides the overlay."""
         overlay.show_search()
 
-        qtbot.keyClick(overlay, Qt.Key_Return)
+        qtbot.keyClick(overlay, Qt.Key.Key_Return)
         # After Enter, overlay should be hidden
         assert overlay.isHidden()
 
@@ -92,7 +92,7 @@ class TestSearchOverlay:
         """Test that Escape hides the overlay."""
         overlay.show_search()
 
-        qtbot.keyClick(overlay, Qt.Key_Escape)
+        qtbot.keyClick(overlay, Qt.Key.Key_Escape)
         # After Escape, overlay should be hidden
         assert overlay.isHidden()
 
@@ -141,7 +141,7 @@ class TestSearchOverlayBackground:
         background.show()
 
         with qtbot.waitSignal(background.clicked, timeout=100):
-            qtbot.mouseClick(background, Qt.LeftButton)
+            qtbot.mouseClick(background, Qt.MouseButton.LeftButton)
 
 
 class TestSearchOverlayKeyHandling:
@@ -166,18 +166,18 @@ class TestSearchOverlayKeyHandling:
         """Test that other keys are passed to line edit."""
         overlay.show_search()
         # Type a character directly on the line edit
-        qtbot.keyClick(overlay._search_input, Qt.Key_A)
+        qtbot.keyClick(overlay._search_input, Qt.Key.Key_A)
         # The character should be in the input
         assert "a" in overlay._search_input.text().lower()
 
     def test_non_special_keys_call_super(self, overlay: SearchOverlay, qtbot) -> None:
         """Test that non-special keys call super().keyPressEvent."""
-        from PySide6.QtGui import QKeyEvent
-        from PySide6.QtCore import QEvent
+        from src.qt import QKeyEvent
+        from src.qt import QEvent
 
         overlay.show_search()
         # Create a key event for a regular key (not Enter or Escape)
-        event = QKeyEvent(QEvent.KeyPress, Qt.Key_B, Qt.NoModifier, "b")
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_B, Qt.KeyboardModifier.NoModifier, "b")
         # Call keyPressEvent directly to exercise the super() path
         overlay.keyPressEvent(event)
         # Event should be handled (not rejected)

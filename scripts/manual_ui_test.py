@@ -20,7 +20,7 @@ def main():
 
     try:
         # Test core functionality without complex UI components
-        from PySide6.QtWidgets import QApplication
+        from src.qt import QApplication
         from src.ui.input_manager import InputManager
         from src.ui.windows.main_window import MainWindow
         from src.controllers.app_controller import AppController
@@ -32,13 +32,14 @@ def main():
         setup_logging()
         ensure_directories()
 
-        app = QApplication([])
+        _app = QApplication([])
         db = DatabaseManager(":memory:")
         db.initialize()
 
         # Test 1: Create input manager
         print("\n📋 Test 1: Input Manager Creation")
         input_manager = InputManager()
+        assert input_manager is not None
         print("✅ InputManager created successfully")
 
         # Test 2: Create main window
@@ -71,7 +72,7 @@ def main():
             print("❌ Input manager missing from main window")
 
         # Check if global event filter is installed
-        from PySide6.QtWidgets import QApplication
+        from src.qt import QApplication
 
         qapp = QApplication.instance()
         if qapp:

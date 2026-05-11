@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
+from src.qt import QObject, QThread, Qt, Signal, Slot
 
 from src.config import CACHE_DIR, MEDIA_LIBRARY_PATH, DownloadState, PipelineState
 from src.database.db_manager import DatabaseManager
@@ -408,6 +408,7 @@ class AppController(QObject):
         self._pending_pipeline_ids: list[int] = []
         self._play_after_pipeline_ids: set[int] = set()
         self._delete_worker: DeleteWorker | None = None
+        self._delete_title: str = ""
 
         # Player state
         self._current_playing_file_id: int | None = None
@@ -457,16 +458,16 @@ class AppController(QObject):
 
         if torrent_service:
             torrent_service.download_progress.connect(
-                self._on_download_progress, Qt.ConnectionType.QueuedConnection
+                self._on_download_progress, Qt.ConnectionType.QueuedConnection  # type: ignore[too-many-positional-arguments]
             )
             torrent_service.download_completed.connect(
-                self._on_download_completed, Qt.ConnectionType.QueuedConnection
+                self._on_download_completed, Qt.ConnectionType.QueuedConnection  # type: ignore[too-many-positional-arguments]
             )
             torrent_service.download_error.connect(
-                self._on_download_error, Qt.ConnectionType.QueuedConnection
+                self._on_download_error, Qt.ConnectionType.QueuedConnection  # type: ignore[too-many-positional-arguments]
             )
             torrent_service.season_completed.connect(
-                self._on_season_completed, Qt.ConnectionType.QueuedConnection
+                self._on_season_completed, Qt.ConnectionType.QueuedConnection  # type: ignore[too-many-positional-arguments]
             )
 
         if player_service:
@@ -1196,11 +1197,8 @@ class AppController(QObject):
                 str(title),
                 self._current_season_id,
             )
-            self._delete_worker.delete_finished.connect(
-                lambda status, view, deleted, failed: self._on_delete_finished(
-                    status, view, deleted, failed, str(title)
-                )
-            )
+            self._delete_title = str(title)
+            self._delete_worker.delete_finished.connect(self._on_delete_finished)
             self._delete_worker.start()
             self._main_window.show_toast(
                 self.tr("Deleting: {title}").format(title=title), "info"
@@ -1208,9 +1206,10 @@ class AppController(QObject):
 
     @Slot(str, str, int, int)
     def _on_delete_finished(
-        self, status: str, view: str, deleted: int, failed: int, title: str
+        self, status: str, view: str, deleted: int, failed: int
     ) -> None:
         """Handle completion of a background delete operation."""
+        title = self._delete_title
         if self._main_window:
             if status == "ok" and failed == 0:
                 self._main_window.show_toast(
@@ -1238,6 +1237,7 @@ class AppController(QObject):
             self.refresh_library()
 
         self._delete_worker = None
+        self._delete_title = ""
 
     # =========================================================================
     # Search

@@ -7,7 +7,7 @@ for multi-language support using Qt's translation system.
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication, QLocale, QTranslator
+from src.qt import QCoreApplication, QLocale, QTranslator
 
 logger = logging.getLogger(__name__)
 

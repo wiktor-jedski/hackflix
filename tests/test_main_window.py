@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import MagicMock
 
-from PySide6.QtCore import Qt
+from src.qt import Qt
 
 from src.ui.windows.main_window import MainWindow
 
@@ -121,7 +121,6 @@ class TestMainWindow:
     def test_resize_repositions_search_overlay(self, main_window: MainWindow) -> None:
         """Test that resize repositions search overlay."""
         main_window.show_search()
-        initial_pos = (main_window._search_overlay.x(), main_window._search_overlay.y())
         main_window.resize(1024, 768)
         # Position may change after resize
         # This tests that resizeEvent doesn't crash
@@ -207,8 +206,8 @@ class TestMainWindowEventHandlers:
     ) -> None:
         """Test resizeEvent calls _center_in_parent when overlay is visible."""
         from unittest.mock import MagicMock
-        from PySide6.QtGui import QResizeEvent
-        from PySide6.QtCore import QSize
+        from src.qt import QResizeEvent
+        from src.qt import QSize
 
         main_window.show()
         main_window.show_search()
@@ -235,8 +234,8 @@ class TestMainWindowEventHandlers:
     ) -> None:
         """Test resizeEvent sets background geometry when visible."""
         from unittest.mock import MagicMock
-        from PySide6.QtGui import QResizeEvent
-        from PySide6.QtCore import QSize
+        from src.qt import QResizeEvent
+        from src.qt import QSize
 
         main_window.show()
         main_window.show_search()
@@ -271,11 +270,11 @@ class TestMainWindowEventHandlers:
 
     def test_show_confirm_creates_dialog(self, main_window: MainWindow, qtbot) -> None:
         """Test show_confirm creates and shows dialog."""
-        from PySide6.QtCore import QTimer
+        from src.qt import QTimer
         from src.ui.components.confirm_dialog import ConfirmDialog
 
         def accept_dialog():
-            from PySide6.QtWidgets import QApplication
+            from src.qt import QApplication
 
             for widget in QApplication.topLevelWidgets():
                 if isinstance(widget, ConfirmDialog):
@@ -324,7 +323,7 @@ class TestMainWindowEventHandlers:
         # Click on background
         background = main_window._search_background
         if background.isVisible():
-            qtbot.mouseClick(background, Qt.LeftButton)
+            qtbot.mouseClick(background, Qt.MouseButton.LeftButton)
             qtbot.wait(50)
 
             # Search should be hidden
@@ -350,7 +349,7 @@ class TestMainWindowFullscreen:
         main_window.showFullScreen = MagicMock()
 
         # Trigger showEvent
-        from PySide6.QtGui import QShowEvent
+        from src.qt import QShowEvent
 
         event = QShowEvent()
         main_window.showEvent(event)

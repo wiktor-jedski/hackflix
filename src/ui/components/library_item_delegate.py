@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QModelIndex, QPersistentModelIndex, QRect, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
-from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QWidget
+from src.qt import QModelIndex, QPersistentModelIndex, QRect, QSize, Qt
+from src.qt import QColor, QFont, QFontMetrics, QPainter, QPixmap
+from src.qt import QStyle, QStyledItemDelegate, QStyleOptionViewItem, QWidget
 
 from src.config import DownloadState, PipelineState
 from src.ui.styles import (
@@ -39,22 +39,22 @@ from src.utils.i18n import tr
 class LibraryItemRole:
     """Custom data roles for library items."""
 
-    IdRole = Qt.UserRole + 1  # type: ignore[attr-defined]
-    TypeRole = Qt.UserRole + 2  # type: ignore[attr-defined]
-    TitleRole = Qt.UserRole + 3  # type: ignore[attr-defined]
-    GenresRole = Qt.UserRole + 4  # type: ignore[attr-defined]
-    PosterPathRole = Qt.UserRole + 5  # type: ignore[attr-defined]
-    DownloadStateRole = Qt.UserRole + 6  # type: ignore[attr-defined]
-    PipelineStateRole = Qt.UserRole + 7  # type: ignore[attr-defined]
-    DownloadProgressRole = Qt.UserRole + 8  # type: ignore[attr-defined]
-    SeasonCountRole = Qt.UserRole + 9  # type: ignore[attr-defined]
-    EpisodeCountRole = Qt.UserRole + 10  # type: ignore[attr-defined]
-    SeasonNumberRole = Qt.UserRole + 11  # type: ignore[attr-defined]
-    EpisodeNumberRole = Qt.UserRole + 12  # type: ignore[attr-defined]
-    EpisodeTitleRole = Qt.UserRole + 13  # type: ignore[attr-defined]
-    FileIdRole = Qt.UserRole + 14  # type: ignore[attr-defined]
-    ResumePositionRole = Qt.UserRole + 15  # type: ignore[attr-defined]
-    WatchedAtRole = Qt.UserRole + 16  # type: ignore[attr-defined]
+    IdRole = Qt.ItemDataRole.UserRole + 1
+    TypeRole = Qt.ItemDataRole.UserRole + 2
+    TitleRole = Qt.ItemDataRole.UserRole + 3
+    GenresRole = Qt.ItemDataRole.UserRole + 4
+    PosterPathRole = Qt.ItemDataRole.UserRole + 5
+    DownloadStateRole = Qt.ItemDataRole.UserRole + 6
+    PipelineStateRole = Qt.ItemDataRole.UserRole + 7
+    DownloadProgressRole = Qt.ItemDataRole.UserRole + 8
+    SeasonCountRole = Qt.ItemDataRole.UserRole + 9
+    EpisodeCountRole = Qt.ItemDataRole.UserRole + 10
+    SeasonNumberRole = Qt.ItemDataRole.UserRole + 11
+    EpisodeNumberRole = Qt.ItemDataRole.UserRole + 12
+    EpisodeTitleRole = Qt.ItemDataRole.UserRole + 13
+    FileIdRole = Qt.ItemDataRole.UserRole + 14
+    ResumePositionRole = Qt.ItemDataRole.UserRole + 15
+    WatchedAtRole = Qt.ItemDataRole.UserRole + 16
 
 
 class LibraryItemDelegate(QStyledItemDelegate):
@@ -99,7 +99,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
         super().__init__(parent)
         self._poster_cache: dict[str, QPixmap] = {}
 
-    def paint(
+    def paint(  # type: ignore[invalid-method-override]
         self,
         painter: QPainter,
         option: QStyleOptionViewItem,
@@ -160,9 +160,9 @@ class LibraryItemDelegate(QStyledItemDelegate):
         """
         rect = option.rect
 
-        if option.state & QStyle.State_Selected:  # type: ignore[attr-defined]
+        if option.state & QStyle.StateFlag.State_Selected:
             color = QColor(SELECTION_COLOR)
-        elif option.state & QStyle.State_MouseOver:  # type: ignore[attr-defined]
+        elif option.state & QStyle.StateFlag.State_MouseOver:
             color = QColor(SURFACE_HOVER_COLOR)
         else:
             color = QColor(SURFACE_COLOR)
@@ -185,8 +185,8 @@ class LibraryItemDelegate(QStyledItemDelegate):
                 # Scale to fit while maintaining aspect ratio
                 scaled = pixmap.scaled(
                     rect.size(),
-                    Qt.KeepAspectRatio,  # type: ignore[attr-defined]
-                    Qt.SmoothTransformation,  # type: ignore[attr-defined]
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
                 )
                 # Center in rect
                 x = rect.x() + (rect.width() - scaled.width()) // 2
@@ -197,7 +197,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
         # Draw placeholder
         painter.fillRect(rect, QColor(SURFACE_HOVER_COLOR))
         painter.setPen(QColor(TEXT_SECONDARY))
-        painter.drawText(rect, Qt.AlignCenter, tr("LibraryItemDelegate", "No\nImage"))  # type: ignore[attr-defined]
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, tr("LibraryItemDelegate", "No\nImage"))
 
     def _get_cached_poster(self, path: str) -> QPixmap | None:
         """Get a poster pixmap from cache or load it.
@@ -258,12 +258,12 @@ class LibraryItemDelegate(QStyledItemDelegate):
         title_rect = QRect(rect.left(), y, rect.width(), title_metrics.height())
         elided_title = title_metrics.elidedText(
             title,
-            Qt.ElideRight,  # type: ignore[attr-defined]
+            Qt.TextElideMode.ElideRight,
             rect.width(),
         )
         painter.drawText(
             title_rect,
-            Qt.AlignLeft | Qt.AlignVCenter,  # type: ignore[attr-defined]
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             elided_title,
         )
         y += title_metrics.height() + line_spacing
@@ -275,12 +275,12 @@ class LibraryItemDelegate(QStyledItemDelegate):
             genres_rect = QRect(rect.left(), y, rect.width(), body_metrics.height())
             elided_genres = body_metrics.elidedText(
                 genres,
-                Qt.ElideRight,  # type: ignore[attr-defined]
+                Qt.TextElideMode.ElideRight,
                 rect.width(),
             )
             painter.drawText(
                 genres_rect,
-                Qt.AlignLeft | Qt.AlignVCenter,  # type: ignore[attr-defined]
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 elided_genres,
             )
             y += body_metrics.height() + line_spacing
@@ -292,12 +292,12 @@ class LibraryItemDelegate(QStyledItemDelegate):
             subtitle_rect = QRect(rect.left(), y, rect.width(), small_metrics.height())
             elided_subtitle = small_metrics.elidedText(
                 subtitle,
-                Qt.ElideRight,  # type: ignore[attr-defined]
+                Qt.TextElideMode.ElideRight,
                 rect.width(),
             )
             painter.drawText(
                 subtitle_rect,
-                Qt.AlignLeft | Qt.AlignVCenter,  # type: ignore[attr-defined]
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 elided_subtitle,
             )
 
@@ -390,7 +390,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
         font = QFont(FONT_FAMILY, STATUS_ICON_SIZE - 8)
         painter.setFont(font)
         painter.setPen(QColor(color))
-        painter.drawText(rect, Qt.AlignCenter, icon)  # type: ignore[attr-defined]
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, icon)
 
         # Draw progress percentage if downloading
         if status == "downloading" and progress > 0:
@@ -399,7 +399,7 @@ class LibraryItemDelegate(QStyledItemDelegate):
             progress_rect = QRect(
                 rect.left(), rect.bottom() + 2, rect.width(), FONT_SIZE_SMALL
             )
-            painter.drawText(progress_rect, Qt.AlignCenter, f"{progress}%")  # type: ignore[attr-defined]
+            painter.drawText(progress_rect, Qt.AlignmentFlag.AlignCenter, f"{progress}%")
 
     def sizeHint(
         self,

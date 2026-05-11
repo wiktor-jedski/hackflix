@@ -7,13 +7,13 @@ transient messages to the user.
 import logging
 from typing import Literal
 
-from PySide6.QtCore import (
+from src.qt import (
     QEasingCurve,
     QPropertyAnimation,
     QTimer,
     Signal,
 )
-from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
+from src.qt import QFrame, QLabel, QVBoxLayout, QWidget
 
 from src.config import TOAST_TIMEOUT_MS
 from src.ui.styles import (

@@ -1,8 +1,8 @@
 """Tests for LibraryView component."""
 
 import pytest
-from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QStyledItemDelegate
+from src.qt import QPixmap
+from src.qt import QStyledItemDelegate
 
 from src.config import DownloadState
 from src.ui.components.library_item_delegate import LibraryItemRole
@@ -690,7 +690,7 @@ class TestLibraryView:
         library_view.selection_changed.connect(capture)
 
         # Simulate selection change to invalid index
-        from PySide6.QtCore import QModelIndex
+        from src.qt import QModelIndex
 
         library_view._on_selection_changed(QModelIndex(), QModelIndex())
 

@@ -19,7 +19,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from src.qt import QObject, QTimer, Signal
 
 from src.config import (
     DownloadState,
@@ -642,7 +642,7 @@ class TorrentService(QObject):
         try:
             state_data = state_file.read_bytes()
             with self._session_lock:
-                self._session.load_state(lt.bdecode(state_data))  # type: ignore[attr-defined]
+                self._session.load_state(lt.bdecode(state_data))
             logger.info("Session state loaded from %s", state_file)
         except Exception as e:
             logger.warning("Failed to load session state: %s", e)

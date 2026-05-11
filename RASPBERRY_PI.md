@@ -56,7 +56,7 @@ sudo raspi-config
 # → System Options → Boot / Auto Login → Desktop Autologin
 ```
 
-Pi OS Bookworm uses **Wayland (labwc / Wayfire)** by default. PySide6 + VLC work on Wayland via XWayland. If you hit rendering glitches, switch the session to X11 in `raspi-config → Advanced Options → Wayland → X11`.
+Pi OS Bookworm uses **Wayland (labwc / Wayfire)** by default. PyQt6 + VLC work on Wayland via XWayland. If you hit rendering glitches, switch the session to X11 in `raspi-config → Advanced Options → Wayland → X11`.
 
 ### TV always on first
 

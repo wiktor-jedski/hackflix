@@ -1,8 +1,8 @@
 """Tests for ConfirmDialog component."""
 
 import pytest
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QWidget
+from src.qt import Qt
+from src.qt import QDialog, QWidget
 
 from src.ui.components.confirm_dialog import ConfirmDialog
 
@@ -49,17 +49,17 @@ class TestConfirmDialog:
         dialog.show()
 
         # Simulate Enter key
-        qtbot.keyClick(dialog, Qt.Key_Return)
+        qtbot.keyClick(dialog, Qt.Key.Key_Return)
 
-        assert dialog.result() == QDialog.Accepted
+        assert dialog.result() == QDialog.DialogCode.Accepted
 
     def test_escape_rejects(self, dialog: ConfirmDialog, qtbot) -> None:
         """Test that Escape key rejects the dialog."""
         dialog.show()
 
-        qtbot.keyClick(dialog, Qt.Key_Escape)
+        qtbot.keyClick(dialog, Qt.Key.Key_Escape)
 
-        assert dialog.result() == QDialog.Rejected
+        assert dialog.result() == QDialog.DialogCode.Rejected
 
     def test_fixed_width(self, dialog: ConfirmDialog) -> None:
         """Test that dialog has fixed width."""
@@ -94,7 +94,7 @@ class TestConfirmDialogStaticMethod:
 
     def test_confirm_accept_returns_true(self, parent_widget: QWidget, qtbot) -> None:
         """Test that confirm returns True when accepted."""
-        from PySide6.QtCore import QTimer
+        from src.qt import QTimer
 
         result_holder = [None]
 
@@ -105,7 +105,7 @@ class TestConfirmDialogStaticMethod:
                     widget.accept()
                     return
             # Check application-level dialogs
-            from PySide6.QtWidgets import QApplication
+            from src.qt import QApplication
 
             for widget in QApplication.topLevelWidgets():
                 if isinstance(widget, ConfirmDialog):
@@ -124,10 +124,10 @@ class TestConfirmDialogStaticMethod:
 
     def test_confirm_without_parent(self, qtbot) -> None:
         """Test confirm can be called without parent."""
-        from PySide6.QtCore import QTimer
+        from src.qt import QTimer
 
         def reject_dialog():
-            from PySide6.QtWidgets import QApplication
+            from src.qt import QApplication
 
             for widget in QApplication.topLevelWidgets():
                 if isinstance(widget, ConfirmDialog):
@@ -165,12 +165,12 @@ class TestConfirmDialogKeyHandling:
         """Test that other keys are passed to super().keyPressEvent."""
         dialog.show()
         # Press a key that's not Enter or Escape
-        qtbot.keyClick(dialog, Qt.Key_A)
+        qtbot.keyClick(dialog, Qt.Key.Key_A)
         # Dialog should still be open (not accepted or rejected)
         assert dialog.result() == 0  # Neither accepted nor rejected
 
     def test_enter_key_accepts(self, dialog: ConfirmDialog, qtbot) -> None:
         """Test Enter key accepts dialog."""
         dialog.show()
-        qtbot.keyClick(dialog, Qt.Key_Enter)
-        assert dialog.result() == QDialog.Accepted
+        qtbot.keyClick(dialog, Qt.Key.Key_Enter)
+        assert dialog.result() == QDialog.DialogCode.Accepted

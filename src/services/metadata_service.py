@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any
 
-from PySide6.QtCore import QObject, QThread, Signal
+from src.qt import QObject, QThread, Signal
 
 from src.config import CACHE_DIR, CATALOG_URL
 from src.database.db_manager import DatabaseManager

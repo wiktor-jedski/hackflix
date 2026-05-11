@@ -1,9 +1,9 @@
 """Tests for InputManager."""
 
 import pytest
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QWidget
+from src.qt import QEvent, Qt
+from src.qt import QKeyEvent
+from src.qt import QWidget
 
 from src.ui.enums import Action
 from src.ui.input_manager import InputManager
@@ -37,10 +37,10 @@ class TestInputManager:
     def test_map_navigation_keys(self, input_manager: InputManager) -> None:
         """Test mapping of navigation keys to actions."""
         # Create key events
-        up_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Up, Qt.NoModifier)
-        down_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Down, Qt.NoModifier)
-        left_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Left, Qt.NoModifier)
-        right_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Right, Qt.NoModifier)
+        up_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Up, Qt.KeyboardModifier.NoModifier)
+        down_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Down, Qt.KeyboardModifier.NoModifier)
+        left_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Left, Qt.KeyboardModifier.NoModifier)
+        right_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Right, Qt.KeyboardModifier.NoModifier)
 
         assert input_manager._map_key_to_action(up_event) == Action.NAVIGATE_UP
         assert input_manager._map_key_to_action(down_event) == Action.NAVIGATE_DOWN
@@ -49,11 +49,11 @@ class TestInputManager:
 
     def test_map_action_keys(self, input_manager: InputManager) -> None:
         """Test mapping of action keys."""
-        tab_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Tab, Qt.NoModifier)
-        s_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_S, Qt.NoModifier)
-        x_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_X, Qt.NoModifier)
-        d_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_D, Qt.NoModifier)
-        p_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_P, Qt.NoModifier)
+        tab_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Tab, Qt.KeyboardModifier.NoModifier)
+        s_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_S, Qt.KeyboardModifier.NoModifier)
+        x_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_X, Qt.KeyboardModifier.NoModifier)
+        d_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_D, Qt.KeyboardModifier.NoModifier)
+        p_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_P, Qt.KeyboardModifier.NoModifier)
 
         assert input_manager._map_key_to_action(tab_event) == Action.SWITCH_TAB
         assert input_manager._map_key_to_action(s_event) == Action.SEARCH
@@ -63,71 +63,71 @@ class TestInputManager:
 
     def test_map_universal_keys(self, input_manager: InputManager) -> None:
         """Test mapping of universal keys."""
-        enter_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Return, Qt.NoModifier)
-        escape_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Escape, Qt.NoModifier)
+        enter_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier)
+        escape_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
 
         assert input_manager._map_key_to_action(enter_event) == Action.CONFIRM
         assert input_manager._map_key_to_action(escape_event) == Action.CANCEL
 
     def test_map_ctrl_q_quit(self, input_manager: InputManager) -> None:
         """Test mapping of Ctrl+Q to quit action."""
-        ctrl_q_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Q, Qt.ControlModifier)
-        q_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Q, Qt.NoModifier)
+        ctrl_q_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Q, Qt.KeyboardModifier.ControlModifier)
+        q_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Q, Qt.KeyboardModifier.NoModifier)
 
         assert input_manager._map_key_to_action(ctrl_q_event) == Action.QUIT
         assert input_manager._map_key_to_action(q_event) == Action.NONE
 
     def test_map_player_keys(self, input_manager: InputManager) -> None:
         """Test mapping of player control keys."""
-        space_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Space, Qt.NoModifier)
-        m_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_M, Qt.NoModifier)
-        l_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_L, Qt.NoModifier)
+        space_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier)
+        m_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_M, Qt.KeyboardModifier.NoModifier)
+        l_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_L, Qt.KeyboardModifier.NoModifier)
 
         assert input_manager._map_key_to_action(space_event) == Action.TOGGLE_PAUSE
         assert input_manager._map_key_to_action(m_event) == Action.TOGGLE_MUTE
         assert input_manager._map_key_to_action(l_event) == Action.CYCLE_AUDIO
-        v_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_V, Qt.NoModifier)
+        v_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_V, Qt.KeyboardModifier.NoModifier)
         assert input_manager._map_key_to_action(v_event) == Action.CYCLE_SUBTITLE
 
     def test_unmapped_key_returns_none(self, input_manager: InputManager) -> None:
         """Test that unmapped keys return Action.NONE."""
         # Random unmapped key
-        f1_event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_F1, Qt.NoModifier)
+        f1_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_F1, Qt.KeyboardModifier.NoModifier)
         assert input_manager._map_key_to_action(f1_event) == Action.NONE
 
     def test_debounce_allows_first_key(self, input_manager: InputManager) -> None:
         """Test that debounce allows the first key press."""
-        result = input_manager._check_debounce(Qt.Key_S)
+        result = input_manager._check_debounce(Qt.Key.Key_S)
         assert result is True
 
     def test_debounce_blocks_rapid_same_key(self, input_manager: InputManager) -> None:
         """Test that debounce blocks rapid presses of the same key."""
         # First press
-        input_manager._check_debounce(Qt.Key_S)
+        input_manager._check_debounce(Qt.Key.Key_S)
         # Immediate second press should be blocked
-        result = input_manager._check_debounce(Qt.Key_S)
+        result = input_manager._check_debounce(Qt.Key.Key_S)
         assert result is False
 
     def test_debounce_allows_different_key(self, input_manager: InputManager) -> None:
         """Test that debounce allows different keys immediately."""
-        input_manager._check_debounce(Qt.Key_S)
-        result = input_manager._check_debounce(Qt.Key_D)
+        input_manager._check_debounce(Qt.Key.Key_S)
+        result = input_manager._check_debounce(Qt.Key.Key_D)
         assert result is True
 
     def test_reset_debounce(self, input_manager: InputManager) -> None:
         """Test that reset_debounce clears debounce state."""
-        input_manager._check_debounce(Qt.Key_S)
+        input_manager._check_debounce(Qt.Key.Key_S)
         input_manager.reset_debounce()
 
         # After reset, same key should be allowed
-        result = input_manager._check_debounce(Qt.Key_S)
+        result = input_manager._check_debounce(Qt.Key.Key_S)
         assert result is True
 
     def test_build_context_empty_for_non_widget(
         self, input_manager: InputManager
     ) -> None:
         """Test that build_context returns empty dict for non-widget."""
-        from PySide6.QtCore import QObject
+        from src.qt import QObject
 
         obj = QObject()
         context = input_manager._build_context(obj)
@@ -153,7 +153,7 @@ class TestInputManager:
         input_manager.action_triggered.connect(capture_signal)
 
         # Simulate key press
-        event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Up, Qt.NoModifier)
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Up, Qt.KeyboardModifier.NoModifier)
         result = input_manager.eventFilter(widget, event)
 
         assert result is True  # Event was handled
@@ -164,9 +164,9 @@ class TestInputManager:
         self, input_manager: InputManager, widget: QWidget
     ) -> None:
         """Test that event filter ignores non-key events."""
-        from PySide6.QtCore import QEvent
+        from src.qt import QEvent
 
-        event = QEvent(QEvent.None_)
+        event = QEvent(QEvent.Type.None_)
         result = input_manager.eventFilter(widget, event)
         assert result is False
 
@@ -177,7 +177,7 @@ class TestInputManager:
         signals_received = []
         input_manager.action_triggered.connect(lambda a, c: signals_received.append(a))
 
-        event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_F1, Qt.NoModifier)
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_F1, Qt.KeyboardModifier.NoModifier)
         result = input_manager.eventFilter(widget, event)
 
         assert result is False
@@ -191,34 +191,34 @@ class TestInputManager:
         input_manager.action_triggered.connect(lambda a, c: signals_received.append(a))
 
         # First key press
-        event1 = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Up, Qt.NoModifier)
+        event1 = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Up, Qt.KeyboardModifier.NoModifier)
         input_manager.eventFilter(widget, event1)
 
         # Simulated auto-repeat (isAutoRepeat would be True in real event)
         # Since we can't easily mock isAutoRepeat, we test that navigation
         # keys are in REPEAT_ALLOWED_KEYS
-        assert Qt.Key_Up in input_manager._REPEAT_ALLOWED_KEYS
-        assert Qt.Key_Down in input_manager._REPEAT_ALLOWED_KEYS
-        assert Qt.Key_Left in input_manager._REPEAT_ALLOWED_KEYS
-        assert Qt.Key_Right in input_manager._REPEAT_ALLOWED_KEYS
+        assert Qt.Key.Key_Up in input_manager._REPEAT_ALLOWED_KEYS
+        assert Qt.Key.Key_Down in input_manager._REPEAT_ALLOWED_KEYS
+        assert Qt.Key.Key_Left in input_manager._REPEAT_ALLOWED_KEYS
+        assert Qt.Key.Key_Right in input_manager._REPEAT_ALLOWED_KEYS
 
     def test_action_keys_in_debounced_set(self, input_manager: InputManager) -> None:
         """Test that action keys are in the debounced set."""
         debounced = input_manager._DEBOUNCED_KEYS
-        assert Qt.Key_Tab in debounced
-        assert Qt.Key_S in debounced
-        assert Qt.Key_X in debounced
-        assert Qt.Key_D in debounced
-        assert Qt.Key_P in debounced
-        assert Qt.Key_Return in debounced
-        assert Qt.Key_Escape in debounced
-        assert Qt.Key_Q in debounced
+        assert Qt.Key.Key_Tab in debounced
+        assert Qt.Key.Key_S in debounced
+        assert Qt.Key.Key_X in debounced
+        assert Qt.Key.Key_D in debounced
+        assert Qt.Key.Key_P in debounced
+        assert Qt.Key.Key_Return in debounced
+        assert Qt.Key.Key_Escape in debounced
+        assert Qt.Key.Key_Q in debounced
 
     def test_event_filter_ignores_key_release(
         self, input_manager: InputManager, widget: QWidget
     ) -> None:
         """Test that event filter ignores key release events."""
-        event = QKeyEvent(QKeyEvent.KeyRelease, Qt.Key_Up, Qt.NoModifier)
+        event = QKeyEvent(QEvent.Type.KeyRelease, Qt.Key.Key_Up, Qt.KeyboardModifier.NoModifier)
         result = input_manager.eventFilter(widget, event)
         assert result is False
 
@@ -230,7 +230,7 @@ class TestInputManager:
         input_manager.action_triggered.connect(lambda a, c: signals_received.append(a))
 
         # First press - should emit
-        event1 = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Return, Qt.NoModifier)
+        event1 = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier)
         input_manager.eventFilter(widget, event1)
         assert len(signals_received) == 1
 
@@ -239,9 +239,9 @@ class TestInputManager:
         from unittest.mock import MagicMock, patch
 
         auto_repeat_event = MagicMock(spec=QKeyEvent)
-        auto_repeat_event.type.return_value = QKeyEvent.KeyPress
-        auto_repeat_event.key.return_value = Qt.Key_Return
-        auto_repeat_event.modifiers.return_value = Qt.NoModifier
+        auto_repeat_event.type.return_value = QEvent.Type.KeyPress
+        auto_repeat_event.key.return_value = Qt.Key.Key_Return
+        auto_repeat_event.modifiers.return_value = Qt.KeyboardModifier.NoModifier
         auto_repeat_event.isAutoRepeat.return_value = True
 
         # Patch isinstance to return True for QKeyEvent
@@ -267,11 +267,11 @@ class TestInputManager:
         input_manager.action_triggered.connect(lambda a, c: signals_received.append(a))
 
         # First press of a debounced key
-        event1 = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Tab, Qt.NoModifier)
+        event1 = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Tab, Qt.KeyboardModifier.NoModifier)
         input_manager.eventFilter(widget, event1)
 
         # Immediate second press should be blocked by debounce
-        event2 = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Tab, Qt.NoModifier)
+        event2 = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Tab, Qt.KeyboardModifier.NoModifier)
         result = input_manager.eventFilter(widget, event2)
 
         # Only one signal should have been emitted
@@ -283,7 +283,7 @@ class TestInputManager:
         self, input_manager: InputManager, qtbot
     ) -> None:
         """Test build_context includes focused widget info."""
-        from PySide6.QtWidgets import QLineEdit, QVBoxLayout
+        from src.qt import QLineEdit, QVBoxLayout
 
         # Create a parent widget with a focusable child
         parent = QWidget()
@@ -304,7 +304,7 @@ class TestInputManager:
         self, input_manager: InputManager, qtbot
     ) -> None:
         """Test build_context uses class name when widget has no object name."""
-        from PySide6.QtWidgets import QLineEdit, QVBoxLayout
+        from src.qt import QLineEdit, QVBoxLayout
 
         parent = QWidget()
         layout = QVBoxLayout(parent)

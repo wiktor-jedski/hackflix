@@ -7,9 +7,9 @@ events and maps them to semantic application actions.
 import logging
 from typing import Any, Optional
 
-from PySide6.QtCore import QElapsedTimer, QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QWidget
+from src.qt import QElapsedTimer, QEvent, QObject, Qt, Signal
+from src.qt import QKeyEvent
+from src.qt import QWidget
 
 from src.ui.enums import Action
 from src.ui.styles import DEBOUNCE_MS
@@ -36,27 +36,27 @@ class InputManager(QObject):
 
     # Keys that should be debounced (prevent accidental double-triggers)
     _DEBOUNCED_KEYS = {
-        Qt.Key_Tab,  # type: ignore[attr-defined]
-        Qt.Key_S,  # type: ignore[attr-defined]
-        Qt.Key_X,  # type: ignore[attr-defined]
-        Qt.Key_D,  # type: ignore[attr-defined]
-        Qt.Key_P,  # type: ignore[attr-defined]
-        Qt.Key_Return,  # type: ignore[attr-defined]
-        Qt.Key_Enter,  # type: ignore[attr-defined]
-        Qt.Key_Escape,  # type: ignore[attr-defined]
-        Qt.Key_Q,  # type: ignore[attr-defined]  # For Ctrl+Q
-        Qt.Key_Space,  # type: ignore[attr-defined]
-        Qt.Key_M,  # type: ignore[attr-defined]
-        Qt.Key_L,  # type: ignore[attr-defined]
-        Qt.Key_V,  # type: ignore[attr-defined]
+        Qt.Key.Key_Tab,
+        Qt.Key.Key_S,
+        Qt.Key.Key_X,
+        Qt.Key.Key_D,
+        Qt.Key.Key_P,
+        Qt.Key.Key_Return,
+        Qt.Key.Key_Enter,
+        Qt.Key.Key_Escape,
+        Qt.Key.Key_Q,  # For Ctrl+Q
+        Qt.Key.Key_Space,
+        Qt.Key.Key_M,
+        Qt.Key.Key_L,
+        Qt.Key.Key_V,
     }
 
     # Keys that allow auto-repeat for fast scrolling
     _REPEAT_ALLOWED_KEYS = {
-        Qt.Key_Up,  # type: ignore[attr-defined]
-        Qt.Key_Down,  # type: ignore[attr-defined]
-        Qt.Key_Left,  # type: ignore[attr-defined]
-        Qt.Key_Right,  # type: ignore[attr-defined]
+        Qt.Key.Key_Up,
+        Qt.Key.Key_Down,
+        Qt.Key.Key_Left,
+        Qt.Key.Key_Right,
     }
 
     def __init__(self, parent: QObject | None = None) -> None:
@@ -72,7 +72,7 @@ class InputManager(QObject):
 
     def eventFilter(
         self, watched: Optional[QObject], event: Optional[QEvent]
-    ) -> bool:
+    ) -> bool:  # type: ignore[invalid-method-override]
         """Filter and process keyboard events.
 
         This method is called for all events on the watched object.
@@ -89,7 +89,7 @@ class InputManager(QObject):
         if event is None or not isinstance(event, QKeyEvent):
             return False
 
-        if event.type() != QEvent.KeyPress:  # type: ignore[attr-defined]
+        if event.type() != QEvent.Type.KeyPress:
             return False
 
         action = self._map_key_to_action(event)
@@ -134,47 +134,47 @@ class InputManager(QObject):
         modifiers = event.modifiers()
 
         # Check for Ctrl+Q (quit)
-        if key == Qt.Key_Q and modifiers & Qt.ControlModifier:  # type: ignore[attr-defined]
+        if key == Qt.Key.Key_Q and modifiers & Qt.KeyboardModifier.ControlModifier:
             return Action.QUIT
 
         # Navigation keys
-        if key == Qt.Key_Up:  # type: ignore[attr-defined]
+        if key == Qt.Key.Key_Up:
             return Action.NAVIGATE_UP
-        if key == Qt.Key_Down:  # type: ignore[attr-defined]
+        if key == Qt.Key.Key_Down:
             return Action.NAVIGATE_DOWN
-        if key == Qt.Key_Left:  # type: ignore[attr-defined]
+        if key == Qt.Key.Key_Left:
             return Action.NAVIGATE_LEFT
-        if key == Qt.Key_Right:  # type: ignore[attr-defined]
+        if key == Qt.Key.Key_Right:
             return Action.NAVIGATE_RIGHT
 
         # Tab key
-        if key == Qt.Key_Tab:  # type: ignore[attr-defined]
+        if key == Qt.Key.Key_Tab:
             return Action.SWITCH_TAB
 
         # Action keys
-        if key == Qt.Key_S:  # type: ignore[attr-defined]
+        if key == Qt.Key.Key_S:
             return Action.SEARCH
-        if key == Qt.Key_X:  # type: ignore[attr-defined]
+        if key == Qt.Key.Key_X:
             return Action.CLEAR_FILTER
-        if key == Qt.Key_D:  # type: ignore[attr-defined]
+        if key == Qt.Key.Key_D:
             return Action.DELETE
-        if key == Qt.Key_P:  # type: ignore[attr-defined]
+        if key == Qt.Key.Key_P:
             return Action.SYNC
 
         # Universal keys
-        if key in (Qt.Key_Return, Qt.Key_Enter):  # type: ignore[attr-defined]
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             return Action.CONFIRM
-        if key == Qt.Key_Escape:  # type: ignore[attr-defined]
+        if key == Qt.Key.Key_Escape:
             return Action.CANCEL
 
         # Player keys (Phase 4)
-        if key == Qt.Key_Space:  # type: ignore[attr-defined]
+        if key == Qt.Key.Key_Space:
             return Action.TOGGLE_PAUSE
-        if key == Qt.Key_M:  # type: ignore[attr-defined]
+        if key == Qt.Key.Key_M:
             return Action.TOGGLE_MUTE
-        if key == Qt.Key_L:  # type: ignore[attr-defined]
+        if key == Qt.Key.Key_L:
             return Action.CYCLE_AUDIO
-        if key == Qt.Key_V:  # type: ignore[attr-defined]
+        if key == Qt.Key.Key_V:
             return Action.CYCLE_SUBTITLE
         return Action.NONE
 
