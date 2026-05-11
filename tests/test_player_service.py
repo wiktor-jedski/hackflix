@@ -951,6 +951,36 @@ class TestPlayerServiceSubtitles:
         )
         mock_vlc_module._mock_player.video_set_spu.assert_not_called()
 
+    def test_scheduled_subtitle_retry_loads_and_activates_track(
+        self,
+        mock_vlc_module: mock.MagicMock,
+        playing_service: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test subtitle retries re-load and activate external subtitle tracks."""
+        from src.services import player_service
+
+        subtitle_file = tmp_path / "test.srt"
+        subtitle_file.touch()
+        callbacks = []
+
+        monkeypatch.setattr(
+            player_service.QTimer,
+            "singleShot",
+            lambda _delay_ms, callback: callbacks.append(callback),
+        )
+
+        playing_service._schedule_subtitle_load_and_activation(subtitle_file)
+        for callback in callbacks:
+            callback()
+
+        assert (
+            mock_vlc_module._mock_player.video_set_subtitle_file.call_count
+            == len(callbacks)
+        )
+        assert mock_vlc_module._mock_player.video_set_spu.call_count == len(callbacks)
+
     def test_activate_first_subtitle_track(
         self,
         mock_vlc_module: mock.MagicMock,
@@ -960,6 +990,23 @@ class TestPlayerServiceSubtitles:
         playing_service._activate_first_subtitle_track()
 
         mock_vlc_module._mock_player.video_set_spu.assert_called_once_with(1)
+
+    def test_activate_first_subtitle_track_prefers_external_subtitle(
+        self,
+        mock_vlc_module: mock.MagicMock,
+        playing_service: Any,
+    ) -> None:
+        """Test external subtitles are preferred over embedded subtitle tracks."""
+        mock_vlc_module._mock_player.video_get_spu_description.return_value = [
+            (-1, b"Disable"),
+            (1, b"English"),
+            (2, b"Polish external"),
+        ]
+
+        playing_service._activate_first_subtitle_track()
+
+        mock_vlc_module._mock_player.video_set_spu.assert_called_once_with(2)
+        assert playing_service.get_external_subtitle_track_id() == 2
 
     def test_activate_first_subtitle_track_no_tracks(
         self,

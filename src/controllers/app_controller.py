@@ -19,11 +19,7 @@ from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from src.config import CACHE_DIR, MEDIA_LIBRARY_PATH, DownloadState, PipelineState
 from src.database.db_manager import DatabaseManager
 from src.ui.enums import Action, AppState, MediaTab
-from src.utils.subtitle_parser import (
-    SubtitleLine,
-    SubtitleParseError,
-    parse_srt_file,
-)
+from src.utils.subtitle_parser import SubtitleLine
 
 if TYPE_CHECKING:
     from src.services.metadata_service import MetadataService
@@ -1734,7 +1730,7 @@ class AppController(QObject):
     def _prepare_episode_subtitle_overlay(
         self, video: dict[str, Any], subtitle_path: str | None
     ) -> None:
-        """Load subtitle text for the episode fallback overlay."""
+        """Keep app-rendered subtitles disabled while VLC renders loaded subtitles."""
         self._current_subtitle_lines = []
         self._current_subtitle_display_text = ""
         self._episode_subtitle_overlay_enabled = False
@@ -1742,23 +1738,8 @@ class AppController(QObject):
         if video.get("media_type") != "series" or not subtitle_path:
             return
 
-        try:
-            self._current_subtitle_lines = parse_srt_file(Path(subtitle_path))
-        except (FileNotFoundError, SubtitleParseError, UnicodeDecodeError) as e:
-            logger.warning(
-                "Episode subtitle overlay unavailable for %s: %s", subtitle_path, e
-            )
-            return
-        except OSError as e:
-            logger.warning(
-                "Could not read episode subtitle file %s: %s", subtitle_path, e
-            )
-            return
-
-        self._episode_subtitle_overlay_enabled = bool(self._current_subtitle_lines)
         logger.info(
-            "Prepared episode subtitle overlay: %d cues from %s",
-            len(self._current_subtitle_lines),
+            "Using VLC subtitle renderer for episode subtitle file: %s",
             subtitle_path,
         )
 
@@ -1916,18 +1897,10 @@ class AppController(QObject):
             )
 
     def _sync_episode_subtitle_overlay_to_track(self, track: dict[str, Any]) -> None:
-        """Enable the episode overlay only while the external subtitle track is active."""
-        if not self._current_subtitle_lines or not self._player_service:
-            self._episode_subtitle_overlay_enabled = False
-            if self._main_window:
-                self._main_window.player_view.clear_subtitle_text()
-            return
-
-        external_track_id = self._player_service.get_external_subtitle_track_id()
-        self._episode_subtitle_overlay_enabled = (
-            external_track_id is not None and track.get("id") == external_track_id
-        )
-        if not self._episode_subtitle_overlay_enabled and self._main_window:
+        """Keep the app subtitle overlay off while VLC renders subtitle tracks."""
+        self._episode_subtitle_overlay_enabled = False
+        self._current_subtitle_display_text = ""
+        if self._main_window:
             self._main_window.player_view.clear_subtitle_text()
 
     @Slot()

@@ -224,21 +224,30 @@ class PlayerService(QObject):
             )
 
     def _activate_first_subtitle_track(self, warn_if_missing: bool = True) -> bool:
-        """Select the first available VLC subtitle track."""
+        """Select the preferred VLC subtitle track.
+
+        VLC exposes embedded subtitle tracks before externally loaded subtitle files.
+        Prefer the last selectable SPU track so app-discovered directory subtitles
+        become the default instead of an embedded track.
+        """
         if not self._player:
             return False
 
         try:
             descriptions = self._player.video_get_spu_description()
-            for track_id, track_name in descriptions or []:
-                if track_id == -1:
-                    continue
-                self._player.video_set_spu(track_id)
-                self._external_subtitle_track_id = track_id
+            selectable_tracks = [
+                (track_id, track_name)
+                for track_id, track_name in descriptions or []
+                if track_id != -1
+            ]
+            if selectable_tracks:
+                preferred_track_id, preferred_track_name = selectable_tracks[-1]
+                self._player.video_set_spu(preferred_track_id)
+                self._external_subtitle_track_id = preferred_track_id
                 logger.info(
                     "Activated subtitle track: id=%s, name=%s",
-                    track_id,
-                    track_name,
+                    preferred_track_id,
+                    preferred_track_name,
                 )
                 return True
             if warn_if_missing:

@@ -8,8 +8,8 @@ import logging
 import json
 import os
 import pickle
+import queue
 import re
-import select
 import subprocess
 import sys
 import threading
@@ -19,7 +19,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, QThread, QTimer, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from src.config import (
     DownloadState,
@@ -67,8 +67,16 @@ class DownloadContext:
     id: int
 
 
-class TorrentService(QThread):
-    """Background worker for torrent downloads.
+@dataclass
+class _WorkerQueueItem:
+    """Queue item produced by process reader threads."""
+
+    kind: str
+    payload: dict[str, Any] | str
+
+
+class TorrentService(QObject):
+    """Torrent download coordinator.
 
     Manages a persistent libtorrent session with DHT, handles magnet links,
     tracks download progress, and saves/loads session state for resume.
@@ -134,7 +142,65 @@ class TorrentService(QThread):
         self._pending_commands: list[dict[str, Any]] = []
         self._last_worker_progress_log: dict[int, tuple[float, str, int, int]] = {}
         self._last_worker_progress_emit: dict[int, tuple[float, int, str, bool]] = {}
+        self._worker_events: queue.Queue[_WorkerQueueItem] = queue.Queue()
+        self._worker_ready = False
+        self._worker_stdout_thread: threading.Thread | None = None
         self._stderr_thread: threading.Thread | None = None
+        self._embedded_thread: threading.Thread | None = None
+        self._running = False
+
+    def start(self) -> None:
+        """Start the torrent service."""
+        if self._running:
+            return
+
+        self._should_stop = False
+        self._ready_event.clear()
+        self._running = True
+
+        if self._use_process_backend:
+            self._start_process_backend()
+            return
+
+        self._embedded_thread = threading.Thread(
+            target=self.run,
+            name="TorrentServiceEmbedded",
+            daemon=True,
+        )
+        self._embedded_thread.start()
+
+    def isRunning(self) -> bool:
+        """Return whether the service lifecycle is active."""
+        return self._running
+
+    def wait(self, timeout_ms: int | None = None) -> bool:
+        """Wait for the service to stop.
+
+        Args:
+            timeout_ms: Optional maximum wait in milliseconds.
+
+        Returns:
+            True when the service stopped before the timeout.
+        """
+        timeout = None if timeout_ms is None else timeout_ms / 1000
+        deadline = None if timeout is None else time.monotonic() + timeout
+
+        if self._use_process_backend:
+            self._wait_for_worker_process(deadline)
+            for thread in (self._worker_stdout_thread, self._stderr_thread):
+                if thread is None:
+                    continue
+                remaining = self._remaining_timeout(deadline)
+                thread.join(remaining)
+            self._mark_process_stopped()
+            return not self._running
+
+        if self._embedded_thread is not None:
+            self._embedded_thread.join(timeout)
+            if self._embedded_thread.is_alive():
+                return False
+        self._running = False
+        return True
 
     def stop(self) -> None:
         """Request the service to stop gracefully and save state."""
@@ -143,6 +209,12 @@ class TorrentService(QThread):
             self._poll_timer.stop()
         if self._use_process_backend:
             self._send_worker_command({"command": "stop"})
+            process = self._worker_process
+            if process and process.stdin:
+                try:
+                    process.stdin.close()
+                except OSError as e:
+                    logger.debug("Failed to close torrent worker stdin: %s", e)
 
     def wait_until_ready(self, timeout_ms: int = 5000) -> bool:
         """Wait for the libtorrent session to be initialized.
@@ -161,7 +233,7 @@ class TorrentService(QThread):
         Initializes the libtorrent session, restores state, and begins polling.
         """
         if self._use_process_backend:
-            self._run_process_backend()
+            self._start_process_backend()
             return
 
         try:
@@ -174,7 +246,7 @@ class TorrentService(QThread):
             # Poll manually since QTimer doesn't work without event loop
             poll_counter = 0
             while not self._should_stop:
-                self.msleep(100)
+                time.sleep(0.1)
                 poll_counter += 1
                 # Poll every 1 second (10 * 100ms)
                 if poll_counter >= 10:
@@ -188,9 +260,11 @@ class TorrentService(QThread):
         except Exception as e:
             logger.error("TorrentService failed: %s", e)
             self._ready_event.set()
+        finally:
+            self._running = False
 
-    def _run_process_backend(self) -> None:
-        """Run the torrent backend in a separate Python process."""
+    def _start_process_backend(self) -> None:
+        """Start the torrent backend in a separate Python process."""
         try:
             self._ensure_directories()
             self._worker_process = subprocess.Popen(
@@ -202,62 +276,132 @@ class TorrentService(QThread):
                 text=True,
                 bufsize=1,
             )
+            self._worker_ready = False
+            self._worker_stdout_thread = threading.Thread(
+                target=self._drain_worker_stdout,
+                name="TorrentWorkerStdout",
+                daemon=True,
+            )
             self._stderr_thread = threading.Thread(
                 target=self._drain_worker_stderr,
                 name="TorrentWorkerStderr",
                 daemon=True,
             )
+            self._worker_stdout_thread.start()
             self._stderr_thread.start()
+            self._start_worker_event_drain()
             logger.info("Torrent worker process started")
-
-            while not self._should_stop and self._worker_process.poll() is None:
-                if self._worker_process.stdout is None:
-                    break
-                readable, _, _ = select.select(
-                    [self._worker_process.stdout], [], [], 0.5
-                )
-                if not readable:
-                    continue
-                line = self._worker_process.stdout.readline()
-                if not line:
-                    continue
-                self._handle_worker_line(line)
-
-            if self._worker_process.poll() is not None:
-                stderr = ""
-                if self._worker_process.stderr is not None:
-                    stderr = self._worker_process.stderr.read()
-                logger.error("Torrent worker exited: %s", stderr.strip())
         except Exception as e:
             logger.error("Torrent process backend failed: %s", e)
             self._ready_event.set()
-        finally:
-            process = self._worker_process
-            if process and process.poll() is None:
-                self._send_worker_command({"command": "stop"})
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
+            self._running = False
+
+    def _run_process_backend(self) -> None:
+        """Compatibility wrapper for older tests and callers."""
+        self._start_process_backend()
+
+    def _start_worker_event_drain(self) -> None:
+        """Start the GUI-thread timer that drains worker reader events."""
+        self._poll_timer = QTimer(self)
+        self._poll_timer.timeout.connect(self._drain_worker_events)
+        self._poll_timer.start(100)
 
     def _handle_worker_line(self, line: str) -> None:
-        """Parse and handle one worker stdout line."""
+        """Parse and enqueue one worker stdout line."""
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
-            logger.warning("Ignoring malformed torrent worker output: %r", line)
+            self._worker_events.put(_WorkerQueueItem("malformed", line))
             return
-        self._handle_worker_event(event)
+        if not isinstance(event, dict):
+            self._worker_events.put(_WorkerQueueItem("malformed", line))
+            return
+        if event.get("event") == "ready":
+            self._ready_event.set()
+        self._worker_events.put(_WorkerQueueItem("event", event))
+
+    def _drain_worker_stdout(self) -> None:
+        """Read worker stdout in a plain Python thread."""
+        process = self._worker_process
+        if process is None or process.stdout is None:
+            return
+
+        try:
+            for line in process.stdout:
+                self._handle_worker_line(line)
+        except OSError as e:
+            self._worker_events.put(_WorkerQueueItem("reader_error", str(e)))
 
     def _drain_worker_stderr(self) -> None:
-        """Continuously log worker stderr so the pipe cannot block the process."""
+        """Continuously read worker stderr so the pipe cannot block the process."""
         process = self._worker_process
         if process is None or process.stderr is None:
             return
 
-        for line in process.stderr:
-            logger.warning("Torrent worker stderr: %s", line.rstrip())
+        try:
+            for line in process.stderr:
+                self._worker_events.put(_WorkerQueueItem("stderr", line.rstrip()))
+        except OSError as e:
+            self._worker_events.put(_WorkerQueueItem("reader_error", str(e)))
+
+    def _drain_worker_events(self) -> None:
+        """Drain process worker events on the Qt-owned service thread."""
+        while True:
+            try:
+                item = self._worker_events.get_nowait()
+            except queue.Empty:
+                break
+
+            if item.kind == "event":
+                if isinstance(item.payload, dict):
+                    self._handle_worker_event(item.payload)
+            elif item.kind == "stderr":
+                logger.warning("Torrent worker stderr: %s", item.payload)
+            elif item.kind == "reader_error":
+                logger.error("Torrent worker reader failed: %s", item.payload)
+            elif item.kind == "malformed":
+                logger.warning(
+                    "Ignoring malformed torrent worker output: %r", item.payload
+                )
+
+        process = self._worker_process
+        if process is not None and process.poll() is not None:
+            logger.error("Torrent worker exited with code %s", process.returncode)
+            self._mark_process_stopped()
+
+    def _mark_process_stopped(self) -> None:
+        """Mark the process backend stopped and stop its GUI drain timer."""
+        if self._poll_timer:
+            self._poll_timer.stop()
+        self._worker_ready = False
+        self._running = False
+
+    def _wait_for_worker_process(self, deadline: float | None) -> None:
+        """Wait for the worker process, killing it if a bounded wait expires."""
+        process = self._worker_process
+        if process is None:
+            return
+        if process.poll() is not None:
+            return
+
+        remaining = self._remaining_timeout(deadline)
+        if remaining is None:
+            remaining = 5.0
+        try:
+            process.wait(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+
+    def _remaining_timeout(self, deadline: float | None) -> float | None:
+        """Return seconds remaining until deadline."""
+        if deadline is None:
+            return None
+        return max(0.0, deadline - time.monotonic())
 
     def _context_id(self, context: DownloadContext) -> int:
         """Return a process-safe context ID namespaced by download type."""
@@ -280,6 +424,7 @@ class TorrentService(QThread):
                 event.get("listen_interfaces", "unknown"),
             )
             self._ready_event.set()
+            self._worker_ready = True
             with self._worker_lock:
                 pending = list(self._pending_commands)
                 self._pending_commands.clear()
@@ -452,12 +597,15 @@ class TorrentService(QThread):
             if process is None or process.stdin is None or process.poll() is not None:
                 self._pending_commands.append(command)
                 return False
+            if not self._worker_ready and command.get("command") != "stop":
+                self._pending_commands.append(command)
+                return True
 
             try:
                 process.stdin.write(json.dumps(command) + "\n")
                 process.stdin.flush()
                 return True
-            except BrokenPipeError:
+            except (BrokenPipeError, OSError):
                 self._pending_commands.append(command)
                 return False
 
@@ -476,13 +624,13 @@ class TorrentService(QThread):
             "enable_upnp": True,
             "enable_natpmp": True,
             "alert_mask": (
-                lt.alert.category_t.error_notification  # type: ignore[attr-defined]
-                | lt.alert.category_t.status_notification  # type: ignore[attr-defined]
-                | lt.alert.category_t.storage_notification  # type: ignore[attr-defined]
+                lt.alert.category_t.error_notification
+                | lt.alert.category_t.status_notification
+                | lt.alert.category_t.storage_notification
             ),
         }
         with self._session_lock:
-            self._session = lt.session(settings)  # type: ignore[attr-defined]
+            self._session = lt.session(settings)
         logger.info("Libtorrent session initialized")
 
     def _load_session_state(self) -> None:
@@ -507,7 +655,7 @@ class TorrentService(QThread):
         try:
             with self._session_lock:
                 state_data = self._session.save_state()
-            state_file.write_bytes(lt.bencode(state_data))  # type: ignore[attr-defined]
+            state_file.write_bytes(lt.bencode(state_data))
             logger.info("Session state saved to %s", state_file)
         except Exception as e:
             logger.warning("Failed to save session state: %s", e)
@@ -526,7 +674,7 @@ class TorrentService(QThread):
                 if self._should_stop:
                     return
                 try:
-                    atp = lt.add_torrent_params()  # type: ignore[attr-defined]
+                    atp = lt.add_torrent_params()
                     atp.resume_data = data["resume_data"]
                     atp.save_path = data["save_path"]
                     context = DownloadContext(
@@ -559,8 +707,8 @@ class TorrentService(QThread):
                     continue
                 try:
                     handle.save_resume_data(
-                        lt.torrent_handle.save_info_dict  # type: ignore[attr-defined]
-                        | lt.torrent_handle.only_if_modified  # type: ignore[attr-defined]
+                        lt.torrent_handle.save_info_dict
+                        | lt.torrent_handle.only_if_modified
                     )
                 except Exception as e:
                     logger.warning(
@@ -573,14 +721,14 @@ class TorrentService(QThread):
             self._session.wait_for_alert(1000)  # Wait up to 1 second
             alerts = self._session.pop_alerts()
             for alert in alerts:
-                if isinstance(alert, lt.save_resume_data_alert):  # type: ignore[attr-defined]
+                if isinstance(alert, lt.save_resume_data_alert):
                     info_hash = str(alert.handle.info_hash())
                     context_id = self._handle_to_context.get(info_hash)
                     if context_id is not None:
                         context = self._contexts.get(context_id)
                         if context:
                             resume_data[context_id] = {
-                                "resume_data": lt.write_resume_data_buf(alert),  # type: ignore[attr-defined]
+                                "resume_data": lt.write_resume_data_buf(alert),
                                 "save_path": alert.handle.status().save_path,
                                 "download_type": context.download_type.value,
                                 "context_db_id": context.id,
@@ -633,14 +781,14 @@ class TorrentService(QThread):
                     status.num_seeds,
                 )
 
-                if status.state == lt.torrent_status.states.seeding:  # type: ignore[attr-defined]
+                if status.state == lt.torrent_status.states.seeding:
                     # Download complete
                     self._on_download_complete(context_id, handle)
                 elif status.state in (
-                    lt.torrent_status.states.downloading,  # type: ignore[attr-defined]
-                    lt.torrent_status.states.downloading_metadata,  # type: ignore[attr-defined]
-                    lt.torrent_status.states.checking_files,  # type: ignore[attr-defined]
-                    lt.torrent_status.states.checking_resume_data,  # type: ignore[attr-defined]
+                    lt.torrent_status.states.downloading,
+                    lt.torrent_status.states.downloading_metadata,
+                    lt.torrent_status.states.checking_files,
+                    lt.torrent_status.states.checking_resume_data,
                 ):
                     # Emit progress for all active download states
                     self.download_progress.emit(
@@ -656,7 +804,7 @@ class TorrentService(QThread):
         Args:
             alert: The alert to process.
         """
-        if isinstance(alert, lt.torrent_error_alert):  # type: ignore[attr-defined]
+        if isinstance(alert, lt.torrent_error_alert):
             context_id = self._get_context_id_from_handle(alert.handle)
             if context_id is not None:
                 context = self._contexts.get(context_id)
@@ -963,7 +1111,7 @@ class TorrentService(QThread):
             return False
 
         try:
-            atp = lt.parse_magnet_uri(magnet_link)  # type: ignore[attr-defined]
+            atp = lt.parse_magnet_uri(magnet_link)
             atp.save_path = str(self._download_dir)
 
             with self._session_lock:

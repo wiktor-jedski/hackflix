@@ -2120,7 +2120,7 @@ class TestAppControllerPlayerMethods:
             "/path/to/video.mp4", "/path/to/video.srt"
         )
 
-    def test_episode_subtitle_overlay_renders_active_cue(
+    def test_episode_subtitle_overlay_stays_disabled_for_vlc_subtitles(
         self,
         controller: AppController,
         mock_main_window: MagicMock,
@@ -2128,7 +2128,7 @@ class TestAppControllerPlayerMethods:
         db_manager: DatabaseManager,
         tmp_path: Path,
     ) -> None:
-        """Test series episodes render selected SRT text through the overlay."""
+        """Test series episodes leave subtitle rendering to VLC."""
         video_file = tmp_path / "episode.mkv"
         subtitle_file = tmp_path / "episode.en.srt"
         video_file.touch()
@@ -2169,14 +2169,16 @@ class TestAppControllerPlayerMethods:
         controller._player_service = mock_player_service
         controller.play_media(episode["id"])
 
-        assert controller._episode_subtitle_overlay_enabled is True
+        assert controller._episode_subtitle_overlay_enabled is False
+        assert controller._current_subtitle_lines == []
+        mock_player_service.load_video.assert_called_once_with(
+            str(video_file), str(subtitle_file)
+        )
         mock_main_window.player_view.reset_mock()
 
         controller._on_time_changed(6000, 120000)
 
-        mock_main_window.player_view.set_subtitle_text.assert_called_once_with(
-            "Hello episode"
-        )
+        mock_main_window.player_view.set_subtitle_text.assert_not_called()
 
     def test_episode_subtitle_overlay_clears_after_cue(
         self,

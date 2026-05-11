@@ -2985,3 +2985,202 @@ class TestDownloadStatePersistence:
 
         service._session.add_torrent.assert_not_called()
         assert len(service._handles) == 0
+
+
+class TestTorrentServiceProcessBackendLifecycle:
+    """Tests for the process-backed torrent service lifecycle."""
+
+    def test_start_creates_worker_threads_and_gui_drain_timer(
+        self,
+        mock_libtorrent_module: mock.MagicMock,
+        db_manager: DatabaseManager,
+        tmp_path: Path,
+    ) -> None:
+        """Verify process backend start launches the worker and GUI timer."""
+        from src.services.torrent_service import TorrentService
+
+        service = TorrentService(
+            db_manager=db_manager,
+            state_dir=tmp_path / "torrents",
+            download_dir=tmp_path / "downloads",
+        )
+        service._use_process_backend = True
+        fake_process = mock.MagicMock()
+        fake_process.stdin = mock.MagicMock()
+        fake_process.stdout = mock.MagicMock()
+        fake_process.stderr = mock.MagicMock()
+        fake_process.poll.return_value = None
+
+        with (
+            mock.patch(
+                "src.services.torrent_service.subprocess.Popen",
+                return_value=fake_process,
+            ) as popen,
+            mock.patch("src.services.torrent_service.threading.Thread") as thread_cls,
+            mock.patch("src.services.torrent_service.QTimer") as timer_cls,
+        ):
+            stdout_thread = mock.MagicMock()
+            stderr_thread = mock.MagicMock()
+            thread_cls.side_effect = [stdout_thread, stderr_thread]
+            timer = mock.MagicMock()
+            timer_cls.return_value = timer
+
+            service.start()
+
+        popen.assert_called_once()
+        assert thread_cls.call_count == 2
+        stdout_thread.start.assert_called_once()
+        stderr_thread.start.assert_called_once()
+        timer.timeout.connect.assert_called_once_with(service._drain_worker_events)
+        timer.start.assert_called_once_with(100)
+        assert service.isRunning() is True
+
+    def test_worker_line_enqueues_without_emitting(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Verify reader-side parsing does not emit Qt signals directly."""
+        from src.services.torrent_service import TorrentService
+
+        service = TorrentService(db_manager=db_manager)
+        service._use_process_backend = True
+        progress_updates: list[tuple[int, int, float, float]] = []
+        service.download_progress.connect(
+            lambda context_id, progress, down, up: progress_updates.append(
+                (context_id, progress, down, up)
+            )
+        )
+
+        service._handle_worker_line(
+            (
+                '{"event":"progress","id":7,"progress":50,'
+                '"download_rate":10.0,"upload_rate":1.0}\n'
+            )
+        )
+
+        assert progress_updates == []
+        assert service._worker_events.qsize() == 1
+
+    def test_drain_worker_events_emits_progress_from_test_thread(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Verify queued progress emits only when the GUI drain runs."""
+        from src.services.torrent_service import TorrentService
+
+        service = TorrentService(db_manager=db_manager)
+        service._use_process_backend = True
+        progress_updates: list[tuple[int, int, float, float]] = []
+        service.download_progress.connect(
+            lambda context_id, progress, down, up: progress_updates.append(
+                (context_id, progress, down, up)
+            )
+        )
+
+        service._handle_worker_line(
+            (
+                '{"event":"progress","id":7,"progress":50,'
+                '"download_rate":10.0,"upload_rate":1.0}\n'
+            )
+        )
+        assert progress_updates == []
+
+        service._drain_worker_events()
+
+        assert progress_updates == [(7, 50, 10.0, 1.0)]
+
+    def test_malformed_worker_output_is_logged_by_gui_drain(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Verify malformed stdout is queued for the GUI drain to log."""
+        from src.services.torrent_service import TorrentService
+
+        service = TorrentService(db_manager=db_manager)
+        service._use_process_backend = True
+
+        with mock.patch("src.services.torrent_service.logger") as logger:
+            service._handle_worker_line("not json\n")
+            service._drain_worker_events()
+
+        logger.warning.assert_called_once()
+
+    def test_ready_event_sets_readiness_and_flushes_pending_commands(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Verify ready can unblock waiters before the GUI drain flushes commands."""
+        from src.services.torrent_service import TorrentService
+
+        service = TorrentService(db_manager=db_manager)
+        service._use_process_backend = True
+        fake_process = mock.MagicMock()
+        fake_process.stdin = mock.MagicMock()
+        fake_process.poll.return_value = None
+        service._worker_process = fake_process
+        service._pending_commands = [{"command": "add", "id": 7}]
+
+        service._handle_worker_line('{"event":"ready"}\n')
+
+        assert service.wait_until_ready(timeout_ms=0) is True
+        fake_process.stdin.write.assert_not_called()
+
+        service._drain_worker_events()
+
+        assert service._worker_ready is True
+        fake_process.stdin.write.assert_called_once_with('{"command": "add", "id": 7}\n')
+        fake_process.stdin.flush.assert_called_once()
+        assert service._pending_commands == []
+
+    def test_stop_and_wait_clean_up_process_backend(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Verify stop and wait stop timer, process, and reader threads."""
+        from src.services.torrent_service import TorrentService
+
+        service = TorrentService(db_manager=db_manager)
+        service._use_process_backend = True
+        service._running = True
+        service._worker_ready = True
+        timer = mock.MagicMock()
+        service._poll_timer = timer
+        fake_process = mock.MagicMock()
+        fake_process.stdin = mock.MagicMock()
+        fake_process.poll.return_value = None
+        service._worker_process = fake_process
+        stdout_thread = mock.MagicMock()
+        stderr_thread = mock.MagicMock()
+        service._worker_stdout_thread = stdout_thread
+        service._stderr_thread = stderr_thread
+
+        service.stop()
+        stopped = service.wait(timeout_ms=1000)
+
+        assert stopped is True
+        timer.stop.assert_called()
+        fake_process.stdin.write.assert_called_once_with('{"command": "stop"}\n')
+        fake_process.stdin.flush.assert_called_once()
+        fake_process.stdin.close.assert_called_once()
+        fake_process.terminate.assert_not_called()
+        fake_process.wait.assert_called_once()
+        stdout_thread.join.assert_called_once()
+        stderr_thread.join.assert_called_once()
+        assert service.isRunning() is False
+
+    def test_wait_terminates_worker_after_timeout(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Verify wait terminates a worker that ignores graceful shutdown."""
+        from subprocess import TimeoutExpired
+
+        from src.services.torrent_service import TorrentService
+
+        service = TorrentService(db_manager=db_manager)
+        service._use_process_backend = True
+        service._running = True
+        fake_process = mock.MagicMock()
+        fake_process.poll.return_value = None
+        fake_process.wait.side_effect = [TimeoutExpired("worker", 0.01), None]
+        service._worker_process = fake_process
+
+        stopped = service.wait(timeout_ms=10)
+
+        assert stopped is True
+        fake_process.terminate.assert_called_once()
+        assert fake_process.wait.call_count == 2
