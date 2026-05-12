@@ -171,6 +171,20 @@ class LibraryRootHandler(StateHandler):
             self._controller.refresh_library()
             return True
 
+        if action == Action.NAVIGATE_RIGHT:
+            library_view = self._controller.main_window.library_view
+            if library_view.get_current_tab() == MediaTab.MOVIES:
+                library_view.set_tab(MediaTab.SERIES)
+                self._controller.refresh_library()
+            return True
+
+        if action == Action.NAVIGATE_LEFT:
+            library_view = self._controller.main_window.library_view
+            if library_view.get_current_tab() == MediaTab.SERIES:
+                library_view.set_tab(MediaTab.MOVIES)
+                self._controller.refresh_library()
+            return True
+
         if action == Action.CONFIRM:
             self._controller.activate_selected()
             return True
@@ -343,6 +357,10 @@ class PlayerActiveHandler(StateHandler):
 
         if action == Action.NAVIGATE_LEFT or action == Action.SEEK_BACKWARD:
             self._controller.player_seek_backward()
+            return True
+
+        if action == Action.REWIND_TO_START:
+            self._controller.player_rewind_to_start()
             return True
 
         # Volume controls (arrows in player mode)
@@ -1896,7 +1914,9 @@ class AppController(QObject):
 
         self._player_service.toggle_pause()
         is_paused = not self._player_service.is_playing()
-        self._main_window.player_view.show_pause_indicator(is_paused)
+        self._main_window.player_view.show_pause_indicator(
+            is_paused, self._playback_time_text()
+        )
 
     def player_seek_forward(self) -> None:
         """Seek forward in playback."""
@@ -1904,7 +1924,9 @@ class AppController(QObject):
             return
 
         self._player_service.seek_forward()
-        self._main_window.player_view.show_seek_indicator(forward=True)
+        self._main_window.player_view.show_seek_indicator(
+            forward=True, time_text=self._playback_time_text()
+        )
 
     def player_seek_backward(self) -> None:
         """Seek backward in playback."""
@@ -1912,7 +1934,41 @@ class AppController(QObject):
             return
 
         self._player_service.seek_backward()
-        self._main_window.player_view.show_seek_indicator(forward=False)
+        self._main_window.player_view.show_seek_indicator(
+            forward=False, time_text=self._playback_time_text()
+        )
+
+    def player_rewind_to_start(self) -> None:
+        """Seek playback to the beginning."""
+        if not self._player_service or not self._main_window:
+            return
+
+        self._player_service.rewind_to_start()
+        self._main_window.player_view.show_seek_indicator(
+            forward=False, time_text=self._playback_time_text()
+        )
+
+    def _playback_time_text(self) -> str:
+        """Return current and total playback time for the OSD."""
+        if not self._player_service:
+            return "0:00 / 0:00"
+
+        current_seconds = self._player_service.get_position_seconds()
+        total_seconds = self._player_service.get_duration_seconds()
+        return (
+            f"{self._format_playback_time(current_seconds)} / "
+            f"{self._format_playback_time(total_seconds)}"
+        )
+
+    def _format_playback_time(self, seconds: int) -> str:
+        """Format playback seconds as M:SS or H:MM:SS."""
+        safe_seconds = max(0, seconds)
+        hours = safe_seconds // 3600
+        minutes = (safe_seconds % 3600) // 60
+        remaining_seconds = safe_seconds % 60
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{remaining_seconds:02d}"
+        return f"{minutes}:{remaining_seconds:02d}"
 
     def player_volume_up(self) -> None:
         """Increase playback volume."""

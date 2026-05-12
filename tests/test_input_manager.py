@@ -84,10 +84,12 @@ class TestInputManager:
         space_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier)
         m_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_M, Qt.KeyboardModifier.NoModifier)
         l_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_L, Qt.KeyboardModifier.NoModifier)
+        one_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_1, Qt.KeyboardModifier.NoModifier)
 
         assert input_manager._map_key_to_action(space_event) == Action.TOGGLE_PAUSE
         assert input_manager._map_key_to_action(m_event) == Action.TOGGLE_MUTE
         assert input_manager._map_key_to_action(l_event) == Action.CYCLE_AUDIO
+        assert input_manager._map_key_to_action(one_event) == Action.REWIND_TO_START
         v_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_V, Qt.KeyboardModifier.NoModifier)
         assert input_manager._map_key_to_action(v_event) == Action.CYCLE_SUBTITLE
 

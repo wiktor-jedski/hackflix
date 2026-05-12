@@ -116,6 +116,17 @@ okładki</translation>
     </message>
 </context>
 <context>
+    <name>HelpOverlay</name>
+    <message>
+        <source>Help</source>
+        <translation>Pomoc</translation>
+    </message>
+    <message>
+        <source>Press Esc to close</source>
+        <translation>Naciśnij Esc, aby zamknąć</translation>
+    </message>
+</context>
+<context>
     <name>ConfirmDialog</name>
     <message>
         <source>Press Enter to confirm, Esc to cancel</source>

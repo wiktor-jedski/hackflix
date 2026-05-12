@@ -41,6 +41,7 @@ class Action(Enum):
     TOGGLE_PAUSE = auto()  # Space/Enter in player
     SEEK_FORWARD = auto()  # Right arrow in player
     SEEK_BACKWARD = auto()  # Left arrow in player
+    REWIND_TO_START = auto()  # 1 key in player
     VOLUME_UP = auto()  # Up arrow in player
     VOLUME_DOWN = auto()  # Down arrow in player
     TOGGLE_MUTE = auto()  # M key in player

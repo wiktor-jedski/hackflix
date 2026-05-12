@@ -202,7 +202,8 @@ class PlayerService(QObject):
             return
 
         subtitle_uri = subtitle_file.resolve().as_uri()
-        self._player.add_slave(vlc.MediaSlaveType.subtitle, subtitle_uri, True)
+        subtitle_slave_type = getattr(vlc.MediaSlaveType, "subtitle")
+        self._player.add_slave(subtitle_slave_type, subtitle_uri, True)
         logger.info("Added subtitle slave: %s", subtitle_uri)
 
     def _activate_first_subtitle_track(self, warn_if_missing: bool = True) -> bool:
@@ -397,6 +398,10 @@ class PlayerService(QObject):
         """Seek backward by configured seconds."""
         self.seek(-self._seek_seconds * 1000)
 
+    def rewind_to_start(self) -> None:
+        """Seek to the start of playback."""
+        self.set_position_seconds(0)
+
     def get_position_seconds(self) -> int:
         """Get current playback position in seconds.
 
@@ -408,6 +413,18 @@ class PlayerService(QObject):
 
         time_ms = self._player.get_time()
         return max(0, time_ms // 1000) if time_ms >= 0 else 0
+
+    def get_duration_seconds(self) -> int:
+        """Get total playback duration in seconds.
+
+        Returns:
+            Total duration in seconds, or 0 if unavailable.
+        """
+        if not self._player:
+            return 0
+
+        length_ms = self._player.get_length()
+        return max(0, length_ms // 1000) if length_ms >= 0 else 0
 
     def set_position_seconds(self, seconds: int) -> None:
         """Set playback position in seconds.

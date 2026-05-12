@@ -126,8 +126,8 @@ class TestCreateTranslationSource:
         source = create_translation_source()
         help_strings = source.get("HelpOverlay", {})
 
-        assert "Help" in help_strings
-        assert "Press Esc to close" in help_strings
+        assert help_strings["Help"] == "Pomoc"
+        assert help_strings["Press Esc to close"] == "Naciśnij Esc, aby zamknąć"
 
     def test_library_item_delegate_strings(self) -> None:
         """Test LibraryItemDelegate translation strings exist."""

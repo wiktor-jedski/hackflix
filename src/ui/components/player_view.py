@@ -60,9 +60,13 @@ class OSDWidget(QFrame):
             }
         """)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(scaled(24), scaled(16), scaled(24), scaled(16))
-        layout.setSpacing(scaled(32))
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(scaled(24), scaled(12), scaled(24), scaled(12))
+        layout.setSpacing(scaled(6))
+
+        icon_layout = QHBoxLayout()
+        icon_layout.setContentsMargins(0, 0, 0, 0)
+        icon_layout.setSpacing(scaled(32))
 
         # Create icon labels
         self._pause_icon = self._create_icon_label("pause_icon")
@@ -70,20 +74,34 @@ class OSDWidget(QFrame):
         self._volume_icon = self._create_icon_label("volume_icon")
         self._audio_track_icon = self._create_icon_label("audio_track_icon")
 
-        layout.addStretch()
-        layout.addWidget(self._pause_icon)
-        layout.addWidget(self._seek_icon)
-        layout.addWidget(self._volume_icon)
-        layout.addWidget(self._audio_track_icon)
-        layout.addStretch()
+        icon_layout.addStretch()
+        icon_layout.addWidget(self._pause_icon)
+        icon_layout.addWidget(self._seek_icon)
+        icon_layout.addWidget(self._volume_icon)
+        icon_layout.addWidget(self._audio_track_icon)
+        icon_layout.addStretch()
+        layout.addLayout(icon_layout)
+
+        self._time_label = QLabel()
+        self._time_label.setObjectName("time_label")
+        self._time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._time_label.setStyleSheet(f"""
+            QLabel {{
+                color: {TEXT_SECONDARY};
+                font-size: {FONT_SIZE_BODY}px;
+                min-height: {scaled(22)}px;
+            }}
+        """)
+        layout.addWidget(self._time_label)
 
         # Initially hide all icons
         self._pause_icon.hide()
         self._seek_icon.hide()
         self._volume_icon.hide()
         self._audio_track_icon.hide()
+        self._time_label.hide()
 
-        self.setFixedHeight(scaled(80))
+        self.setFixedHeight(scaled(104))
         self.hide()
 
     def _create_icon_label(self, name: str) -> QLabel:
@@ -130,27 +148,41 @@ class OSDWidget(QFrame):
         self._seek_icon.hide()
         self._volume_icon.hide()
         self._audio_track_icon.hide()
+        self._time_label.hide()
 
-    def show_pause(self, is_paused: bool) -> None:
+    def _set_time_text(self, time_text: str | None) -> None:
+        """Set or hide the playback time text."""
+        if time_text:
+            self._time_label.setText(time_text)
+            self._time_label.show()
+        else:
+            self._time_label.clear()
+            self._time_label.hide()
+
+    def show_pause(self, is_paused: bool, time_text: str | None = None) -> None:
         """Show pause/play indicator.
 
         Args:
             is_paused: True to show pause icon, False for play.
+            time_text: Optional playback time to show under the icon.
         """
         self._hide_all_icons()
         self._pause_icon.setText("⏸" if is_paused else "▶")
         self._pause_icon.show()
+        self._set_time_text(time_text)
         self._show_osd()
 
-    def show_seek(self, forward: bool) -> None:
+    def show_seek(self, forward: bool, time_text: str | None = None) -> None:
         """Show seek indicator.
 
         Args:
             forward: True for forward seek, False for backward.
+            time_text: Optional playback time to show under the icon.
         """
         self._hide_all_icons()
         self._seek_icon.setText("⏩" if forward else "⏪")
         self._seek_icon.show()
+        self._set_time_text(time_text)
         self._show_osd()
 
     def show_volume(self, level: int, is_muted: bool) -> None:
@@ -445,22 +477,26 @@ class PlayerView(QFrame):
         """
         return int(self._video_frame.winId())
 
-    def show_pause_indicator(self, is_paused: bool) -> None:
+    def show_pause_indicator(
+        self, is_paused: bool, time_text: str | None = None
+    ) -> None:
         """Show the pause/play OSD indicator.
 
         Args:
             is_paused: True to show paused state, False for playing.
+            time_text: Optional playback time to show under the icon.
         """
-        self._osd.show_pause(is_paused)
+        self._osd.show_pause(is_paused, time_text)
         self._reset_osd_timer()
 
-    def show_seek_indicator(self, forward: bool) -> None:
+    def show_seek_indicator(self, forward: bool, time_text: str | None = None) -> None:
         """Show the seek OSD indicator.
 
         Args:
             forward: True for forward seek, False for backward.
+            time_text: Optional playback time to show under the icon.
         """
-        self._osd.show_seek(forward)
+        self._osd.show_seek(forward, time_text)
         self._reset_osd_timer()
 
     def show_volume_indicator(self, level: int, is_muted: bool) -> None:

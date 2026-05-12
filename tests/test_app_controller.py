@@ -377,6 +377,58 @@ class TestLibraryRootHandler:
         controller.main_window.library_view.switch_tab.assert_called_once()
         controller.refresh_library.assert_called_once()
 
+    def test_navigate_right_switches_movies_to_series(
+        self, handler: LibraryRootHandler, controller: MagicMock
+    ) -> None:
+        """Test right action switches from Movies to Series."""
+        controller.main_window.library_view.get_current_tab.return_value = MediaTab.MOVIES
+
+        result = handler.handle_action(Action.NAVIGATE_RIGHT, {})
+
+        assert result is True
+        controller.main_window.library_view.set_tab.assert_called_once_with(
+            MediaTab.SERIES
+        )
+        controller.refresh_library.assert_called_once()
+
+    def test_navigate_right_ignores_series(
+        self, handler: LibraryRootHandler, controller: MagicMock
+    ) -> None:
+        """Test right action does not change tab from Series."""
+        controller.main_window.library_view.get_current_tab.return_value = MediaTab.SERIES
+
+        result = handler.handle_action(Action.NAVIGATE_RIGHT, {})
+
+        assert result is True
+        controller.main_window.library_view.set_tab.assert_not_called()
+        controller.refresh_library.assert_not_called()
+
+    def test_navigate_left_switches_series_to_movies(
+        self, handler: LibraryRootHandler, controller: MagicMock
+    ) -> None:
+        """Test left action switches from Series to Movies."""
+        controller.main_window.library_view.get_current_tab.return_value = MediaTab.SERIES
+
+        result = handler.handle_action(Action.NAVIGATE_LEFT, {})
+
+        assert result is True
+        controller.main_window.library_view.set_tab.assert_called_once_with(
+            MediaTab.MOVIES
+        )
+        controller.refresh_library.assert_called_once()
+
+    def test_navigate_left_ignores_movies(
+        self, handler: LibraryRootHandler, controller: MagicMock
+    ) -> None:
+        """Test left action does not change tab from Movies."""
+        controller.main_window.library_view.get_current_tab.return_value = MediaTab.MOVIES
+
+        result = handler.handle_action(Action.NAVIGATE_LEFT, {})
+
+        assert result is True
+        controller.main_window.library_view.set_tab.assert_not_called()
+        controller.refresh_library.assert_not_called()
+
     def test_confirm(self, handler: LibraryRootHandler, controller: MagicMock) -> None:
         """Test confirm action."""
         result = handler.handle_action(Action.CONFIRM, {})
@@ -622,6 +674,14 @@ class TestPlayerActiveHandler:
         result = handler.handle_action(Action.NAVIGATE_LEFT, {})
         assert result is True
         controller.player_seek_backward.assert_called_once()
+
+    def test_rewind_to_start(
+        self, handler: PlayerActiveHandler, controller: MagicMock
+    ) -> None:
+        """Test rewind to start action."""
+        result = handler.handle_action(Action.REWIND_TO_START, {})
+        assert result is True
+        controller.player_rewind_to_start.assert_called_once()
 
     def test_volume_up(
         self, handler: PlayerActiveHandler, controller: MagicMock
@@ -2519,11 +2579,15 @@ class TestAppControllerPlayerMethods:
         controller._main_window = mock_main_window
         controller._player_service = mock_player_service
         mock_player_service.is_playing.return_value = False  # After toggle, paused
+        mock_player_service.get_position_seconds.return_value = 0
+        mock_player_service.get_duration_seconds.return_value = 0
 
         controller.player_toggle_pause()
 
         mock_player_service.toggle_pause.assert_called_once()
-        mock_main_window.player_view.show_pause_indicator.assert_called_once_with(True)
+        mock_main_window.player_view.show_pause_indicator.assert_called_once_with(
+            True, "0:00 / 0:00"
+        )
 
     def test_player_seek_forward_no_services(self, controller: AppController) -> None:
         """Test player_seek_forward returns early without services."""
@@ -2539,12 +2603,14 @@ class TestAppControllerPlayerMethods:
         """Test player_seek_forward seeks and shows indicator."""
         controller._main_window = mock_main_window
         controller._player_service = mock_player_service
+        mock_player_service.get_position_seconds.return_value = 0
+        mock_player_service.get_duration_seconds.return_value = 0
 
         controller.player_seek_forward()
 
         mock_player_service.seek_forward.assert_called_once()
         mock_main_window.player_view.show_seek_indicator.assert_called_once_with(
-            forward=True
+            forward=True, time_text="0:00 / 0:00"
         )
 
     def test_player_seek_backward_no_services(self, controller: AppController) -> None:
@@ -2561,13 +2627,63 @@ class TestAppControllerPlayerMethods:
         """Test player_seek_backward seeks and shows indicator."""
         controller._main_window = mock_main_window
         controller._player_service = mock_player_service
+        mock_player_service.get_position_seconds.return_value = 0
+        mock_player_service.get_duration_seconds.return_value = 0
 
         controller.player_seek_backward()
 
         mock_player_service.seek_backward.assert_called_once()
         mock_main_window.player_view.show_seek_indicator.assert_called_once_with(
-            forward=False
+            forward=False, time_text="0:00 / 0:00"
         )
+
+    def test_player_rewind_to_start_no_services(self, controller: AppController) -> None:
+        """Test player_rewind_to_start returns early without services."""
+        controller.player_rewind_to_start()
+        # Should not raise
+
+    def test_player_rewind_to_start_success(
+        self,
+        controller: AppController,
+        mock_main_window: MagicMock,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test player_rewind_to_start seeks to start and shows indicator."""
+        controller._main_window = mock_main_window
+        controller._player_service = mock_player_service
+        mock_player_service.get_position_seconds.return_value = 0
+        mock_player_service.get_duration_seconds.return_value = 0
+
+        controller.player_rewind_to_start()
+
+        mock_player_service.rewind_to_start.assert_called_once()
+        mock_main_window.player_view.show_seek_indicator.assert_called_once_with(
+            forward=False, time_text="0:00 / 0:00"
+        )
+
+    def test_playback_time_text_formats_minutes(
+        self,
+        controller: AppController,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test _playback_time_text formats minute playback times."""
+        controller._player_service = mock_player_service
+        mock_player_service.get_position_seconds.return_value = 83
+        mock_player_service.get_duration_seconds.return_value = 296
+
+        assert controller._playback_time_text() == "1:23 / 4:56"
+
+    def test_playback_time_text_formats_hours(
+        self,
+        controller: AppController,
+        mock_player_service: MagicMock,
+    ) -> None:
+        """Test _playback_time_text formats hour playback times."""
+        controller._player_service = mock_player_service
+        mock_player_service.get_position_seconds.return_value = 3723
+        mock_player_service.get_duration_seconds.return_value = 7322
+
+        assert controller._playback_time_text() == "1:02:03 / 2:02:02"
 
     def test_player_volume_up_no_services(self, controller: AppController) -> None:
         """Test player_volume_up returns early without services."""

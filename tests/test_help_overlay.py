@@ -29,6 +29,8 @@ class TestHelpOverlay:
     def test_initialization(self, overlay: HelpOverlay) -> None:
         """Test HelpOverlay initialization."""
         assert overlay.objectName() == "HelpOverlay"
+        assert overlay._title_label.text() == "Pomoc"
+        assert overlay._hint_label.text() == "Naciśnij Esc, aby zamknąć"
         assert overlay._content_browser is not None
         assert overlay.isHidden()
 
@@ -37,6 +39,9 @@ class TestHelpOverlay:
         assert "Poruszanie sie po liscie" in HELP_CONTENT_HTML
         assert "Szukanie filmu na liscie" in HELP_CONTENT_HTML
         assert "Sterowanie odtwarzaczem" in HELP_CONTENT_HTML
+        assert "Przewin do poczatku" in HELP_CONTENT_HTML
+        assert "Przejscie z <b>Filmow</b> do <b>Seriali</b>" in HELP_CONTENT_HTML
+        assert "Przejscie z <b>Seriali</b> do <b>Filmow</b>" in HELP_CONTENT_HTML
 
     def test_show_help(self, overlay: HelpOverlay) -> None:
         """Test show_help displays and focuses overlay."""

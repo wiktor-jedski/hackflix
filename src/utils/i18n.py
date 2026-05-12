@@ -148,8 +148,8 @@ def create_translation_source() -> dict[str, dict[str, str]]:
             "Press Enter to search, Esc to cancel": "",
         },
         "HelpOverlay": {
-            "Help": "",
-            "Press Esc to close": "",
+            "Help": "Pomoc",
+            "Press Esc to close": "Naciśnij Esc, aby zamknąć",
         },
         "ConfirmDialog": {
             "Delete %s?": "",

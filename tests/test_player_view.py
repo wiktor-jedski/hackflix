@@ -35,6 +35,13 @@ class TestOSDWidget:
         assert osd.isVisible()
         assert osd._pause_icon.isVisible()
         assert osd._pause_icon.text() == "\u23f8"  # Pause emoji
+        assert not osd._time_label.isVisible()
+
+    def test_show_pause_with_time_text(self, osd: OSDWidget) -> None:
+        """Test show_pause displays playback time text."""
+        osd.show_pause(is_paused=True, time_text="1:23 / 4:56")
+        assert osd._time_label.isVisible()
+        assert osd._time_label.text() == "1:23 / 4:56"
 
     def test_show_pause_playing(self, osd: OSDWidget) -> None:
         """Test show_pause with playing state."""
@@ -45,10 +52,11 @@ class TestOSDWidget:
 
     def test_show_seek_forward(self, osd: OSDWidget) -> None:
         """Test show_seek with forward direction."""
-        osd.show_seek(forward=True)
+        osd.show_seek(forward=True, time_text="0:40 / 2:00")
         assert osd.isVisible()
         assert osd._seek_icon.isVisible()
         assert osd._seek_icon.text() == "\u23e9"  # Fast forward emoji
+        assert osd._time_label.text() == "0:40 / 2:00"
 
     def test_show_seek_backward(self, osd: OSDWidget) -> None:
         """Test show_seek with backward direction."""
@@ -93,13 +101,15 @@ class TestOSDWidget:
 
     def test_icons_mutually_exclusive(self, osd: OSDWidget) -> None:
         """Test that only one icon is shown at a time."""
-        osd.show_pause(True)
+        osd.show_pause(True, "1:00 / 2:00")
         assert osd._pause_icon.isVisible()
         assert not osd._seek_icon.isVisible()
+        assert osd._time_label.isVisible()
 
         osd.show_seek(True)
         assert not osd._pause_icon.isVisible()
         assert osd._seek_icon.isVisible()
+        assert not osd._time_label.isVisible()
 
         osd.show_volume(50, False)
         assert not osd._seek_icon.isVisible()

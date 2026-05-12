@@ -25,6 +25,8 @@ HELP_CONTENT_HTML = """
 <table>
 <tr><th>Klawisz</th><th>Dzialanie</th></tr>
 <tr><td>Strzalki gora / dol</td><td>Wybor pozycji na liscie</td></tr>
+<tr><td>Strzalka w prawo</td><td>Przejscie z <b>Filmow</b> do <b>Seriali</b></td></tr>
+<tr><td>Strzalka w lewo</td><td>Przejscie z <b>Seriali</b> do <b>Filmow</b></td></tr>
 <tr><td>Tab</td><td>Przelaczenie zakladki <b>Filmy / Seriale</b></td></tr>
 <tr><td>Enter</td><td>Wejscie do wybranej pozycji</td></tr>
 <tr><td>Esc</td><td>Powrot do poprzedniego widoku</td></tr>
@@ -69,6 +71,7 @@ inny film.</p>
 <table>
 <tr><th>Klawisz</th><th>Dzialanie</th></tr>
 <tr><td>Spacja</td><td>Pauza / wznowienie</td></tr>
+<tr><td>1</td><td>Przewin do poczatku</td></tr>
 <tr><td>Strzalka w prawo</td><td>Przewin do przodu</td></tr>
 <tr><td>Strzalka w lewo</td><td>Przewin do tylu</td></tr>
 <tr><td>Strzalka w gore</td><td>Glosniej</td></tr>
@@ -140,7 +143,7 @@ class HelpOverlay(QFrame):
         layout.setContentsMargins(scaled(28), scaled(24), scaled(28), scaled(20))
         layout.setSpacing(scaled(14))
 
-        self._title_label = QLabel(self.tr("Help"))
+        self._title_label = QLabel(self._tr_or_polish("Help", "Pomoc"))
         self._title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._title_label.setStyleSheet(f"""
             font-size: {FONT_SIZE_LARGE}px;
@@ -166,7 +169,9 @@ class HelpOverlay(QFrame):
         """)
         layout.addWidget(self._content_browser)
 
-        self._hint_label = QLabel(self.tr("Press Esc to close"))
+        self._hint_label = QLabel(
+            self._tr_or_polish("Press Esc to close", "Naciśnij Esc, aby zamknąć")
+        )
         self._hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._hint_label.setStyleSheet(f"""
             font-size: {FONT_SIZE_SMALL}px;
@@ -235,6 +240,13 @@ class HelpOverlay(QFrame):
         </style>
         {HELP_CONTENT_HTML}
         """
+
+    def _tr_or_polish(self, source: str, polish_fallback: str) -> str:
+        """Return a Qt translation, falling back to Polish for missing entries."""
+        translated = self.tr(source)
+        if translated == source:
+            return polish_fallback
+        return translated
 
     def eventFilter(
         self, watched: QObject | None, event: QEvent | None

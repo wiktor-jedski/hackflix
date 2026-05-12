@@ -50,6 +50,7 @@ class InputManager(QObject):
         Qt.Key.Key_M,
         Qt.Key.Key_L,
         Qt.Key.Key_V,
+        Qt.Key.Key_1,
     }
 
     # Keys that allow auto-repeat for fast scrolling
@@ -179,6 +180,8 @@ class InputManager(QObject):
             return Action.CYCLE_AUDIO
         if key == Qt.Key.Key_V:
             return Action.CYCLE_SUBTITLE
+        if key == Qt.Key.Key_1:
+            return Action.REWIND_TO_START
         return Action.NONE
 
     def _check_debounce(self, key: int) -> bool:

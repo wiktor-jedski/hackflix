@@ -382,6 +382,18 @@ class TestPlayerServicePlaybackControls:
         # Default is 10 seconds = 10000 ms
         mock_vlc_module._mock_player.set_time.assert_called_once_with(20000)
 
+    def test_rewind_to_start_method(
+        self,
+        mock_vlc_module: mock.MagicMock,
+        playing_service: Any,
+    ) -> None:
+        """Test rewind_to_start helper method."""
+        mock_vlc_module._mock_player.get_length.return_value = 120000
+
+        playing_service.rewind_to_start()
+
+        mock_vlc_module._mock_player.set_time.assert_called_once_with(0)
+
     def test_seek_when_get_time_returns_negative(
         self,
         mock_vlc_module: mock.MagicMock,
@@ -427,6 +439,40 @@ class TestPlayerServicePlaybackControls:
 
         service = PlayerService()
         assert service.get_position_seconds() == 0
+
+    def test_get_duration_seconds(
+        self,
+        mock_vlc_module: mock.MagicMock,
+        playing_service: Any,
+    ) -> None:
+        """Test get_duration_seconds returns media duration."""
+        mock_vlc_module._mock_player.get_length.return_value = 120000
+
+        duration = playing_service.get_duration_seconds()
+
+        assert duration == 120
+
+    def test_get_duration_seconds_negative_returns_zero(
+        self,
+        mock_vlc_module: mock.MagicMock,
+        playing_service: Any,
+    ) -> None:
+        """Test get_duration_seconds returns 0 when length is negative."""
+        mock_vlc_module._mock_player.get_length.return_value = -1
+
+        duration = playing_service.get_duration_seconds()
+
+        assert duration == 0
+
+    def test_get_duration_seconds_not_initialized(
+        self,
+        mock_vlc_module: mock.MagicMock,
+    ) -> None:
+        """Test get_duration_seconds returns 0 when not initialized."""
+        from src.services.player_service import PlayerService
+
+        service = PlayerService()
+        assert service.get_duration_seconds() == 0
 
     def test_set_position_seconds(
         self,
