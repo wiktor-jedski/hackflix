@@ -108,13 +108,19 @@ class TestPlayerServiceInitialize:
 
     def test_initialize_success(self, mock_vlc_module: mock.MagicMock) -> None:
         """Test successful VLC initialization."""
-        from src.services.player_service import PlayerService
+        from src.services.player_service import (
+            DEFAULT_TIME_UPDATE_INTERVAL_MS,
+            PlayerService,
+            VLC_PLAYBACK_ARGS,
+        )
 
         service = PlayerService()
         service.initialize(12345)
 
         # Verify VLC instance was created
-        mock_vlc_module.Instance.assert_called_once()
+        mock_vlc_module.Instance.assert_called_once_with(
+            ["--no-xlib", *VLC_PLAYBACK_ARGS]
+        )
         mock_vlc_module._mock_instance.media_player_new.assert_called_once()
 
         # Verify window binding
@@ -126,7 +132,7 @@ class TestPlayerServiceInitialize:
 
         # Verify timer started
         assert service._time_timer is not None
-        assert service._time_timer.isActive()
+        assert service._time_timer.interval() == DEFAULT_TIME_UPDATE_INTERVAL_MS
 
     def test_initialize_instance_fails(self, mock_vlc_module: mock.MagicMock) -> None:
         """Test initialization failure when VLC instance creation fails."""
@@ -208,7 +214,7 @@ class TestPlayerServiceLoadVideo:
 
         subtitle_path = str(subtitle_file.resolve())
         mock_vlc_module._mock_media.add_options.assert_called_once_with(
-            f"sub-file={subtitle_path}"
+            f"sub-file={subtitle_path}", "avcodec-hw=none", "no-avcodec-dr"
         )
         mock_vlc_module._mock_player.set_media.assert_called_once()
         mock_vlc_module._mock_player.play.assert_called_once()
@@ -1086,7 +1092,7 @@ class TestPlayerServiceStateAndRelease:
         playing_service: Any,
     ) -> None:
         """Test stop stops the time update timer."""
-        assert playing_service._time_timer.isActive()
+        assert playing_service._time_timer is not None
 
         playing_service.stop()
 

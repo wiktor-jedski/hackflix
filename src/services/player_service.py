@@ -18,6 +18,15 @@ DEFAULT_VOLUME_STEP = 5
 DEFAULT_SEEK_SECONDS = 10
 DEFAULT_TIME_UPDATE_INTERVAL_MS = 500
 SUBTITLE_EXTENSIONS = (".srt",)
+VLC_PLAYBACK_ARGS = [
+    "--spu",
+    "--text-renderer=freetype",
+    "--subsdec-encoding=UTF-8",
+    "--sub-margin=0",
+    "--vout=xcb_x11",
+    "--avcodec-hw=none",
+    "--no-avcodec-dr",
+]
 
 
 class PlayerService(QObject):
@@ -79,11 +88,11 @@ class PlayerService(QObject):
             vlc.VLCException: If VLC initialization fails.
         """
         try:
-            # VLC arguments for optimal Pi 5 performance
             vlc_args = [
                 "--no-xlib",  # Disable X11 for better performance
-                "--quiet",  # Reduce console output
+                *VLC_PLAYBACK_ARGS,
             ]
+            logger.info("Creating VLC instance with args: %s", vlc_args)
 
             self._instance = vlc.Instance(vlc_args)
             if not self._instance:
@@ -183,7 +192,9 @@ class PlayerService(QObject):
             return
 
         subtitle_path = str(subtitle_file.resolve())
-        self._current_media.add_options(f"sub-file={subtitle_path}")
+        self._current_media.add_options(
+            f"sub-file={subtitle_path}", "avcodec-hw=none", "no-avcodec-dr"
+        )
 
     def _add_subtitle_slave(self, subtitle_file: Path) -> None:
         """Add an external subtitle to an already active VLC player."""
