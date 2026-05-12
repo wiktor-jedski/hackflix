@@ -51,12 +51,14 @@ class TestInputManager:
         """Test mapping of action keys."""
         tab_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Tab, Qt.KeyboardModifier.NoModifier)
         s_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_S, Qt.KeyboardModifier.NoModifier)
+        h_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_H, Qt.KeyboardModifier.NoModifier)
         x_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_X, Qt.KeyboardModifier.NoModifier)
         d_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_D, Qt.KeyboardModifier.NoModifier)
         p_event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_P, Qt.KeyboardModifier.NoModifier)
 
         assert input_manager._map_key_to_action(tab_event) == Action.SWITCH_TAB
         assert input_manager._map_key_to_action(s_event) == Action.SEARCH
+        assert input_manager._map_key_to_action(h_event) == Action.HELP
         assert input_manager._map_key_to_action(x_event) == Action.CLEAR_FILTER
         assert input_manager._map_key_to_action(d_event) == Action.DELETE
         assert input_manager._map_key_to_action(p_event) == Action.SYNC
@@ -207,6 +209,7 @@ class TestInputManager:
         debounced = input_manager._DEBOUNCED_KEYS
         assert Qt.Key.Key_Tab in debounced
         assert Qt.Key.Key_S in debounced
+        assert Qt.Key.Key_H in debounced
         assert Qt.Key.Key_X in debounced
         assert Qt.Key.Key_D in debounced
         assert Qt.Key.Key_P in debounced

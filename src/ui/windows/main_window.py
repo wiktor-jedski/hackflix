@@ -14,6 +14,7 @@ from src.qt import QCloseEvent, QResizeEvent, QShowEvent
 from src.qt import QMainWindow, QVBoxLayout, QWidget, QApplication
 
 from src.ui.components.confirm_dialog import ConfirmDialog
+from src.ui.components.help_overlay import HelpOverlay
 from src.ui.components.library_view import LibraryView
 from src.ui.components.player_view import PlayerView
 from src.ui.components.search_overlay import SearchOverlay, SearchOverlayBackground
@@ -34,7 +35,7 @@ class MainWindow(QMainWindow):
     The main window contains:
     - LibraryView (center): The main content area
     - StatusBar (bottom): Connection, sync, and storage status
-    - Overlays: ToastNotification stack, SearchOverlay, ConfirmDialog
+    - Overlays: ToastNotification stack, SearchOverlay, HelpOverlay, ConfirmDialog
 
     The InputManager is installed as an event filter to handle
     keyboard navigation.
@@ -80,6 +81,11 @@ class MainWindow(QMainWindow):
         self._search_overlay = SearchOverlay(central)
         self._search_background.clicked.connect(self._on_search_cancelled)
 
+        # Help overlay (hidden by default)
+        self._help_background = SearchOverlayBackground(central)
+        self._help_overlay = HelpOverlay(central)
+        self._help_background.clicked.connect(self._on_help_closed)
+
         # Toast manager
         self._toast_manager = ToastManager(central)
 
@@ -121,6 +127,9 @@ class MainWindow(QMainWindow):
         # Connect search overlay signals
         self._search_overlay.search_committed.connect(controller.on_search_committed)
         self._search_overlay.search_cancelled.connect(controller.on_search_cancelled)
+
+        # Connect help overlay signals
+        self._help_overlay.help_closed.connect(controller.on_help_closed)
 
         logger.debug("Controller bound to MainWindow")
 
@@ -214,6 +223,28 @@ class MainWindow(QMainWindow):
 
         logger.debug("Search overlay hidden, InputManager restore scheduled")
 
+    def show_help(self) -> None:
+        """Show the help overlay."""
+        app = QApplication.instance()
+        if app:
+            app.removeEventFilter(self._input_manager)
+        self._library_view.removeEventFilter(self._input_manager)
+
+        self._help_background.show_fullscreen()
+        self._help_overlay.show_help()
+        self._help_overlay.raise_()
+
+        logger.debug("Help overlay shown and InputManager suspended")
+
+    def hide_help(self) -> None:
+        """Hide the help overlay."""
+        self._help_overlay.hide()
+        self._help_background.hide()
+
+        QTimer.singleShot(0, self._restore_input_manager)
+
+        logger.debug("Help overlay hidden, InputManager restore scheduled")
+
     def _restore_input_manager(self) -> None:
         """Restore the input manager after search overlay is hidden."""
         app = QApplication.instance()
@@ -227,6 +258,11 @@ class MainWindow(QMainWindow):
         """Handle search cancelled via background click."""
         self._search_overlay.search_cancelled.emit()
         self.hide_search()
+
+    def _on_help_closed(self) -> None:
+        """Handle help closed via background click."""
+        self._help_overlay.help_closed.emit()
+        self.hide_help()
 
     def show_confirm(self, title: str, message: str) -> bool:
         """Show a confirmation dialog.
@@ -316,9 +352,17 @@ class MainWindow(QMainWindow):
         if self._search_overlay.isVisible():
             self._search_overlay._center_in_parent()
 
+        # Reposition help overlay
+        if self._help_overlay.isVisible():
+            self._help_overlay._center_in_parent()
+
         # Resize search background
         if self._search_background.isVisible() and central:
             self._search_background.setGeometry(central.rect())
+
+        # Resize help background
+        if self._help_background.isVisible() and central:
+            self._help_background.setGeometry(central.rect())
 
     def showEvent(self, event: QShowEvent | None) -> None:  # type: ignore[invalid-method-override]
         """Handle window show event.

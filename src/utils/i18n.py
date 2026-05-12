@@ -147,6 +147,10 @@ def create_translation_source() -> dict[str, dict[str, str]]:
             "Type to search...": "",
             "Press Enter to search, Esc to cancel": "",
         },
+        "HelpOverlay": {
+            "Help": "",
+            "Press Esc to close": "",
+        },
         "ConfirmDialog": {
             "Delete %s?": "",
             "This will remove the file from disk but keep the catalog entry.": "",

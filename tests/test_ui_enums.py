@@ -19,6 +19,7 @@ class TestAction:
 
         # Library actions
         assert Action.SEARCH
+        assert Action.HELP
         assert Action.CLEAR_FILTER
         assert Action.DELETE
         assert Action.SYNC
@@ -58,6 +59,7 @@ class TestAppState:
         assert AppState.SERIES_DRILLDOWN_SEASONS
         assert AppState.SERIES_DRILLDOWN_EPISODES
         assert AppState.SEARCH_OVERLAY
+        assert AppState.HELP_OVERLAY
         assert AppState.DIALOG_CONFIRM
         assert AppState.PLAYER_ACTIVE
 

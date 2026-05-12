@@ -10,6 +10,7 @@ from src.controllers.app_controller import (
     AppController,
     DeleteWorker,
     DialogConfirmHandler,
+    HelpOverlayHandler,
     LibraryRootHandler,
     NavigationContext,
     PlayerActiveHandler,
@@ -388,6 +389,12 @@ class TestLibraryRootHandler:
         assert result is True
         controller.show_search.assert_called_once()
 
+    def test_help(self, handler: LibraryRootHandler, controller: MagicMock) -> None:
+        """Test help action."""
+        result = handler.handle_action(Action.HELP, {})
+        assert result is True
+        controller.show_help.assert_called_once()
+
     def test_clear_filter(
         self, handler: LibraryRootHandler, controller: MagicMock
     ) -> None:
@@ -441,6 +448,14 @@ class TestSeriesDrilldownSeasonsHandler:
         assert result is True
         controller.navigate_back.assert_called_once()
 
+    def test_help(
+        self, handler: SeriesDrilldownSeasonsHandler, controller: MagicMock
+    ) -> None:
+        """Test help action is available in season drilldown."""
+        result = handler.handle_action(Action.HELP, {})
+        assert result is True
+        controller.show_help.assert_called_once()
+
 
 class TestSeriesDrilldownEpisodesHandler:
     """Tests for SeriesDrilldownEpisodesHandler."""
@@ -463,6 +478,14 @@ class TestSeriesDrilldownEpisodesHandler:
         assert result is True
         controller.delete_selected.assert_called_once()
 
+    def test_help(
+        self, handler: SeriesDrilldownEpisodesHandler, controller: MagicMock
+    ) -> None:
+        """Test help action is available in episode drilldown."""
+        result = handler.handle_action(Action.HELP, {})
+        assert result is True
+        controller.show_help.assert_called_once()
+
 
 class TestSearchOverlayHandler:
     """Tests for SearchOverlayHandler."""
@@ -484,6 +507,44 @@ class TestSearchOverlayHandler:
         result = handler.handle_action(Action.CANCEL, {})
         assert result is True
         controller.hide_search.assert_called_once()
+
+    def test_help_not_handled(
+        self, handler: SearchOverlayHandler, controller: MagicMock
+    ) -> None:
+        """Test help cannot open while search overlay is active."""
+        result = handler.handle_action(Action.HELP, {})
+        assert result is False
+        controller.show_help.assert_not_called()
+
+
+class TestHelpOverlayHandler:
+    """Tests for HelpOverlayHandler."""
+
+    @pytest.fixture
+    def controller(self) -> MagicMock:
+        """Create a mock controller."""
+        return MagicMock()
+
+    @pytest.fixture
+    def handler(self, controller: MagicMock) -> HelpOverlayHandler:
+        """Create handler instance."""
+        return HelpOverlayHandler(controller)
+
+    def test_cancel_hides_help(
+        self, handler: HelpOverlayHandler, controller: MagicMock
+    ) -> None:
+        """Test cancel action hides help overlay."""
+        result = handler.handle_action(Action.CANCEL, {})
+        assert result is True
+        controller.hide_help.assert_called_once()
+
+    def test_search_not_handled(
+        self, handler: HelpOverlayHandler, controller: MagicMock
+    ) -> None:
+        """Test search cannot open while help overlay is active."""
+        result = handler.handle_action(Action.SEARCH, {})
+        assert result is False
+        controller.show_search.assert_not_called()
 
 
 class TestDialogConfirmHandler:
@@ -1316,6 +1377,47 @@ class TestAppControllerAdvanced:
         controller.hide_search()
         # Should not raise
 
+    def test_show_help(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test show_help."""
+        controller._main_window = mock_main_window
+        controller._current_state = AppState.SERIES_DRILLDOWN_SEASONS
+
+        controller.show_help()
+
+        assert controller.current_state == AppState.HELP_OVERLAY
+        mock_main_window.show_help.assert_called_once()
+
+    def test_show_help_without_window(self, controller: AppController) -> None:
+        """Test show_help without main window."""
+        controller.show_help()
+        # Should not raise
+
+    def test_hide_help_returns_to_previous_state(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test hide_help restores the state from navigation stack."""
+        controller._main_window = mock_main_window
+        controller._current_state = AppState.HELP_OVERLAY
+        ctx = NavigationContext(
+            state=AppState.SERIES_DRILLDOWN_EPISODES,
+            tab=MediaTab.SERIES,
+            series_id="series-1",
+            season_id=1,
+        )
+        controller._navigation_stack.append(ctx)
+
+        controller.hide_help()
+
+        mock_main_window.hide_help.assert_called_once()
+        assert controller.current_state == AppState.SERIES_DRILLDOWN_EPISODES
+
+    def test_hide_help_without_window(self, controller: AppController) -> None:
+        """Test hide_help without main window."""
+        controller.hide_help()
+        # Should not raise
+
     def test_clear_search_filter_no_filter(
         self, controller: AppController, mock_main_window: MagicMock
     ) -> None:
@@ -1600,6 +1702,21 @@ class TestAppControllerAdvanced:
         controller.on_search_cancelled()
 
         assert controller.search_filter is None
+
+    def test_on_help_closed(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test on_help_closed callback."""
+        controller._main_window = mock_main_window
+        controller._current_state = AppState.HELP_OVERLAY
+        controller._navigation_stack.append(
+            NavigationContext(state=AppState.LIBRARY_ROOT, tab=MediaTab.MOVIES)
+        )
+
+        controller.on_help_closed()
+
+        mock_main_window.hide_help.assert_called_once()
+        assert controller.current_state == AppState.LIBRARY_ROOT
 
     def test_quit_application(
         self, controller: AppController, mock_main_window: MagicMock

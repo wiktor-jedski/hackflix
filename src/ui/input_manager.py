@@ -25,7 +25,7 @@ class InputManager(QObject):
     debouncing to prevent accidental double-triggers on action keys.
 
     Navigation keys (arrows) allow key repeat for fast scrolling.
-    Action keys (Enter, Esc, S, D, P, X, Tab) are debounced.
+    Action keys (Enter, Esc, S, H, D, P, X, Tab) are debounced.
 
     Signals:
         action_triggered: Emitted with (Action, context_dict) when
@@ -38,6 +38,7 @@ class InputManager(QObject):
     _DEBOUNCED_KEYS = {
         Qt.Key.Key_Tab,
         Qt.Key.Key_S,
+        Qt.Key.Key_H,
         Qt.Key.Key_X,
         Qt.Key.Key_D,
         Qt.Key.Key_P,
@@ -154,6 +155,8 @@ class InputManager(QObject):
         # Action keys
         if key == Qt.Key.Key_S:
             return Action.SEARCH
+        if key == Qt.Key.Key_H:
+            return Action.HELP
         if key == Qt.Key.Key_X:
             return Action.CLEAR_FILTER
         if key == Qt.Key.Key_D:

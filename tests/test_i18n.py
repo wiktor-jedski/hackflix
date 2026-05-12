@@ -74,6 +74,7 @@ class TestCreateTranslationSource:
             "LibraryView",
             "StatusBar",
             "SearchOverlay",
+            "HelpOverlay",
             "ConfirmDialog",
             "ToastNotification",
             "AppController",
@@ -119,6 +120,14 @@ class TestCreateTranslationSource:
         search_strings = source.get("SearchOverlay", {})
 
         assert "Search" in search_strings
+
+    def test_help_overlay_strings(self) -> None:
+        """Test HelpOverlay translation strings exist."""
+        source = create_translation_source()
+        help_strings = source.get("HelpOverlay", {})
+
+        assert "Help" in help_strings
+        assert "Press Esc to close" in help_strings
 
     def test_library_item_delegate_strings(self) -> None:
         """Test LibraryItemDelegate translation strings exist."""

@@ -179,6 +179,10 @@ class LibraryRootHandler(StateHandler):
             self._controller.show_search()
             return True
 
+        if action == Action.HELP:
+            self._controller.show_help()
+            return True
+
         if action == Action.CLEAR_FILTER:
             self._controller.clear_search_filter()
             return True
@@ -215,6 +219,10 @@ class SeriesDrilldownSeasonsHandler(StateHandler):
             self._controller.activate_selected()
             return True
 
+        if action == Action.HELP:
+            self._controller.show_help()
+            return True
+
         if action == Action.CANCEL:
             self._controller.navigate_back()
             return True
@@ -243,6 +251,10 @@ class SeriesDrilldownEpisodesHandler(StateHandler):
             self._controller.activate_selected()
             return True
 
+        if action == Action.HELP:
+            self._controller.show_help()
+            return True
+
         if action == Action.CANCEL:
             self._controller.navigate_back()
             return True
@@ -269,6 +281,18 @@ class SearchOverlayHandler(StateHandler):
         """
         if action == Action.CANCEL:
             self._controller.hide_search()
+            return True
+
+        return False
+
+
+class HelpOverlayHandler(StateHandler):
+    """Handler for HELP_OVERLAY state."""
+
+    def handle_action(self, action: Action, context: dict[str, Any]) -> bool:
+        """Handle actions in help overlay state."""
+        if action == Action.CANCEL:
+            self._controller.hide_help()
             return True
 
         return False
@@ -391,6 +415,7 @@ class AppController(QObject):
             AppState.SERIES_DRILLDOWN_SEASONS: SeriesDrilldownSeasonsHandler(self),
             AppState.SERIES_DRILLDOWN_EPISODES: SeriesDrilldownEpisodesHandler(self),
             AppState.SEARCH_OVERLAY: SearchOverlayHandler(self),
+            AppState.HELP_OVERLAY: HelpOverlayHandler(self),
             AppState.DIALOG_CONFIRM: DialogConfirmHandler(self),
             AppState.PLAYER_ACTIVE: PlayerActiveHandler(self),
         }
@@ -1280,6 +1305,28 @@ class AppController(QObject):
                 self._main_window.show_toast(self.tr("Filter cleared"), "info")
 
     # =========================================================================
+    # Help
+    # =========================================================================
+
+    def show_help(self) -> None:
+        """Show the help overlay."""
+        if not self._main_window:
+            return
+
+        self.push_navigation()
+        self._main_window.show_help()
+        self.transition_to(AppState.HELP_OVERLAY)
+
+    def hide_help(self) -> None:
+        """Hide the help overlay."""
+        if not self._main_window:
+            return
+
+        self._main_window.hide_help()
+        previous = self.pop_navigation()
+        self.transition_to(previous.state if previous else AppState.LIBRARY_ROOT)
+
+    # =========================================================================
     # Sync
     # =========================================================================
 
@@ -2034,6 +2081,11 @@ class AppController(QObject):
         """Handle search cancel from SearchOverlay."""
         self.clear_search_filter()
         self.hide_search()
+
+    @Slot()
+    def on_help_closed(self) -> None:
+        """Handle help overlay close."""
+        self.hide_help()
 
     # =========================================================================
     # Application

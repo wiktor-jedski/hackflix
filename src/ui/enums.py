@@ -27,6 +27,7 @@ class Action(Enum):
 
     # Library actions (debounced)
     SEARCH = auto()  # S key - open search overlay
+    HELP = auto()  # H key - open help overlay
     CLEAR_FILTER = auto()  # X key - clear search filter
     DELETE = auto()  # D key - delete confirmation
     SYNC = auto()  # P key - trigger metadata sync
@@ -58,6 +59,7 @@ class AppState(Enum):
     SERIES_DRILLDOWN_SEASONS = auto()  # Viewing season list for a series
     SERIES_DRILLDOWN_EPISODES = auto()  # Viewing episode list for a season
     SEARCH_OVERLAY = auto()  # Search modal is active
+    HELP_OVERLAY = auto()  # Help modal is active
     DIALOG_CONFIRM = auto()  # Confirmation dialog is active
     PLAYER_ACTIVE = auto()  # Video playback (Phase 4)
 

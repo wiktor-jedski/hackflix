@@ -52,6 +52,18 @@ class TestMainWindow:
         main_window.hide_search()
         assert main_window._search_overlay.isHidden()
 
+    def test_show_help(self, main_window: MainWindow) -> None:
+        """Test show_help displays help overlay."""
+        main_window.show_help()
+        assert main_window._help_overlay is not None
+        assert not main_window._help_overlay.isHidden()
+
+    def test_hide_help(self, main_window: MainWindow) -> None:
+        """Test hide_help hides help overlay."""
+        main_window.show_help()
+        main_window.hide_help()
+        assert main_window._help_overlay.isHidden()
+
     def test_show_toast(self, main_window: MainWindow) -> None:
         """Test show_toast creates a toast."""
         main_window.show_toast("Test message", "info")
@@ -159,6 +171,18 @@ class TestMainWindowEventHandlers:
         assert main_window._search_overlay.isHidden()
         assert len(cancelled_signals) == 1
 
+    def test_on_help_closed_handler(self, main_window: MainWindow, qtbot) -> None:
+        """Test _on_help_closed handler."""
+        main_window.show_help()
+
+        closed_signals = []
+        main_window._help_overlay.help_closed.connect(lambda: closed_signals.append(True))
+
+        main_window._on_help_closed()
+
+        assert main_window._help_overlay.isHidden()
+        assert len(closed_signals) == 1
+
     def test_resize_event_with_visible_search_overlay(
         self, main_window: MainWindow, qtbot
     ) -> None:
@@ -256,6 +280,48 @@ class TestMainWindowEventHandlers:
 
         # Restore
         main_window._search_background.setGeometry = original_set_geometry
+
+    def test_resize_event_calls_center_when_help_visible(
+        self, main_window: MainWindow, qtbot
+    ) -> None:
+        """Test resizeEvent calls help _center_in_parent when visible."""
+        from unittest.mock import MagicMock
+        from src.qt import QResizeEvent
+        from src.qt import QSize
+
+        main_window.show()
+        main_window.show_help()
+        main_window._help_overlay.setVisible(True)
+
+        original_center = main_window._help_overlay._center_in_parent
+        main_window._help_overlay._center_in_parent = MagicMock()
+
+        event = QResizeEvent(QSize(1024, 768), QSize(800, 600))
+        main_window.resizeEvent(event)
+
+        main_window._help_overlay._center_in_parent.assert_called_once()
+        main_window._help_overlay._center_in_parent = original_center
+
+    def test_resize_event_sets_help_background_geometry_when_visible(
+        self, main_window: MainWindow, qtbot
+    ) -> None:
+        """Test resizeEvent sets help background geometry when visible."""
+        from unittest.mock import MagicMock
+        from src.qt import QResizeEvent
+        from src.qt import QSize
+
+        main_window.show()
+        main_window.show_help()
+        main_window._help_background.setVisible(True)
+
+        original_set_geometry = main_window._help_background.setGeometry
+        main_window._help_background.setGeometry = MagicMock()
+
+        event = QResizeEvent(QSize(1024, 768), QSize(800, 600))
+        main_window.resizeEvent(event)
+
+        main_window._help_background.setGeometry.assert_called_once()
+        main_window._help_background.setGeometry = original_set_geometry
 
     def test_show_event_forces_fullscreen(self, main_window: MainWindow, qtbot) -> None:
         """Test showEvent forces fullscreen mode."""
