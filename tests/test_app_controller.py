@@ -1897,6 +1897,17 @@ class TestAppControllerPlayerMethods:
         service.find_matching_subtitle.return_value = None
         return service
 
+    @pytest.fixture(autouse=True)
+    def immediate_playback_timer(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Run delayed playback callbacks immediately in controller unit tests."""
+        from src.controllers import app_controller
+
+        monkeypatch.setattr(
+            app_controller.QTimer,
+            "singleShot",
+            lambda _delay_ms, callback: callback(),
+        )
+
     # =========================================================================
     # play_media() tests
     # =========================================================================

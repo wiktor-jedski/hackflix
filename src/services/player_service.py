@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_VOLUME_STEP = 5
 DEFAULT_SEEK_SECONDS = 10
 DEFAULT_TIME_UPDATE_INTERVAL_MS = 500
-SUBTITLE_ACTIVATION_RETRY_MS = (500, 1500, 3000)
 SUBTITLE_EXTENSIONS = (".srt",)
 
 
@@ -167,10 +166,6 @@ class PlayerService(QObject):
             self._player.set_media(self._current_media)
             self._player.play()
 
-            if subtitle_path and subtitle_file.exists():
-                self._load_and_activate_subtitle(subtitle_file, warn_if_missing=False)
-                self._schedule_subtitle_load_and_activation(subtitle_file)
-
             # Reset audio track index
             self._current_audio_track_index = 0
             self._current_subtitle_track_index = 0
@@ -187,41 +182,17 @@ class PlayerService(QObject):
         if not self._current_media:
             return
 
-        subtitle_uri = subtitle_file.resolve().as_uri()
-        slaves_add = getattr(self._current_media, "slaves_add", None)
-        if callable(slaves_add):
-            subtitle_slave_type = getattr(vlc.MediaSlaveType, "subtitle")
-            slaves_add(subtitle_slave_type, 4, subtitle_uri)
+        subtitle_path = str(subtitle_file.resolve())
+        self._current_media.add_options(f"sub-file={subtitle_path}")
 
-        self._current_media.add_option(f":sub-file={subtitle_uri}")
-
-    def _load_subtitle_file(self, subtitle_file: Path) -> None:
-        """Load an external subtitle file into the active VLC player."""
+    def _add_subtitle_slave(self, subtitle_file: Path) -> None:
+        """Add an external subtitle to an already active VLC player."""
         if not self._player:
             return
 
-        subtitle_path = str(subtitle_file)
-        loaded = self._player.video_set_subtitle_file(subtitle_path)
-        logger.info("Subtitle file load result for %s: %s", subtitle_path, loaded)
-
-    def _load_and_activate_subtitle(
-        self, subtitle_file: Path, warn_if_missing: bool = True
-    ) -> None:
-        """Load a specific external subtitle file and select a visible SPU track."""
-        self._load_subtitle_file(subtitle_file)
-        if not self._subtitle_track_user_selected:
-            self._activate_first_subtitle_track(warn_if_missing=warn_if_missing)
-
-    def _schedule_subtitle_load_and_activation(self, subtitle_file: Path) -> None:
-        """Retry external subtitle loading while VLC starts playback."""
-        final_delay = SUBTITLE_ACTIVATION_RETRY_MS[-1]
-        for delay_ms in SUBTITLE_ACTIVATION_RETRY_MS:
-            QTimer.singleShot(
-                delay_ms,
-                lambda warn=delay_ms == final_delay: self._load_and_activate_subtitle(
-                    subtitle_file, warn_if_missing=warn
-                ),
-            )
+        subtitle_uri = subtitle_file.resolve().as_uri()
+        self._player.add_slave(vlc.MediaSlaveType.subtitle, subtitle_uri, True)
+        logger.info("Added subtitle slave: %s", subtitle_uri)
 
     def _activate_first_subtitle_track(self, warn_if_missing: bool = True) -> bool:
         """Select the preferred VLC subtitle track.
@@ -298,8 +269,7 @@ class PlayerService(QObject):
         try:
             self._external_subtitle_track_id = None
             self._subtitle_track_user_selected = False
-            self._load_and_activate_subtitle(subtitle_file, warn_if_missing=False)
-            self._schedule_subtitle_load_and_activation(subtitle_file)
+            self._add_subtitle_slave(subtitle_file)
             logger.info("Loaded subtitle file: %s", path)
         except Exception as e:
             logger.error("Failed to load subtitle: %s", e)

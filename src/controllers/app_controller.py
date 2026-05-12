@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from src.qt import QObject, QThread, Qt, Signal, Slot
+from src.qt import QObject, QThread, QTimer, Qt, Signal, Slot
 
 from src.config import CACHE_DIR, MEDIA_LIBRARY_PATH, DownloadState, PipelineState
 from src.database.db_manager import DatabaseManager
@@ -1713,7 +1713,27 @@ class AppController(QObject):
         # Show player view and transition state
         self._main_window.show_player()
         self.transition_to(AppState.PLAYER_ACTIVE)
+        QTimer.singleShot(
+            200,
+            lambda: self._start_player_playback(
+                video, video_file_id, file_path, subtitle_path
+            ),
+        )
 
+    def _start_player_playback(
+        self,
+        video: dict[str, Any],
+        video_file_id: int,
+        file_path: str,
+        subtitle_path: str | None,
+    ) -> None:
+        """Initialize VLC after the player view has had time to render."""
+        if (
+            not self._main_window
+            or not self._player_service
+            or self._current_state != AppState.PLAYER_ACTIVE
+        ):
+            return
         try:
             # Initialize player with video frame
             frame_id = self._main_window.get_player_frame_id()

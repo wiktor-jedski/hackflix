@@ -206,19 +206,14 @@ class TestPlayerServiceLoadVideo:
 
         initialized_service.load_video(str(video_file), str(subtitle_file))
 
-        subtitle_uri = subtitle_file.resolve().as_uri()
-        mock_vlc_module._mock_media.slaves_add.assert_called_once_with(
-            mock_vlc_module.MediaSlaveType.subtitle, 4, subtitle_uri
-        )
-        mock_vlc_module._mock_media.add_option.assert_called_once_with(
-            f":sub-file={subtitle_uri}"
+        subtitle_path = str(subtitle_file.resolve())
+        mock_vlc_module._mock_media.add_options.assert_called_once_with(
+            f"sub-file={subtitle_path}"
         )
         mock_vlc_module._mock_player.set_media.assert_called_once()
         mock_vlc_module._mock_player.play.assert_called_once()
-        mock_vlc_module._mock_player.video_set_subtitle_file.assert_called_once_with(
-            str(subtitle_file)
-        )
-        mock_vlc_module._mock_player.video_set_spu.assert_called_once_with(1)
+        mock_vlc_module._mock_player.video_set_subtitle_file.assert_not_called()
+        mock_vlc_module._mock_player.video_set_spu.assert_not_called()
 
     def test_load_video_with_missing_subtitle(
         self,
@@ -232,7 +227,7 @@ class TestPlayerServiceLoadVideo:
 
         initialized_service.load_video(str(video_file), str(tmp_path / "missing.srt"))
 
-        mock_vlc_module._mock_media.add_option.assert_not_called()
+        mock_vlc_module._mock_media.add_options.assert_not_called()
         mock_vlc_module._mock_player.play.assert_called_once()
 
     def test_load_video_file_not_found(
@@ -770,9 +765,12 @@ class TestPlayerServiceSubtitles:
 
         playing_service.load_subtitle(str(subtitle_file))
 
-        mock_vlc_module._mock_player.video_set_subtitle_file.assert_called_once_with(
-            str(subtitle_file)
+        mock_vlc_module._mock_player.add_slave.assert_called_once_with(
+            mock_vlc_module.MediaSlaveType.subtitle,
+            subtitle_file.resolve().as_uri(),
+            True,
         )
+        mock_vlc_module._mock_player.video_set_subtitle_file.assert_not_called()
 
     def test_load_subtitle_not_found(
         self,
@@ -932,54 +930,6 @@ class TestPlayerServiceSubtitles:
         playing_service._activate_first_subtitle_track()
 
         assert playing_service.get_external_subtitle_track_id() == 1
-
-    def test_load_and_activate_subtitle_respects_manual_selection(
-        self,
-        mock_vlc_module: mock.MagicMock,
-        playing_service: Any,
-        tmp_path: Path,
-    ) -> None:
-        """Test scheduled subtitle retries do not override manual track changes."""
-        subtitle_file = tmp_path / "test.srt"
-        subtitle_file.touch()
-        playing_service._subtitle_track_user_selected = True
-
-        playing_service._load_and_activate_subtitle(subtitle_file)
-
-        mock_vlc_module._mock_player.video_set_subtitle_file.assert_called_once_with(
-            str(subtitle_file)
-        )
-        mock_vlc_module._mock_player.video_set_spu.assert_not_called()
-
-    def test_scheduled_subtitle_retry_loads_and_activates_track(
-        self,
-        mock_vlc_module: mock.MagicMock,
-        playing_service: Any,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test subtitle retries re-load and activate external subtitle tracks."""
-        from src.services import player_service
-
-        subtitle_file = tmp_path / "test.srt"
-        subtitle_file.touch()
-        callbacks = []
-
-        monkeypatch.setattr(
-            player_service.QTimer,
-            "singleShot",
-            lambda _delay_ms, callback: callbacks.append(callback),
-        )
-
-        playing_service._schedule_subtitle_load_and_activation(subtitle_file)
-        for callback in callbacks:
-            callback()
-
-        assert (
-            mock_vlc_module._mock_player.video_set_subtitle_file.call_count
-            == len(callbacks)
-        )
-        assert mock_vlc_module._mock_player.video_set_spu.call_count == len(callbacks)
 
     def test_activate_first_subtitle_track(
         self,
