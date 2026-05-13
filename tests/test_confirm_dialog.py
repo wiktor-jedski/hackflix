@@ -61,11 +61,59 @@ class TestConfirmDialog:
 
         assert dialog.result() == QDialog.DialogCode.Rejected
 
-    def test_fixed_width(self, dialog: ConfirmDialog) -> None:
-        """Test that dialog has fixed width."""
+    def test_default_width(self, dialog: ConfirmDialog) -> None:
+        """Test that short dialog text keeps the default width."""
         from src.ui.styles import DIALOG_WIDTH
 
         assert dialog.width() == DIALOG_WIDTH
+
+    def test_width_expands_for_long_title(self, parent_widget: QWidget, qtbot) -> None:
+        """Test that long titles expand the dialog width."""
+        from src.ui.styles import DIALOG_PADDING, DIALOG_WIDTH, FONT_SIZE_LARGE
+        from src.qt import QApplication, QFont, QFontMetrics
+
+        title_font = QFont(parent_widget.font())
+        title_font.setPixelSize(FONT_SIZE_LARGE)
+        title_font.setBold(True)
+        metrics = QFontMetrics(title_font)
+
+        screen = QApplication.primaryScreen()
+        assert screen is not None
+        max_width = int(screen.availableGeometry().width() * 0.85)
+
+        long_title = "Delete Long Film?"
+        while (
+            metrics.horizontalAdvance(long_title) + (DIALOG_PADDING * 2) <= DIALOG_WIDTH
+        ):
+            long_title = long_title.replace("?", " With Extra Words?")
+
+        expected_width = metrics.horizontalAdvance(long_title) + (DIALOG_PADDING * 2)
+        assert expected_width < max_width
+
+        dialog = ConfirmDialog(
+            long_title, "This action cannot be undone.", parent_widget
+        )
+        qtbot.addWidget(dialog)
+
+        assert dialog.width() > DIALOG_WIDTH
+        assert dialog.width() >= expected_width
+
+    def test_width_expands_without_primary_screen(
+        self, parent_widget: QWidget, qtbot, monkeypatch
+    ) -> None:
+        """Test width calculation still expands if no screen is available."""
+        from src.qt import QApplication
+        from src.ui.styles import DIALOG_WIDTH
+
+        monkeypatch.setattr(QApplication, "primaryScreen", lambda: None)
+
+        long_title = "Delete " + ("Long Title " * 8).strip() + "?"
+        dialog = ConfirmDialog(
+            long_title, "This action cannot be undone.", parent_widget
+        )
+        qtbot.addWidget(dialog)
+
+        assert dialog.width() > DIALOG_WIDTH
 
     def test_has_hint_label(self, dialog: ConfirmDialog) -> None:
         """Test that dialog has hint label."""
@@ -174,3 +222,8 @@ class TestConfirmDialogKeyHandling:
         dialog.show()
         qtbot.keyClick(dialog, Qt.Key.Key_Enter)
         assert dialog.result() == QDialog.DialogCode.Accepted
+
+    def test_none_key_event_is_ignored(self, dialog: ConfirmDialog) -> None:
+        """Test None key events are ignored safely."""
+        dialog.keyPressEvent(None)
+        assert dialog.result() == 0

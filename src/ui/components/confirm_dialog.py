@@ -4,7 +4,7 @@ This module provides the ConfirmDialog widget for confirming
 destructive actions like file deletion.
 """
 
-from src.qt import Qt
+from src.qt import QApplication, QFont, QFontMetrics, Qt
 from src.qt import QKeyEvent
 from src.qt import QDialog, QLabel, QVBoxLayout, QWidget
 
@@ -21,6 +21,8 @@ from src.ui.styles import (
     WARNING_COLOR,
     scaled,
 )
+
+MAX_DIALOG_SCREEN_WIDTH_RATIO = 0.85
 
 
 class ConfirmDialog(QDialog):
@@ -51,17 +53,45 @@ class ConfirmDialog(QDialog):
         self._message = message
         self._setup_ui()
 
+    def _dialog_width_for_text(self) -> int:
+        """Calculate a dialog width that fits the visible text."""
+        title_font = QFont(self.font())
+        title_font.setPixelSize(FONT_SIZE_LARGE)
+        title_font.setBold(True)
+
+        body_font = QFont(self.font())
+        body_font.setPixelSize(FONT_SIZE_BODY)
+
+        hint_font = QFont(self.font())
+        hint_font.setPixelSize(FONT_SIZE_SMALL)
+
+        widest_text = max(
+            QFontMetrics(title_font).horizontalAdvance(self._title),
+            QFontMetrics(body_font).horizontalAdvance(self._message),
+            QFontMetrics(hint_font).horizontalAdvance(
+                self.tr("Press Enter to confirm, Esc to cancel")
+            ),
+        )
+        desired_width = widest_text + (DIALOG_PADDING * 2)
+
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return max(DIALOG_WIDTH, desired_width)
+
+        max_width = int(
+            screen.availableGeometry().width() * MAX_DIALOG_SCREEN_WIDTH_RATIO
+        )
+        return min(max(DIALOG_WIDTH, desired_width), max_width)
+
     def _setup_ui(self) -> None:
         """Set up the dialog UI layout and styling."""
         self.setObjectName("ConfirmDialog")
         self.setWindowTitle(self._title)
-        self.setFixedWidth(DIALOG_WIDTH)
+        self.setFixedWidth(self._dialog_width_for_text())
         self.setModal(True)
 
         # Remove window frame for cleaner look
-        self.setWindowFlags(
-            Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint
-        )
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
 
         self.setStyleSheet(f"""
             QDialog#ConfirmDialog {{
@@ -88,6 +118,7 @@ class ConfirmDialog(QDialog):
             color: {WARNING_COLOR};
         """)
         self._title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._title_label.setWordWrap(True)
         layout.addWidget(self._title_label)
 
         # Message
