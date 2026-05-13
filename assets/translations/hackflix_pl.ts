@@ -144,6 +144,14 @@ okładki</translation>
         <translation>Wznawianie {count} niedokończonych zadań przetwarzania</translation>
     </message>
     <message>
+        <source>{percent}% used</source>
+        <translation>Użyto {percent}%</translation>
+    </message>
+    <message>
+        <source>Storage unavailable</source>
+        <translation>Dysk niedostępny</translation>
+    </message>
+    <message>
         <source>Failed to load library: {error}</source>
         <translation>Nie udało się załadować biblioteki: {error}</translation>
     </message>

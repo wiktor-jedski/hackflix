@@ -7,6 +7,7 @@ central orchestrator connecting the UI to services and database.
 from __future__ import annotations
 
 import logging
+import shutil
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -66,6 +67,14 @@ class DeleteWorker(QThread):
                 self.delete_finished.emit("ok", view, deleted, failed)
                 return
 
+            if self._item_type == "season":
+                season_id = int(self._item_id)
+                paths = self._db_manager.get_season_files(season_id)
+                deleted, failed = self._delete_paths(paths)
+                self._db_manager.reset_season_state(season_id)
+                self.delete_finished.emit("ok", "seasons", deleted, failed)
+                return
+
             paths = self._db_manager.get_media_files(str(self._item_id))
             deleted, failed = self._delete_paths(paths)
             self._db_manager.reset_media_state(str(self._item_id))
@@ -118,6 +127,17 @@ class NavigationContext:
     selected_item_id: str | None = None
     series_id: str | None = None
     season_id: int | None = None
+
+
+@dataclass(frozen=True)
+class DownloadSelection:
+    """Resolved magnet source for starting a download."""
+
+    context_type: str
+    context_id: int
+    magnet: str
+    source: str
+    series_id: str | None = None
 
 
 class StateHandler(ABC):
@@ -239,6 +259,10 @@ class SeriesDrilldownSeasonsHandler(StateHandler):
 
         if action == Action.CANCEL:
             self._controller.navigate_back()
+            return True
+
+        if action == Action.DELETE:
+            self._controller.delete_selected()
             return True
 
         if action == Action.QUIT:
@@ -447,11 +471,15 @@ class AppController(QObject):
         self._current_series_id: str | None = None
         self._current_season_id: int | None = None
         self._active_download_types: dict[int, str] = {}
+        self._active_series_download_contexts: dict[str, int] = {}
+        self._series_by_download_context: dict[int, str] = {}
+        self._series_download_status: dict[str, dict[str, Any]] = {}
         self._pending_episode_pipeline_by_season: dict[int, int] = {}
         self._pending_pipeline_ids: list[int] = []
         self._play_after_pipeline_ids: set[int] = set()
         self._delete_worker: DeleteWorker | None = None
         self._delete_title: str = ""
+        self._last_storage_refresh_at = 0.0
 
         # Player state
         self._current_playing_file_id: int | None = None
@@ -501,16 +529,20 @@ class AppController(QObject):
 
         if torrent_service:
             torrent_service.download_progress.connect(
-                self._on_download_progress, Qt.ConnectionType.QueuedConnection  # type: ignore[too-many-positional-arguments]
+                self._on_download_progress,
+                Qt.ConnectionType.QueuedConnection,  # type: ignore[too-many-positional-arguments]
             )
             torrent_service.download_completed.connect(
-                self._on_download_completed, Qt.ConnectionType.QueuedConnection  # type: ignore[too-many-positional-arguments]
+                self._on_download_completed,
+                Qt.ConnectionType.QueuedConnection,  # type: ignore[too-many-positional-arguments]
             )
             torrent_service.download_error.connect(
-                self._on_download_error, Qt.ConnectionType.QueuedConnection  # type: ignore[too-many-positional-arguments]
+                self._on_download_error,
+                Qt.ConnectionType.QueuedConnection,  # type: ignore[too-many-positional-arguments]
             )
             torrent_service.season_completed.connect(
-                self._on_season_completed, Qt.ConnectionType.QueuedConnection  # type: ignore[too-many-positional-arguments]
+                self._on_season_completed,
+                Qt.ConnectionType.QueuedConnection,  # type: ignore[too-many-positional-arguments]
             )
 
         if player_service:
@@ -562,7 +594,7 @@ class AppController(QObject):
         if self._main_window:
             self._main_window.set_connection_status(True)
             self._main_window.set_sync_status("")
-            self._main_window.set_storage_usage("")
+            self._refresh_storage_usage()
 
         # Load initial library data
         self.refresh_library()
@@ -574,6 +606,58 @@ class AppController(QObject):
         self._resume_incomplete_pipelines()
 
         logger.info("AppController bootstrap complete")
+
+    def _refresh_storage_usage(self) -> None:
+        """Update storage usage for the filesystem backing the media library."""
+        if not self._main_window:
+            return
+
+        try:
+            usage_path = self._storage_usage_path()
+            total, used, free = shutil.disk_usage(usage_path)
+        except OSError as e:
+            logger.error(
+                "Failed to read storage usage for %s: %s", MEDIA_LIBRARY_PATH, e
+            )
+            self._main_window.set_storage_usage(self.tr("Storage unavailable"))
+            return
+
+        self._last_storage_refresh_at = time.monotonic()
+        self._main_window.set_storage_usage(
+            self.tr("{percent}% used").format(
+                percent=self._format_storage_percent(used, total),
+            )
+        )
+
+    def _refresh_storage_usage_throttled(self, interval_seconds: float = 10.0) -> None:
+        """Refresh storage usage at most once per interval."""
+        if time.monotonic() - self._last_storage_refresh_at >= interval_seconds:
+            self._refresh_storage_usage()
+
+    def _storage_usage_path(self) -> Path:
+        """Return an existing path on the filesystem used for media storage."""
+        path = MEDIA_LIBRARY_PATH
+        while not path.exists() and path.parent != path:
+            path = path.parent
+        return path
+
+    def _format_storage_size(self, bytes_count: int) -> str:
+        """Format a byte count for status-bar display."""
+        size = float(bytes_count)
+        units = ["B", "KB", "MB", "GB", "TB", "PB"]
+        for unit in units:
+            if size < 1024 or unit == units[-1]:
+                if unit == "B":
+                    return f"{int(size)} {unit}"
+                return f"{size:.1f} {unit}"
+            size /= 1024
+        return f"{size:.1f} PB"
+
+    def _format_storage_percent(self, used_bytes: int, total_bytes: int) -> str:
+        """Format storage usage as a percentage."""
+        if total_bytes <= 0:
+            return "0"
+        return str(round((used_bytes / total_bytes) * 100))
 
     def _resume_incomplete_downloads(self) -> None:
         """Resume any incomplete downloads on startup."""
@@ -888,19 +972,17 @@ class AppController(QObject):
             view_items = []
             for season in seasons:
                 episodes = self._db_manager.get_episodes(season["id"])
-                view_items.append(
-                    {
-                        "id": season["id"],
-                        "type": "season",
-                        "title": self.tr("Season {n}").format(
-                            n=season["season_number"]
-                        ),
-                        "season_number": season["season_number"],
-                        "episode_count": len(episodes),
-                        "state": season.get("state", DownloadState.PENDING.value),
-                        "download_progress": season.get("download_progress", 0),
-                    }
-                )
+                view_item = {
+                    "id": season["id"],
+                    "type": "season",
+                    "title": self.tr("Season {n}").format(n=season["season_number"]),
+                    "season_number": season["season_number"],
+                    "episode_count": len(episodes),
+                    "state": season.get("state", DownloadState.PENDING.value),
+                    "download_progress": season.get("download_progress", 0),
+                }
+                self._apply_series_download_overlay(series_id, view_item)
+                view_items.append(view_item)
 
             self._main_window.library_view.set_items(view_items)
             logger.debug("Loaded %d seasons for series %s", len(view_items), series_id)
@@ -927,22 +1009,25 @@ class AppController(QObject):
 
             view_items = []
             for ep in episodes:
-                view_items.append(
-                    {
-                        "id": ep["id"],
-                        "file_id": ep["id"],  # For episodes, id is the video_file id
-                        "type": "episode",
-                        "title": ep.get("episode_title")
-                        or self.tr("Episode {n}").format(n=ep["episode_number"]),
-                        "episode_number": ep["episode_number"],
-                        "episode_title": ep.get("episode_title", ""),
-                        "state": ep.get("state", DownloadState.PENDING.value),
-                        "pipeline_state": ep.get("pipeline_state"),
-                        "download_progress": ep.get("download_progress", 0),
-                        "resume_position_seconds": ep.get("resume_position_seconds", 0),
-                        "watched_at": ep.get("watched_at"),
-                    }
-                )
+                view_item = {
+                    "id": ep["id"],
+                    "file_id": ep["id"],  # For episodes, id is the video_file id
+                    "type": "episode",
+                    "title": ep.get("episode_title")
+                    or self.tr("Episode {n}").format(n=ep["episode_number"]),
+                    "episode_number": ep["episode_number"],
+                    "episode_title": ep.get("episode_title", ""),
+                    "state": ep.get("state", DownloadState.PENDING.value),
+                    "pipeline_state": ep.get("pipeline_state"),
+                    "download_progress": ep.get("download_progress", 0),
+                    "resume_position_seconds": ep.get("resume_position_seconds", 0),
+                    "watched_at": ep.get("watched_at"),
+                }
+                if ep.get("media_item_id"):
+                    self._apply_series_download_overlay(
+                        str(ep["media_item_id"]), view_item
+                    )
+                view_items.append(view_item)
 
             self._main_window.library_view.set_items(view_items)
             logger.debug("Loaded %d episodes for season %d", len(view_items), season_id)
@@ -1058,21 +1143,8 @@ class AppController(QObject):
                     )
                     return
 
-                # Episodes belong to a season - get magnet from season
-                season_id = video.get("season_id")
-                if not season_id:
-                    self._main_window.show_toast(
-                        self.tr("Episode has no season"), "error"
-                    )
-                    return
-
-                season = self._db_manager.get_season(season_id)
-                if not season:
-                    self._main_window.show_toast(self.tr("Season not found"), "error")
-                    return
-
-                magnet = season.get("magnet_link")
-                if not magnet:
+                selection = self._resolve_episode_download_selection(video)
+                if not selection:
                     self._main_window.show_toast(
                         self.tr("No magnet link available"), "error"
                     )
@@ -1080,18 +1152,37 @@ class AppController(QObject):
 
                 from src.services.torrent_service import DownloadContext, DownloadType
 
-                # Download the whole season
-                context = DownloadContext(DownloadType.SEASON, season_id)
-                if self._torrent_service.add_magnet(context, magnet):
-                    self._active_download_types[season_id] = DownloadType.SEASON.value
-                    self._pending_episode_pipeline_by_season[season_id] = file_id
-                    self._main_window.library_view.update_all_items(
-                        {"state": DownloadState.QUEUED.value, "download_progress": 0}
+                download_type = DownloadType(selection.context_type)
+                if self._handle_existing_series_download(selection):
+                    return
+
+                context = DownloadContext(download_type, selection.context_id)
+                if self._torrent_service.add_magnet(context, selection.magnet):
+                    self._active_download_types[selection.context_id] = (
+                        download_type.value
                     )
+                    self._record_series_download(selection)
+                    if download_type == DownloadType.SEASON:
+                        self._pending_episode_pipeline_by_season[
+                            selection.context_id
+                        ] = file_id
+                        self._update_visible_download_selection(
+                            selection,
+                            {
+                                "state": DownloadState.QUEUED.value,
+                                "download_progress": 0,
+                            },
+                        )
+                    else:
+                        self._main_window.library_view.update_item_by_file_id(
+                            file_id,
+                            {
+                                "state": DownloadState.QUEUED.value,
+                                "download_progress": 0,
+                            },
+                        )
                     self._main_window.show_toast(
-                        self.tr("Starting season download for: {title}").format(
-                            title=item_title
-                        ),
+                        self.tr("Starting download: {title}").format(title=item_title),
                         "info",
                     )
                 else:
@@ -1116,8 +1207,8 @@ class AppController(QObject):
                     self._main_window.show_toast(self.tr("Season not found"), "error")
                     return
 
-                magnet = season.get("magnet_link")
-                if not magnet:
+                selection = self._resolve_season_download_selection(season)
+                if not selection:
                     self._main_window.show_toast(
                         self.tr("No magnet link available"), "error"
                     )
@@ -1125,9 +1216,17 @@ class AppController(QObject):
 
                 from src.services.torrent_service import DownloadContext, DownloadType
 
-                context = DownloadContext(DownloadType.SEASON, season_id)
-                if self._torrent_service.add_magnet(context, magnet):
-                    self._active_download_types[season_id] = DownloadType.SEASON.value
+                if self._handle_existing_series_download(selection):
+                    return
+
+                context = DownloadContext(
+                    DownloadType(selection.context_type), selection.context_id
+                )
+                if self._torrent_service.add_magnet(context, selection.magnet):
+                    self._active_download_types[selection.context_id] = (
+                        selection.context_type
+                    )
+                    self._record_series_download(selection)
                     # Reload seasons to show updated QUEUED state
                     if self._current_series_id:
                         self.load_seasons(self._current_series_id)
@@ -1148,6 +1247,131 @@ class AppController(QObject):
                     self.tr("Unknown item type: {type}").format(type=item_type),
                     "error",
                 )
+
+    def _resolve_episode_download_selection(
+        self, video: dict[str, Any]
+    ) -> DownloadSelection | None:
+        """Resolve episode download source: episode, season, then series."""
+        episode_magnet = video.get("magnet_link")
+        if episode_magnet:
+            return DownloadSelection(
+                "movie", int(video["id"]), episode_magnet, "episode"
+            )
+
+        season_id = video.get("season_id")
+        if season_id:
+            season = self._db_manager.get_season(int(season_id))
+            if season:
+                season_selection = self._resolve_season_download_selection(season)
+                if season_selection:
+                    return season_selection
+
+        return self._resolve_series_download_selection(
+            str(video["media_item_id"]),
+            int(season_id) if season_id else None,
+        )
+
+    def _resolve_season_download_selection(
+        self, season: dict[str, Any]
+    ) -> DownloadSelection | None:
+        """Resolve season download source: season, then series."""
+        season_id = int(season["id"])
+        season_magnet = season.get("magnet_link")
+        if season_magnet:
+            return DownloadSelection("season", season_id, season_magnet, "season")
+
+        return self._resolve_series_download_selection(
+            str(season["media_item_id"]), season_id
+        )
+
+    def _resolve_series_download_selection(
+        self,
+        series_id: str,
+        season_id: int | None,
+    ) -> DownloadSelection | None:
+        """Resolve a whole-series magnet for the current season context."""
+        if season_id is None:
+            return None
+
+        media_item = self._db_manager.get_media_item(series_id)
+        if not media_item:
+            return None
+
+        magnet = media_item.get("magnet_link")
+        if not magnet:
+            return None
+
+        return DownloadSelection("season", season_id, magnet, "series", series_id)
+
+    def _handle_existing_series_download(self, selection: DownloadSelection) -> bool:
+        """Update UI and skip duplicate add for an active series magnet."""
+        if selection.source != "series" or selection.series_id is None:
+            return False
+
+        existing_context_id = self._active_series_download_contexts.get(
+            selection.series_id
+        )
+        if existing_context_id is None:
+            return False
+
+        status = self._series_download_status.get(
+            selection.series_id,
+            {"state": DownloadState.QUEUED.value, "download_progress": 0},
+        )
+        self._update_visible_series_download(selection.series_id, status)
+        if self._main_window:
+            self._main_window.show_toast(
+                self.tr("Download already in progress"), "info"
+            )
+        logger.info(
+            "Skipping duplicate series download for %s; active context %d",
+            selection.series_id,
+            existing_context_id,
+        )
+        return True
+
+    def _record_series_download(self, selection: DownloadSelection) -> None:
+        """Remember the active context for a series-level magnet."""
+        if selection.source != "series" or selection.series_id is None:
+            return
+
+        self._active_series_download_contexts[selection.series_id] = (
+            selection.context_id
+        )
+        self._series_by_download_context[selection.context_id] = selection.series_id
+        self._series_download_status[selection.series_id] = {
+            "state": DownloadState.QUEUED.value,
+            "download_progress": 0,
+        }
+
+    def _apply_series_download_overlay(
+        self, series_id: str, view_item: dict[str, Any]
+    ) -> None:
+        """Overlay in-memory full-series download status on a view item."""
+        status = self._series_download_status.get(series_id)
+        if status:
+            view_item.update(status)
+
+    def _update_visible_download_selection(
+        self, selection: DownloadSelection, updates: dict[str, Any]
+    ) -> None:
+        """Update visible rows for a newly queued download selection."""
+        if selection.source == "series" and selection.series_id:
+            self._series_download_status[selection.series_id] = dict(updates)
+            self._update_visible_series_download(selection.series_id, updates)
+            return
+
+        if self._main_window:
+            self._main_window.library_view.update_all_items(updates)
+
+    def _update_visible_series_download(
+        self, series_id: str, updates: dict[str, Any]
+    ) -> None:
+        """Apply full-series download status to the visible series drilldown."""
+        if not self._main_window or self._current_series_id != series_id:
+            return
+
+        self._main_window.library_view.update_all_items(updates)
 
     def _episode_subtitles_ready(self, item: dict[str, Any]) -> bool:
         """Return whether an episode has completed subtitle processing."""
@@ -1205,9 +1429,14 @@ class AppController(QObject):
         title = item.get("title") or self.tr("this item")
         item_type = item.get("type")
 
-        # Check if item has a downloaded file
+        # Check if item has downloaded content or an active partial download.
         item_state = item.get("state")
-        if item_state != DownloadState.COMPLETED.value:
+        deletable_states = {
+            DownloadState.COMPLETED.value,
+            DownloadState.QUEUED.value,
+            DownloadState.DOWNLOADING.value,
+        }
+        if item_type != "series" and item_state not in deletable_states:
             self._main_window.show_toast(
                 self.tr("No downloaded file to delete"), "warning"
             )
@@ -1233,6 +1462,8 @@ class AppController(QObject):
                 )
                 return
 
+            self._cancel_active_download_for_delete(item, str(item_type), delete_id)
+
             self._delete_worker = DeleteWorker(
                 self._db_manager,
                 str(item_type),
@@ -1246,6 +1477,41 @@ class AppController(QObject):
             self._main_window.show_toast(
                 self.tr("Deleting: {title}").format(title=title), "info"
             )
+
+    def _cancel_active_download_for_delete(
+        self, item: dict[str, Any], item_type: str, delete_id: str | int
+    ) -> None:
+        """Cancel a queued/downloading torrent before deleting its files."""
+        if not self._torrent_service:
+            return
+
+        state = item.get("state")
+        if state not in {DownloadState.QUEUED.value, DownloadState.DOWNLOADING.value}:
+            return
+
+        from src.services.torrent_service import DownloadContext, DownloadType
+
+        try:
+            if item_type == "season":
+                context = DownloadContext(DownloadType.SEASON, int(delete_id))
+            elif item_type == "episode" and self._current_season_id:
+                active_type = self._active_download_types.get(self._current_season_id)
+                if active_type == DownloadType.SEASON.value:
+                    context = DownloadContext(
+                        DownloadType.SEASON, self._current_season_id
+                    )
+                else:
+                    context = DownloadContext(DownloadType.MOVIE, int(delete_id))
+            else:
+                context_id = item.get("file_id") or delete_id
+                context = DownloadContext(DownloadType.MOVIE, int(context_id))
+        except (TypeError, ValueError):
+            logger.warning("Could not cancel invalid download id for delete: %s", item)
+            return
+
+        if self._torrent_service.cancel_download(context, delete_files=True):
+            self._active_download_types.pop(context.id, None)
+            self._pending_episode_pipeline_by_season.pop(context.id, None)
 
     @Slot(str, str, int, int)
     def _on_delete_finished(
@@ -1276,11 +1542,14 @@ class AppController(QObject):
 
         if view == "episodes" and self._current_season_id:
             self.load_episodes(self._current_season_id)
+        elif view == "seasons" and self._current_series_id:
+            self.load_seasons(self._current_series_id)
         else:
             self.refresh_library()
 
         self._delete_worker = None
         self._delete_title = ""
+        self._refresh_storage_usage()
 
     # =========================================================================
     # Search
@@ -1425,8 +1694,14 @@ class AppController(QObject):
             "state": DownloadState.DOWNLOADING.value,
             "download_progress": percentage,
         }
+        series_id = self._series_by_download_context.get(context_id)
+        if series_id:
+            self._series_download_status[series_id] = dict(updates)
+
         if self._main_window:
-            if download_type == "season":
+            if series_id:
+                self._update_visible_series_download(series_id, updates)
+            elif download_type == "season":
                 self._update_visible_season_download(context_id, updates)
             else:
                 self._main_window.library_view.update_item_by_file_id(
@@ -1444,6 +1719,8 @@ class AppController(QObject):
                 )
         except Exception as e:
             logger.error("Failed to persist download progress: %s", e)
+
+        self._refresh_storage_usage_throttled()
 
     def _resolve_download_type(self, context_id: int) -> str:
         """Resolve an untracked download context as movie or season."""
@@ -1494,6 +1771,8 @@ class AppController(QObject):
         except Exception as e:
             logger.error("Failed to persist download completion: %s", e)
 
+        self._refresh_storage_usage()
+
         video = self._db_manager.get_video_file(file_id)
         if video and video.get("subtitle_id"):
             season_id = video.get("season_id")
@@ -1526,6 +1805,17 @@ class AppController(QObject):
 
         try:
             download_type = self._active_download_types.get(file_id)
+            series_id = self._series_by_download_context.pop(file_id, None)
+            if series_id:
+                self._active_series_download_contexts.pop(series_id, None)
+                self._series_download_status[series_id] = {
+                    "state": DownloadState.ERROR.value,
+                    "download_progress": 0,
+                }
+                if self._main_window:
+                    self._update_visible_series_download(
+                        series_id, self._series_download_status[series_id]
+                    )
             if download_type == "season":
                 self._db_manager.update_season_state(file_id, DownloadState.ERROR)
             elif self._db_manager.get_video_file(file_id):
@@ -1543,6 +1833,10 @@ class AppController(QObject):
                 season_id, DownloadState.COMPLETED, 100
             )
             self._active_download_types.pop(season_id, None)
+            series_id = self._series_by_download_context.pop(season_id, None)
+            if series_id:
+                self._active_series_download_contexts.pop(series_id, None)
+                self._series_download_status.pop(series_id, None)
         except Exception as e:
             logger.error("Failed to persist season completion: %s", e)
 
@@ -1552,6 +1846,7 @@ class AppController(QObject):
             elif self._current_series_id:
                 self.load_seasons(self._current_series_id)
             self._main_window.show_toast(self.tr("Season download completed"), "info")
+        self._refresh_storage_usage()
 
     # =========================================================================
     # Pipeline

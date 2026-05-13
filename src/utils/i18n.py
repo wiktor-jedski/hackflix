@@ -166,6 +166,8 @@ def create_translation_source() -> dict[str, dict[str, str]]:
             "Filter cleared": "",
         },
         "AppController": {
+            "{percent}% used": "",
+            "Storage unavailable": "",
             "Player not implemented yet": "",
             "Starting download: %s": "",
             "Deleted: %s": "",

@@ -939,7 +939,7 @@ class TorrentService(QObject):
     def _match_episode_files(
         self, episodes: list[dict[str, Any]], video_files: list[tuple[Path, int]]
     ) -> dict[int, Path]:
-        """Match video files to episodes based on episode numbers.
+        """Match video files to episodes based on season and episode numbers.
 
         Matches files by looking for episode number patterns in filenames:
         - S01E05 or s01e05
@@ -949,7 +949,7 @@ class TorrentService(QObject):
         - .105. (season 1 episode 5)
 
         Args:
-            episodes: List of episode dicts from database with 'id' and 'episode_number'.
+            episodes: Episode dicts with id, episode_number, and optional season_number.
             video_files: List of (path, size) tuples for video files in torrent.
 
         Returns:
@@ -960,14 +960,20 @@ class TorrentService(QObject):
         for episode in episodes:
             episode_id = episode["id"]
             episode_num = episode["episode_number"]
+            season_num = episode.get("season_number")
 
             best_match: tuple[Path | None, int] = (None, 0)
 
             for file_path, file_size in video_files:
-                filename = file_path.name
-
-                # Extract episode number from filename
-                extracted_num = self._extract_episode_number(filename)
+                extracted_season, extracted_num = self._extract_season_episode(
+                    str(file_path)
+                )
+                if (
+                    season_num is not None
+                    and extracted_season is not None
+                    and extracted_season != season_num
+                ):
+                    continue
 
                 if extracted_num == episode_num and file_size > best_match[1]:
                     best_match = (file_path, file_size)
@@ -976,6 +982,31 @@ class TorrentService(QObject):
                 matches[episode_id] = best_match[0]
 
         return matches
+
+    def _extract_season_episode(self, path: str) -> tuple[int | None, int | None]:
+        """Extract season and episode numbers from a path or filename.
+
+        Args:
+            path: Torrent file path to parse.
+
+        Returns:
+            Tuple of (season number, episode number). Either value can be None.
+        """
+        patterns = [
+            # S01E05, s01e05
+            r"[Ss](\d{1,2})[Ee](\d{1,3})",
+            # 1x05, 1X05
+            r"(?:^|[.\s_/-])(\d{1,2})[xX](\d{1,3})(?:[.\s_/-]|$)",
+            # .105. (single digit season, two digit episode)
+            r"(?:^|[.\s_/-])(\d)(\d{2})(?:[.\s_/-]|$)",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, path)
+            if match:
+                return int(match.group(1)), int(match.group(2))
+
+        return None, self._extract_episode_number(Path(path).name)
 
     def _extract_episode_number(self, filename: str) -> int | None:
         """Extract episode number from a filename.
@@ -1151,11 +1182,14 @@ class TorrentService(QObject):
             self.download_error.emit(context.id, str(e))
             return False
 
-    def cancel_download(self, context: DownloadContext) -> bool:
+    def cancel_download(
+        self, context: DownloadContext, delete_files: bool = False
+    ) -> bool:
         """Cancel an active download.
 
         Args:
             context: Download context to cancel.
+            delete_files: Remove downloaded payload files owned by the torrent.
 
         Returns:
             True if download was cancelled.
@@ -1165,7 +1199,13 @@ class TorrentService(QObject):
             if context_id not in self._contexts:
                 return False
 
-            self._send_worker_command({"command": "cancel", "id": context_id})
+            self._send_worker_command(
+                {
+                    "command": "cancel",
+                    "id": context_id,
+                    "delete_files": delete_files,
+                }
+            )
             self._contexts.pop(context_id, None)
 
             if context.download_type == DownloadType.MOVIE:
@@ -1184,7 +1224,10 @@ class TorrentService(QObject):
         handle = self._handles[context_id]
         with self._session_lock:
             if handle.is_valid() and self._session:
-                self._session.remove_torrent(handle)
+                if delete_files:
+                    self._session.remove_torrent(handle, lt.options_t.delete_files)
+                else:
+                    self._session.remove_torrent(handle)
 
             self._unregister_handle(context_id)
 

@@ -114,6 +114,14 @@ class TestCreateTranslationSource:
         assert "Online" in status_strings
         assert "Offline" in status_strings
 
+    def test_app_controller_storage_strings(self) -> None:
+        """Test storage usage translation strings exist."""
+        source = create_translation_source()
+        controller_strings = source.get("AppController", {})
+
+        assert "{percent}% used" in controller_strings
+        assert "Storage unavailable" in controller_strings
+
     def test_search_overlay_strings(self) -> None:
         """Test SearchOverlay translation strings exist."""
         source = create_translation_source()

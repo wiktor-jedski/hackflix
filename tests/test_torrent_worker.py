@@ -150,3 +150,43 @@ def test_handle_command_processes_multiple_adds() -> None:
     assert handles == {16: movie_handle, -1: season_handle}
     assert handle_to_context == {"movie_hash": 16, "season_hash": -1}
     assert contexts == {16: "movie", -1: "season"}
+
+
+def test_handle_command_cancel_deletes_payload_files(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cancel commands can request libtorrent payload file deletion."""
+    session = mock.MagicMock()
+    handle = mock.MagicMock()
+    handle.info_hash.return_value = "movie_hash"
+    handles: dict[int, object] = {16: handle}
+    handle_to_context = {"movie_hash": 16}
+    contexts = {16: "movie"}
+    mock_lt = mock.MagicMock()
+    mock_lt.options_t.delete_files = "delete-files"
+
+    monkeypatch.setattr(torrent_worker, "lt", mock_lt)
+
+    keep_running = torrent_worker.handle_command(
+        {"command": "cancel", "id": 16, "delete_files": True},
+        session,
+        handles,
+        handle_to_context,
+        contexts,
+    )
+
+    assert keep_running is True
+    assert handles == {}
+    assert handle_to_context == {}
+    assert contexts == {}
+    session.remove_torrent.assert_called_once_with(handle, "delete-files")
+
+
+def test_remove_torrent_without_delete_files_uses_default_remove() -> None:
+    """Default torrent removal keeps payload files."""
+    session = mock.MagicMock()
+    handle = mock.MagicMock()
+
+    torrent_worker.remove_torrent(session, handle)
+
+    session.remove_torrent.assert_called_once_with(handle)

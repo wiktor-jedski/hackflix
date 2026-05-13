@@ -1,5 +1,7 @@
 """Tests for AppController."""
 
+import time
+
 import pytest
 from unittest.mock import MagicMock
 from pathlib import Path
@@ -100,6 +102,72 @@ class TestAppController:
         assert controller._get_cached_poster_path(
             "movie-1", "https://example.com/p.jpg"
         ) == str(poster)
+
+    def test_refresh_storage_usage_uses_media_library_filesystem(
+        self,
+        controller: AppController,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test storage usage is read from the media library disk."""
+        media_root = tmp_path / "media"
+        media_root.mkdir()
+        mock_main_window = MagicMock()
+        controller._main_window = mock_main_window
+        disk_usage = MagicMock(return_value=(100 * 1024**3, 60 * 1024**3, 40 * 1024**3))
+        monkeypatch.setattr(app_controller_module, "MEDIA_LIBRARY_PATH", media_root)
+        monkeypatch.setattr(app_controller_module.shutil, "disk_usage", disk_usage)
+
+        controller._refresh_storage_usage()
+
+        disk_usage.assert_called_once_with(media_root)
+        mock_main_window.set_storage_usage.assert_called_once_with("60% used")
+
+    def test_storage_usage_path_uses_existing_parent_for_missing_media_dir(
+        self,
+        controller: AppController,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test missing media directory still reports the intended parent disk."""
+        missing_media_dir = tmp_path / "mount" / "hackflix-library"
+        (tmp_path / "mount").mkdir()
+        monkeypatch.setattr(
+            app_controller_module, "MEDIA_LIBRARY_PATH", missing_media_dir
+        )
+
+        assert controller._storage_usage_path() == tmp_path / "mount"
+
+    def test_refresh_storage_usage_handles_disk_usage_error(
+        self,
+        controller: AppController,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test disk usage failures show a status message."""
+        mock_main_window = MagicMock()
+        controller._main_window = mock_main_window
+        monkeypatch.setattr(
+            app_controller_module.shutil,
+            "disk_usage",
+            MagicMock(side_effect=OSError("missing")),
+        )
+
+        controller._refresh_storage_usage()
+
+        mock_main_window.set_storage_usage.assert_called_once_with(
+            "Storage unavailable"
+        )
+
+    def test_refresh_storage_usage_throttled_skips_recent_refresh(
+        self, controller: AppController
+    ) -> None:
+        """Test throttled refresh skips updates inside the interval."""
+        controller._last_storage_refresh_at = time.monotonic()
+        controller._refresh_storage_usage = MagicMock()
+
+        controller._refresh_storage_usage_throttled()
+
+        controller._refresh_storage_usage.assert_not_called()
 
     def test_transition_to(self, controller: AppController) -> None:
         """Test state transition."""
@@ -315,6 +383,37 @@ class TestDeleteWorker:
         db_manager.reset_media_state.assert_called_once_with("movie-1")
         assert emissions == [("ok", "library", 0, 0)]
 
+    def test_run_resets_season_state_when_deleting_season(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify season deletion uses season-scoped files and refreshes seasons."""
+        media_root = tmp_path / "media"
+        cache_root = tmp_path / "cache"
+        media_root.mkdir()
+        cache_root.mkdir()
+        video_path = media_root / "episode.mp4"
+        video_path.write_bytes(b"video")
+        db_manager = MagicMock()
+        db_manager.get_season_files.return_value = [str(video_path)]
+
+        monkeypatch.setattr(app_controller_module, "MEDIA_LIBRARY_PATH", media_root)
+        monkeypatch.setattr(app_controller_module, "CACHE_DIR", cache_root)
+
+        worker = DeleteWorker(db_manager, "season", 7, "Season 1", None)
+        emissions: list[tuple[str, str, int, int]] = []
+        worker.delete_finished.connect(
+            lambda status, view, deleted, failed: emissions.append(
+                (status, view, deleted, failed)
+            )
+        )
+
+        worker.run()
+
+        db_manager.get_season_files.assert_called_once_with(7)
+        db_manager.reset_season_state.assert_called_once_with(7)
+        assert emissions == [("ok", "seasons", 1, 0)]
+        assert not video_path.exists()
+
     def test_delete_paths_reports_unlink_failure(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -381,7 +480,9 @@ class TestLibraryRootHandler:
         self, handler: LibraryRootHandler, controller: MagicMock
     ) -> None:
         """Test right action switches from Movies to Series."""
-        controller.main_window.library_view.get_current_tab.return_value = MediaTab.MOVIES
+        controller.main_window.library_view.get_current_tab.return_value = (
+            MediaTab.MOVIES
+        )
 
         result = handler.handle_action(Action.NAVIGATE_RIGHT, {})
 
@@ -395,7 +496,9 @@ class TestLibraryRootHandler:
         self, handler: LibraryRootHandler, controller: MagicMock
     ) -> None:
         """Test right action does not change tab from Series."""
-        controller.main_window.library_view.get_current_tab.return_value = MediaTab.SERIES
+        controller.main_window.library_view.get_current_tab.return_value = (
+            MediaTab.SERIES
+        )
 
         result = handler.handle_action(Action.NAVIGATE_RIGHT, {})
 
@@ -407,7 +510,9 @@ class TestLibraryRootHandler:
         self, handler: LibraryRootHandler, controller: MagicMock
     ) -> None:
         """Test left action switches from Series to Movies."""
-        controller.main_window.library_view.get_current_tab.return_value = MediaTab.SERIES
+        controller.main_window.library_view.get_current_tab.return_value = (
+            MediaTab.SERIES
+        )
 
         result = handler.handle_action(Action.NAVIGATE_LEFT, {})
 
@@ -421,7 +526,9 @@ class TestLibraryRootHandler:
         self, handler: LibraryRootHandler, controller: MagicMock
     ) -> None:
         """Test left action does not change tab from Movies."""
-        controller.main_window.library_view.get_current_tab.return_value = MediaTab.MOVIES
+        controller.main_window.library_view.get_current_tab.return_value = (
+            MediaTab.MOVIES
+        )
 
         result = handler.handle_action(Action.NAVIGATE_LEFT, {})
 
@@ -507,6 +614,14 @@ class TestSeriesDrilldownSeasonsHandler:
         result = handler.handle_action(Action.HELP, {})
         assert result is True
         controller.show_help.assert_called_once()
+
+    def test_delete_available(
+        self, handler: SeriesDrilldownSeasonsHandler, controller: MagicMock
+    ) -> None:
+        """Test delete action is available in seasons view."""
+        result = handler.handle_action(Action.DELETE, {})
+        assert result is True
+        controller.delete_selected.assert_called_once()
 
 
 class TestSeriesDrilldownEpisodesHandler:
@@ -1253,6 +1368,326 @@ class TestAppControllerAdvanced:
         assert "Starting download" in mock_main_window.show_toast.call_args[0][0]
         mock_torrent.add_magnet.assert_called_once()
 
+    def test_activate_selected_episode_prefers_episode_magnet(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+    ) -> None:
+        """Test episode activation downloads episode magnet before broader packs."""
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "series-episode-magnet",
+                        "type": "series",
+                        "title": "Series",
+                        "magnet": "magnet:?series",
+                        "seasons": [
+                            {
+                                "season_number": 1,
+                                "magnet": "magnet:?season",
+                                "episodes": [
+                                    {
+                                        "number": 1,
+                                        "title": "Pilot",
+                                        "magnet": "magnet:?episode",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+        season = db_manager.get_seasons("series-episode-magnet")[0]
+        episode = db_manager.get_episodes(season["id"])[0]
+        controller._main_window = mock_main_window
+        controller._torrent_service = MagicMock()
+        controller._torrent_service.add_magnet.return_value = True
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": episode["id"],
+            "file_id": episode["id"],
+            "type": "episode",
+            "title": "Pilot",
+            "state": DownloadState.PENDING.value,
+        }
+
+        controller.activate_selected()
+
+        context, magnet = controller._torrent_service.add_magnet.call_args.args
+        assert context.download_type.value == "movie"
+        assert context.id == episode["id"]
+        assert magnet == "magnet:?episode"
+        mock_main_window.library_view.update_item_by_file_id.assert_called_once()
+        mock_main_window.library_view.update_all_items.assert_not_called()
+
+    def test_activate_selected_episode_falls_back_to_season_magnet(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+    ) -> None:
+        """Test episode activation uses season magnet when episode has none."""
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "series-season-magnet",
+                        "type": "series",
+                        "title": "Series",
+                        "magnet": "magnet:?series",
+                        "seasons": [
+                            {
+                                "season_number": 1,
+                                "magnet": "magnet:?season",
+                                "episodes": [{"number": 1, "title": "Pilot"}],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+        season = db_manager.get_seasons("series-season-magnet")[0]
+        episode = db_manager.get_episodes(season["id"])[0]
+        controller._main_window = mock_main_window
+        controller._torrent_service = MagicMock()
+        controller._torrent_service.add_magnet.return_value = True
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": episode["id"],
+            "file_id": episode["id"],
+            "type": "episode",
+            "title": "Pilot",
+            "state": DownloadState.PENDING.value,
+        }
+
+        controller.activate_selected()
+
+        context, magnet = controller._torrent_service.add_magnet.call_args.args
+        assert context.download_type.value == "season"
+        assert context.id == season["id"]
+        assert magnet == "magnet:?season"
+        assert (
+            controller._pending_episode_pipeline_by_season[season["id"]]
+            == episode["id"]
+        )
+        mock_main_window.library_view.update_all_items.assert_called_once()
+
+    def test_activate_selected_episode_falls_back_to_series_magnet(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+    ) -> None:
+        """Test episode activation uses series magnet when narrower links are absent."""
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "series-only-magnet",
+                        "type": "series",
+                        "title": "Series",
+                        "magnet": "magnet:?series",
+                        "seasons": [
+                            {
+                                "season_number": 1,
+                                "episodes": [{"number": 1, "title": "Pilot"}],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+        season = db_manager.get_seasons("series-only-magnet")[0]
+        episode = db_manager.get_episodes(season["id"])[0]
+        controller._main_window = mock_main_window
+        controller._torrent_service = MagicMock()
+        controller._torrent_service.add_magnet.return_value = True
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": episode["id"],
+            "file_id": episode["id"],
+            "type": "episode",
+            "title": "Pilot",
+            "state": DownloadState.PENDING.value,
+        }
+
+        controller.activate_selected()
+
+        context, magnet = controller._torrent_service.add_magnet.call_args.args
+        assert context.download_type.value == "season"
+        assert context.id == season["id"]
+        assert magnet == "magnet:?series"
+
+    def test_activate_selected_episode_skips_duplicate_active_series_download(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+    ) -> None:
+        """Test active series magnet is not added again from another season."""
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "series-duplicate",
+                        "type": "series",
+                        "title": "Series",
+                        "magnet": "magnet:?series",
+                        "seasons": [
+                            {
+                                "season_number": 1,
+                                "episodes": [{"number": 1, "title": "S1 Pilot"}],
+                            },
+                            {
+                                "season_number": 2,
+                                "episodes": [{"number": 1, "title": "S2 Pilot"}],
+                            },
+                        ],
+                    }
+                ]
+            }
+        )
+        seasons = db_manager.get_seasons("series-duplicate")
+        episode_s1 = db_manager.get_episodes(seasons[0]["id"])[0]
+        episode_s2 = db_manager.get_episodes(seasons[1]["id"])[0]
+        controller._main_window = mock_main_window
+        controller._current_series_id = "series-duplicate"
+        controller._torrent_service = MagicMock()
+        controller._torrent_service.add_magnet.return_value = True
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": episode_s1["id"],
+            "file_id": episode_s1["id"],
+            "type": "episode",
+            "title": "S1 Pilot",
+            "state": DownloadState.PENDING.value,
+        }
+
+        controller.activate_selected()
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": episode_s2["id"],
+            "file_id": episode_s2["id"],
+            "type": "episode",
+            "title": "S2 Pilot",
+            "state": DownloadState.PENDING.value,
+        }
+        controller.activate_selected()
+
+        controller._torrent_service.add_magnet.assert_called_once()
+        assert mock_main_window.library_view.update_all_items.call_count == 2
+        assert "series-duplicate" in controller._active_series_download_contexts
+
+    def test_load_episodes_applies_active_series_download_overlay(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+    ) -> None:
+        """Test episodes in any season show active full-series download state."""
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "series-overlay",
+                        "type": "series",
+                        "title": "Series",
+                        "magnet": "magnet:?series",
+                        "seasons": [
+                            {
+                                "season_number": 1,
+                                "episodes": [{"number": 1, "title": "S1 Pilot"}],
+                            },
+                            {
+                                "season_number": 2,
+                                "episodes": [{"number": 1, "title": "S2 Pilot"}],
+                            },
+                        ],
+                    }
+                ]
+            }
+        )
+        seasons = db_manager.get_seasons("series-overlay")
+        controller._main_window = mock_main_window
+        controller._series_download_status["series-overlay"] = {
+            "state": DownloadState.DOWNLOADING.value,
+            "download_progress": 42,
+        }
+
+        controller.load_episodes(seasons[1]["id"])
+
+        items = mock_main_window.library_view.set_items.call_args.args[0]
+        assert items[0]["state"] == DownloadState.DOWNLOADING.value
+        assert items[0]["download_progress"] == 42
+
+    def test_load_seasons_applies_active_series_download_overlay(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_main_window: MagicMock,
+    ) -> None:
+        """Test all season rows show active full-series download state."""
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "series-season-overlay",
+                        "type": "series",
+                        "title": "Series",
+                        "magnet": "magnet:?series",
+                        "seasons": [
+                            {"season_number": 1, "episodes": [{"number": 1}]},
+                            {"season_number": 2, "episodes": [{"number": 1}]},
+                        ],
+                    }
+                ]
+            }
+        )
+        controller._main_window = mock_main_window
+        controller._series_download_status["series-season-overlay"] = {
+            "state": DownloadState.QUEUED.value,
+            "download_progress": 0,
+        }
+
+        controller.load_seasons("series-season-overlay")
+
+        items = mock_main_window.library_view.set_items.call_args.args[0]
+        assert [item["state"] for item in items] == [
+            DownloadState.QUEUED.value,
+            DownloadState.QUEUED.value,
+        ]
+
+    def test_resolve_season_download_falls_back_to_series_magnet(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+    ) -> None:
+        """Test season download uses series magnet when season has none."""
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "series-season-fallback",
+                        "type": "series",
+                        "title": "Series",
+                        "magnet": "magnet:?series",
+                        "seasons": [
+                            {
+                                "season_number": 1,
+                                "episodes": [{"number": 1, "title": "Pilot"}],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+        season = db_manager.get_seasons("series-season-fallback")[0]
+
+        selection = controller._resolve_season_download_selection(season)
+
+        assert selection is not None
+        assert selection.context_type == "season"
+        assert selection.context_id == season["id"]
+        assert selection.magnet == "magnet:?series"
+
     def test_activate_selected_no_selection(
         self, controller: AppController, mock_main_window: MagicMock
     ) -> None:
@@ -1382,6 +1817,92 @@ class TestAppControllerAdvanced:
 
         mock_main_window.show_confirm.assert_not_called()
         mock_main_window.show_toast.assert_called_once()
+
+    def test_delete_selected_downloading_movie_cancels_torrent(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test delete_selected cancels active movie download before deleting."""
+        from src.services.torrent_service import DownloadType
+
+        controller._main_window = mock_main_window
+        controller._torrent_service = MagicMock()
+        controller._torrent_service.cancel_download.return_value = True
+        controller._active_download_types[42] = DownloadType.MOVIE.value
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": "movie-1",
+            "file_id": 42,
+            "type": "movie",
+            "title": "Test Movie",
+            "state": DownloadState.DOWNLOADING.value,
+        }
+        mock_main_window.show_confirm.return_value = True
+
+        controller.delete_selected()
+
+        context = controller._torrent_service.cancel_download.call_args.args[0]
+        assert context.download_type == DownloadType.MOVIE
+        assert context.id == 42
+        controller._torrent_service.cancel_download.assert_called_once_with(
+            context, delete_files=True
+        )
+        assert 42 not in controller._active_download_types
+
+    def test_delete_selected_downloading_season_cancels_torrent(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test delete_selected cancels active season download before deleting."""
+        from src.services.torrent_service import DownloadType
+
+        controller._main_window = mock_main_window
+        controller._torrent_service = MagicMock()
+        controller._torrent_service.cancel_download.return_value = True
+        controller._active_download_types[7] = DownloadType.SEASON.value
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": 7,
+            "type": "season",
+            "title": "Season 1",
+            "state": DownloadState.QUEUED.value,
+        }
+        mock_main_window.show_confirm.return_value = True
+
+        controller.delete_selected()
+
+        context = controller._torrent_service.cancel_download.call_args.args[0]
+        assert context.download_type == DownloadType.SEASON
+        assert context.id == 7
+        controller._torrent_service.cancel_download.assert_called_once_with(
+            context, delete_files=True
+        )
+        assert 7 not in controller._active_download_types
+
+    def test_delete_selected_allows_series_without_item_state(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test delete_selected allows series rows that do not expose state."""
+        controller._main_window = mock_main_window
+        mock_main_window.library_view.get_selected_item.return_value = {
+            "id": "series-1",
+            "type": "series",
+            "title": "Test Series",
+        }
+        mock_main_window.show_confirm.return_value = True
+
+        controller.delete_selected()
+
+        mock_main_window.show_confirm.assert_called_once()
+        mock_main_window.show_toast.assert_called()
+
+    def test_delete_finished_reloads_seasons_view(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test season deletion returns to the season list."""
+        controller._main_window = mock_main_window
+        controller._current_series_id = "series-1"
+        controller.load_seasons = MagicMock()
+
+        controller._on_delete_finished("ok", "seasons", 2, 0)
+
+        controller.load_seasons.assert_called_once_with("series-1")
 
     def test_delete_selected_no_selection(
         self, controller: AppController, mock_main_window: MagicMock
@@ -1856,6 +2377,14 @@ class TestSeriesDrilldownSeasonsHandlerFull:
         result = handler.handle_action(Action.QUIT, {})
         assert result is True
         controller.quit_application.assert_called_once()
+
+    def test_delete(
+        self, handler: SeriesDrilldownSeasonsHandler, controller: MagicMock
+    ) -> None:
+        """Test delete action."""
+        result = handler.handle_action(Action.DELETE, {})
+        assert result is True
+        controller.delete_selected.assert_called_once()
 
     def test_unhandled(self, handler: SeriesDrilldownSeasonsHandler) -> None:
         """Test unhandled action."""
@@ -2637,7 +3166,9 @@ class TestAppControllerPlayerMethods:
             forward=False, time_text="0:00 / 0:00"
         )
 
-    def test_player_rewind_to_start_no_services(self, controller: AppController) -> None:
+    def test_player_rewind_to_start_no_services(
+        self, controller: AppController
+    ) -> None:
         """Test player_rewind_to_start returns early without services."""
         controller.player_rewind_to_start()
         # Should not raise

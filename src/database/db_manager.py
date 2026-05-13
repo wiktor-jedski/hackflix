@@ -114,20 +114,23 @@ class DatabaseManager:
                 item_type = item["type"]
                 title = item["title"]
                 genres = item.get("genres")
+                magnet = item.get("magnet")
                 poster_url = item.get("poster_url")
 
                 # Upsert media_item
                 cursor.execute(
                     """
-                    INSERT INTO media_items (id, type, title, genres, poster_path, last_updated)
-                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    INSERT INTO media_items
+                    (id, type, title, genres, magnet_link, poster_path, last_updated)
+                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(id) DO UPDATE SET
                         title = excluded.title,
                         genres = excluded.genres,
+                        magnet_link = excluded.magnet_link,
                         poster_path = excluded.poster_path,
                         last_updated = CURRENT_TIMESTAMP
                     """,
-                    (item_id, item_type, title, genres, poster_url),
+                    (item_id, item_type, title, genres, magnet, poster_url),
                 )
 
                 if item_type == "movie":
@@ -226,6 +229,7 @@ class DatabaseManager:
                 episode_title = episode.get("title")
                 subtitle_id = episode.get("subtitle_id")
                 needs_translation = episode.get("translation_needed", False)
+                magnet = episode.get("magnet")
 
                 cursor.execute(
                     """
@@ -242,18 +246,25 @@ class DatabaseManager:
                         UPDATE video_files SET
                             episode_title = ?,
                             subtitle_id = ?,
-                            needs_translation = ?
+                            needs_translation = ?,
+                            magnet_link = ?
                         WHERE id = ?
                         """,
-                        (episode_title, subtitle_id, needs_translation, existing["id"]),
+                        (
+                            episode_title,
+                            subtitle_id,
+                            needs_translation,
+                            magnet,
+                            existing["id"],
+                        ),
                     )
                 else:
                     cursor.execute(
                         """
                         INSERT INTO video_files
                         (media_item_id, season_id, episode_number, episode_title,
-                         subtitle_id, needs_translation)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                         subtitle_id, needs_translation, magnet_link)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             item_id,
@@ -262,8 +273,42 @@ class DatabaseManager:
                             episode_title,
                             subtitle_id,
                             needs_translation,
+                            magnet,
                         ),
                     )
+
+    def get_media_item(self, media_id: str) -> dict[str, Any] | None:
+        """Get a single media item by ID.
+
+        Args:
+            media_id: UUID of the media item.
+
+        Returns:
+            Media item dictionary or None if not found.
+
+        Raises:
+            sqlite3.Error: If query fails.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                SELECT id, type, title, genres, magnet_link, poster_path,
+                       created_at, last_updated
+                FROM media_items
+                WHERE id = ?
+                """,
+                (media_id,),
+            )
+
+            row = cursor.fetchone()
+            self._close_connection(conn)
+            return dict(row) if row else None
+        except sqlite3.Error as e:
+            logger.error("Failed to get media item: %s", e)
+            raise
 
     def get_library_items(
         self, media_type: str, search_filter: str | None = None
@@ -462,9 +507,11 @@ class DatabaseManager:
 
             cursor.execute(
                 """
-                SELECT * FROM video_files
-                WHERE season_id = ?
-                ORDER BY episode_number
+                SELECT vf.*, s.season_number
+                FROM video_files vf
+                JOIN seasons s ON vf.season_id = s.id
+                WHERE vf.season_id = ?
+                ORDER BY vf.episode_number
                 """,
                 (season_id,),
             )
@@ -985,6 +1032,47 @@ class DatabaseManager:
             logger.error("Failed to get media files: %s", e)
             raise
 
+    def get_season_files(self, season_id: int) -> list[str]:
+        """Get all file paths associated with a season for deletion.
+
+        Args:
+            season_id: ID of the season.
+
+        Returns:
+            List of file paths to delete.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            file_paths: list[str] = []
+
+            cursor.execute(
+                "SELECT file_path FROM video_files WHERE season_id = ?",
+                (season_id,),
+            )
+            for row in cursor.fetchall():
+                if row[0]:
+                    file_paths.append(row[0])
+
+            cursor.execute(
+                """
+                SELECT s.file_path FROM subtitles s
+                JOIN video_files vf ON s.video_file_id = vf.id
+                WHERE vf.season_id = ?
+                """,
+                (season_id,),
+            )
+            for row in cursor.fetchall():
+                if row[0]:
+                    file_paths.append(row[0])
+
+            self._close_connection(conn)
+            return file_paths
+        except sqlite3.Error as e:
+            logger.error("Failed to get season files: %s", e)
+            raise
+
     def reset_media_state(self, media_id: str) -> None:
         """Reset download and pipeline state for all video files of a media item.
 
@@ -1010,12 +1098,61 @@ class DatabaseManager:
                 """,
                 (DownloadState.PENDING.value, PipelineState.NONE.value, media_id),
             )
+            cursor.execute(
+                """
+                UPDATE seasons
+                SET state = ?, download_progress = 0
+                WHERE media_item_id = ?
+                """,
+                (DownloadState.PENDING.value, media_id),
+            )
 
             conn.commit()
             self._close_connection(conn)
             logger.debug("Reset state for media item %s", media_id)
         except sqlite3.Error as e:
             logger.error("Failed to reset media state: %s", e)
+            raise
+
+    def reset_season_state(self, season_id: int) -> None:
+        """Reset download and pipeline state for all video files of a season.
+
+        Called after deleting files from disk to reset the state to PENDING.
+
+        Args:
+            season_id: ID of the season.
+
+        Raises:
+            sqlite3.Error: If update fails.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                UPDATE video_files
+                SET state = ?, pipeline_state = ?, file_path = NULL,
+                    download_progress = 0, resume_position_seconds = 0,
+                    watched_at = NULL
+                WHERE season_id = ?
+                """,
+                (DownloadState.PENDING.value, PipelineState.NONE.value, season_id),
+            )
+            cursor.execute(
+                """
+                UPDATE seasons
+                SET state = ?, download_progress = 0
+                WHERE id = ?
+                """,
+                (DownloadState.PENDING.value, season_id),
+            )
+
+            conn.commit()
+            self._close_connection(conn)
+            logger.debug("Reset state for season %d", season_id)
+        except sqlite3.Error as e:
+            logger.error("Failed to reset season state: %s", e)
             raise
 
     def reset_video_file_state(self, file_id: int) -> None:

@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS media_items (
     type TEXT NOT NULL CHECK(type IN ('movie', 'series')),
     title TEXT NOT NULL,
     genres TEXT,
+    magnet_link TEXT,
     poster_path TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -115,6 +116,12 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     if "watched_at" not in columns:
         logger.info("Migrating: Adding video_files.watched_at")
         cursor.execute("ALTER TABLE video_files ADD COLUMN watched_at TIMESTAMP")
+
+    cursor.execute("PRAGMA table_info(media_items)")
+    media_columns = {row[1] for row in cursor.fetchall()}
+    if "magnet_link" not in media_columns:
+        logger.info("Migrating: Adding media_items.magnet_link")
+        cursor.execute("ALTER TABLE media_items ADD COLUMN magnet_link TEXT")
 
     # Migration: Convert removed voiceover pipeline states to SUBS_READY
     cursor.execute(

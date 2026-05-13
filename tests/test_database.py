@@ -225,6 +225,9 @@ class TestDatabaseManager:
         items = db_manager.get_library_items("series")
         assert len(items) == 1
         assert items[0]["title"] == "Open Source Show"
+        media_item = db_manager.get_media_item("series-uuid-1")
+        assert media_item is not None
+        assert media_item["magnet_link"] is None
 
         # Verify seasons exist
         seasons = db_manager.get_seasons("series-uuid-1")
@@ -237,10 +240,53 @@ class TestDatabaseManager:
         assert len(episodes_s1) == 2
         assert episodes_s1[0]["episode_title"] == "The Beginning"
         assert episodes_s1[1]["episode_title"] == "The Middle"
+        assert episodes_s1[0]["magnet_link"] is None
 
         episodes_s2 = db_manager.get_episodes(seasons[1]["id"])
         assert len(episodes_s2) == 1
         assert episodes_s2[0]["episode_title"] == "New Start"
+
+    def test_upsert_content_series_and_episode_magnets(
+        self, db_manager: DatabaseManager
+    ) -> None:
+        """Test series, season, and episode magnet links are stored."""
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "series-magnets",
+                        "type": "series",
+                        "title": "Magnet Series",
+                        "magnet": "magnet:?series",
+                        "seasons": [
+                            {
+                                "season_number": 1,
+                                "magnet": "magnet:?season",
+                                "episodes": [
+                                    {
+                                        "number": 1,
+                                        "title": "Pilot",
+                                        "magnet": "magnet:?episode",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+        media_item = db_manager.get_media_item("series-magnets")
+        assert media_item is not None
+        assert media_item["magnet_link"] == "magnet:?series"
+        season = db_manager.get_seasons("series-magnets")[0]
+        assert season["magnet_link"] == "magnet:?season"
+        episode = db_manager.get_episodes(season["id"])[0]
+        assert episode["magnet_link"] == "magnet:?episode"
+
+    def test_get_media_item_missing(self, db_manager: DatabaseManager) -> None:
+        """Test get_media_item returns None for nonexistent media."""
+        assert db_manager.get_media_item("missing") is None
 
     def test_upsert_content_updates_existing_movie(
         self, db_manager: DatabaseManager
@@ -934,6 +980,14 @@ class TestDatabaseManagerErrorHandling:
             with pytest.raises(sqlite3.Error, match="Query failed"):
                 db_manager.get_seasons("test-id")
 
+    def test_get_media_item_error(self, db_manager: DatabaseManager) -> None:
+        """Test get_media_item raises on sqlite3 error."""
+        with mock.patch.object(db_manager, "_get_connection") as mock_conn:
+            mock_conn.side_effect = sqlite3.Error("Query failed")
+
+            with pytest.raises(sqlite3.Error, match="Query failed"):
+                db_manager.get_media_item("test-id")
+
     def test_get_episodes_error(self, db_manager: DatabaseManager) -> None:
         """Test get_episodes raises on sqlite3 error."""
         with mock.patch.object(db_manager, "_get_connection") as mock_conn:
@@ -1048,6 +1102,22 @@ class TestDatabaseManagerErrorHandling:
             with pytest.raises(sqlite3.Error, match="Update failed"):
                 db_manager.reset_video_file_state(1)
 
+    def test_get_season_files_error(self, db_manager: DatabaseManager) -> None:
+        """Test get_season_files raises on sqlite3 error."""
+        with mock.patch.object(db_manager, "_get_connection") as mock_conn:
+            mock_conn.side_effect = sqlite3.Error("Query failed")
+
+            with pytest.raises(sqlite3.Error, match="Query failed"):
+                db_manager.get_season_files(1)
+
+    def test_reset_season_state_error(self, db_manager: DatabaseManager) -> None:
+        """Test reset_season_state raises on sqlite3 error."""
+        with mock.patch.object(db_manager, "_get_connection") as mock_conn:
+            mock_conn.side_effect = sqlite3.Error("Update failed")
+
+            with pytest.raises(sqlite3.Error, match="Update failed"):
+                db_manager.reset_season_state(1)
+
 
 class TestResetState:
     """Tests for reset state methods."""
@@ -1096,6 +1166,141 @@ class TestResetState:
         assert video["download_progress"] == 0
         assert video["resume_position_seconds"] == 0
         assert video["watched_at"] is None
+
+    def test_get_season_files_includes_episode_and_subtitle_paths(
+        self, db_manager: DatabaseManager
+    ) -> None:
+        """Test season-scoped deletion paths include videos and subtitles."""
+        content = {
+            "items": [
+                {
+                    "id": "series-test",
+                    "type": "series",
+                    "title": "Test Series",
+                    "seasons": [
+                        {
+                            "season_number": 1,
+                            "magnet": "magnet:?season1",
+                            "episodes": [
+                                {"number": 1, "title": "Ep1", "subtitle_id": None}
+                            ],
+                        },
+                        {
+                            "season_number": 2,
+                            "magnet": "magnet:?season2",
+                            "episodes": [
+                                {"number": 1, "title": "Ep1", "subtitle_id": None}
+                            ],
+                        },
+                    ],
+                }
+            ]
+        }
+        db_manager.upsert_content(content)
+        season_id = db_manager.get_seasons("series-test")[0]["id"]
+        other_season_id = db_manager.get_seasons("series-test")[1]["id"]
+        episode = db_manager.get_episodes(season_id)[0]
+        other_episode = db_manager.get_episodes(other_season_id)[0]
+
+        db_manager.update_file_path(episode["id"], "/path/to/s01e01.mp4")
+        db_manager.add_subtitle(episode["id"], "en", "/path/to/s01e01.srt")
+        db_manager.update_file_path(other_episode["id"], "/path/to/s02e01.mp4")
+
+        assert db_manager.get_season_files(season_id) == [
+            "/path/to/s01e01.mp4",
+            "/path/to/s01e01.srt",
+        ]
+
+    def test_reset_media_state_resets_series_seasons(
+        self, db_manager: DatabaseManager
+    ) -> None:
+        """Test resetting a series also resets season rows."""
+        content = {
+            "items": [
+                {
+                    "id": "series-test",
+                    "type": "series",
+                    "title": "Test Series",
+                    "seasons": [
+                        {
+                            "season_number": 1,
+                            "magnet": "magnet:?season1",
+                            "episodes": [
+                                {"number": 1, "title": "Ep1", "subtitle_id": None}
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        db_manager.upsert_content(content)
+        season_id = db_manager.get_seasons("series-test")[0]["id"]
+        db_manager.update_season_state(season_id, DownloadState.COMPLETED, 100)
+
+        db_manager.reset_media_state("series-test")
+
+        season = db_manager.get_season(season_id)
+        assert season is not None
+        assert season["state"] == "PENDING"
+        assert season["download_progress"] == 0
+
+    def test_reset_season_state(self, db_manager: DatabaseManager) -> None:
+        """Test resetting one season leaves other seasons untouched."""
+        content = {
+            "items": [
+                {
+                    "id": "series-test",
+                    "type": "series",
+                    "title": "Test Series",
+                    "seasons": [
+                        {
+                            "season_number": 1,
+                            "magnet": "magnet:?season1",
+                            "episodes": [
+                                {"number": 1, "title": "Ep1", "subtitle_id": None}
+                            ],
+                        },
+                        {
+                            "season_number": 2,
+                            "magnet": "magnet:?season2",
+                            "episodes": [
+                                {"number": 1, "title": "Ep1", "subtitle_id": None}
+                            ],
+                        },
+                    ],
+                }
+            ]
+        }
+        db_manager.upsert_content(content)
+        seasons = db_manager.get_seasons("series-test")
+        season_id = seasons[0]["id"]
+        other_season_id = seasons[1]["id"]
+        episode = db_manager.get_episodes(season_id)[0]
+        other_episode = db_manager.get_episodes(other_season_id)[0]
+        db_manager.update_file_state(episode["id"], DownloadState.COMPLETED, 100)
+        db_manager.update_file_path(episode["id"], "/path/to/s01e01.mp4")
+        db_manager.update_pipeline_state(episode["id"], PipelineState.SUBS_READY)
+        db_manager.update_season_state(season_id, DownloadState.COMPLETED, 100)
+        db_manager.update_file_state(other_episode["id"], DownloadState.COMPLETED, 100)
+        db_manager.update_file_path(other_episode["id"], "/path/to/s02e01.mp4")
+        db_manager.update_season_state(other_season_id, DownloadState.COMPLETED, 100)
+
+        db_manager.reset_season_state(season_id)
+
+        episode = db_manager.get_video_file(episode["id"])
+        other_episode = db_manager.get_video_file(other_episode["id"])
+        season = db_manager.get_season(season_id)
+        other_season = db_manager.get_season(other_season_id)
+        assert episode["state"] == "PENDING"
+        assert episode["file_path"] is None
+        assert episode["pipeline_state"] == "NONE"
+        assert season is not None
+        assert season["state"] == "PENDING"
+        assert season["download_progress"] == 0
+        assert other_episode["state"] == "COMPLETED"
+        assert other_episode["file_path"] == "/path/to/s02e01.mp4"
+        assert other_season is not None
+        assert other_season["state"] == "COMPLETED"
 
     def test_reset_video_file_state(self, db_manager: DatabaseManager) -> None:
         """Test resetting individual video file state."""

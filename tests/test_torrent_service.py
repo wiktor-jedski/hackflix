@@ -1380,6 +1380,61 @@ class TestTorrentServiceCancelDownload:
         assert 101 not in service._contexts
         service._session.remove_torrent.assert_called_once_with(mock_handle)
 
+    def test_cancel_download_movie_success_deletes_payload_files(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Test cancel_download can request payload file deletion."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(db_manager=db_manager)
+        service._use_process_backend = False
+
+        mock_handle = mock.MagicMock()
+        mock_handle.is_valid.return_value = True
+        mock_handle.info_hash.return_value = "abc123"
+
+        context = DownloadContext(DownloadType.MOVIE, 101)
+        service._handles = {101: mock_handle}
+        service._contexts = {101: context}
+        service._handle_to_context = {"abc123": 101}
+        service._session = mock.MagicMock()
+
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            result = service.cancel_download(context, delete_files=True)
+
+        assert result is True
+        service._session.remove_torrent.assert_called_once_with(
+            mock_handle, mock_libtorrent_module.options_t.delete_files
+        )
+
+    def test_cancel_download_process_backend_sends_delete_files(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Test process backend receives delete_files on cancel."""
+        from src.services.torrent_service import (
+            DownloadContext,
+            DownloadType,
+            TorrentService,
+        )
+
+        service = TorrentService(db_manager=db_manager)
+        service._use_process_backend = True
+        context = DownloadContext(DownloadType.MOVIE, 101)
+        service._contexts = {101: context}
+        service._send_worker_command = mock.MagicMock()
+
+        with mock.patch.object(service._db_manager, "update_file_state"):
+            result = service.cancel_download(context, delete_files=True)
+
+        assert result is True
+        service._send_worker_command.assert_called_once_with(
+            {"command": "cancel", "id": 101, "delete_files": True}
+        )
+
     def test_cancel_download_season_success(
         self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
     ) -> None:
@@ -2067,6 +2122,22 @@ class TestDownloadStateCancelAndRetry:
         assert service._extract_episode_number("random_file.mkv") is None
         assert service._extract_episode_number("movie2024.mkv") is None
 
+    def test_extract_season_episode(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Test _extract_season_episode parses common series pack names."""
+        from src.services.torrent_service import TorrentService
+
+        service = TorrentService(db_manager=db_manager)
+
+        assert service._extract_season_episode("/downloads/Show.S02E01.mkv") == (2, 1)
+        assert service._extract_season_episode("/downloads/Show/2x12.mkv") == (2, 12)
+        assert service._extract_season_episode("/downloads/Show.212.mkv") == (2, 12)
+        assert service._extract_season_episode("/downloads/Show.Episode.7.mkv") == (
+            None,
+            7,
+        )
+
     def test_match_episode_files_success(
         self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
     ) -> None:
@@ -2140,6 +2211,50 @@ class TestDownloadStateCancelAndRetry:
 
         assert len(matches) == 1
         assert matches[1] == Path("/downloads/Show.S01E01.1080p.mkv")
+
+    def test_match_episode_files_filters_wrong_season(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Test whole-series torrents do not match same-number episodes by size."""
+        from src.services.torrent_service import TorrentService
+
+        service = TorrentService(db_manager=db_manager)
+
+        episodes = [{"id": 201, "season_number": 2, "episode_number": 1}]
+        video_files = [
+            (Path("/downloads/Show.S01/Show.S01E01.mkv"), 5000),
+            (Path("/downloads/Show.S02/Show.S02E01.mkv"), 1000),
+        ]
+
+        matches = service._match_episode_files(episodes, video_files)
+
+        assert matches == {201: Path("/downloads/Show.S02/Show.S02E01.mkv")}
+
+    def test_get_episodes_includes_season_number(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Test DB episode rows include season_number for torrent matching."""
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "series-season-number",
+                        "type": "series",
+                        "title": "Series",
+                        "seasons": [
+                            {
+                                "season_number": 2,
+                                "episodes": [{"number": 1, "title": "Pilot"}],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+        season = db_manager.get_seasons("series-season-number")[0]
+        episode = db_manager.get_episodes(season["id"])[0]
+
+        assert episode["season_number"] == 2
 
     def test_complete_worker_season_download_emits_episode_completions(
         self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
@@ -3124,7 +3239,9 @@ class TestTorrentServiceProcessBackendLifecycle:
         service._drain_worker_events()
 
         assert service._worker_ready is True
-        fake_process.stdin.write.assert_called_once_with('{"command": "add", "id": 7}\n')
+        fake_process.stdin.write.assert_called_once_with(
+            '{"command": "add", "id": 7}\n'
+        )
         fake_process.stdin.flush.assert_called_once()
         assert service._pending_commands == []
 

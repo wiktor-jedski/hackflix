@@ -96,6 +96,15 @@ def get_video_files(handle: Any) -> list[dict[str, Any]]:
     return video_files
 
 
+def remove_torrent(session: Any, handle: Any, delete_files: bool = False) -> None:
+    """Remove a torrent, optionally deleting downloaded payload files."""
+    if delete_files:
+        session.remove_torrent(handle, lt.options_t.delete_files)
+        return
+
+    session.remove_torrent(handle)
+
+
 def handle_command(
     command: dict[str, Any],
     session: Any,
@@ -143,7 +152,7 @@ def handle_command(
         contexts.pop(context_id, None)
         if handle is not None:
             handle_to_context.pop(str(handle.info_hash()), None)
-            session.remove_torrent(handle)
+            remove_torrent(session, handle, bool(command.get("delete_files", False)))
 
     return True
 
