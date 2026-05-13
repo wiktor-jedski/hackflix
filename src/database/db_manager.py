@@ -523,6 +523,78 @@ class DatabaseManager:
             logger.error("Failed to get episodes: %s", e)
             raise
 
+    def get_series_episodes(self, media_id: str) -> list[dict[str, Any]]:
+        """Get all episodes for a series across all seasons.
+
+        Args:
+            media_id: UUID of the series media item.
+
+        Returns:
+            List of video file dictionaries including season_number.
+
+        Raises:
+            sqlite3.Error: If query fails.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                SELECT vf.*, s.season_number
+                FROM video_files vf
+                JOIN seasons s ON vf.season_id = s.id
+                WHERE vf.media_item_id = ?
+                ORDER BY s.season_number, vf.episode_number
+                """,
+                (media_id,),
+            )
+
+            rows = cursor.fetchall()
+            self._close_connection(conn)
+            return [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            logger.error("Failed to get series episodes: %s", e)
+            raise
+
+    def update_series_seasons_state(
+        self, media_id: str, state: DownloadState, progress: int = 0
+    ) -> None:
+        """Update download state for every season in a series.
+
+        Args:
+            media_id: UUID of the series media item.
+            state: New download state.
+            progress: Download progress (0-100).
+
+        Raises:
+            sqlite3.Error: If update fails.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                UPDATE seasons
+                SET state = ?, download_progress = ?
+                WHERE media_item_id = ?
+                """,
+                (state.value, progress, media_id),
+            )
+
+            conn.commit()
+            self._close_connection(conn)
+            logger.debug(
+                "Updated series %s seasons to %s (%d%%)",
+                media_id,
+                state.value,
+                progress,
+            )
+        except sqlite3.Error as e:
+            logger.error("Failed to update series seasons state: %s", e)
+            raise
+
     def update_file_state(
         self, file_id: int, state: DownloadState, progress: int = 0
     ) -> None:
@@ -663,6 +735,32 @@ class DatabaseManager:
             )
         except sqlite3.Error as e:
             logger.error("Failed to update resume position: %s", e)
+            raise
+
+    def update_duration(self, file_id: int, duration_seconds: int) -> None:
+        """Save total playback duration for a video file.
+
+        Args:
+            file_id: ID of the video file.
+            duration_seconds: Total playback duration in seconds.
+
+        Raises:
+            sqlite3.Error: If update fails.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "UPDATE video_files SET duration_seconds = ? WHERE id = ?",
+                (max(0, duration_seconds), file_id),
+            )
+
+            conn.commit()
+            self._close_connection(conn)
+            logger.debug("Updated file %d duration to %ds", file_id, duration_seconds)
+        except sqlite3.Error as e:
+            logger.error("Failed to update duration: %s", e)
             raise
 
     def mark_video_file_watched(self, file_id: int) -> None:
@@ -842,6 +940,38 @@ class DatabaseManager:
             return [dict(row) for row in rows]
         except sqlite3.Error as e:
             logger.error("Failed to get incomplete downloads: %s", e)
+            raise
+
+    def get_completed_files_missing_duration(self) -> list[dict[str, Any]]:
+        """Get completed video files that need duration backfill.
+
+        Returns:
+            Completed video files with a file path and no stored duration.
+
+        Raises:
+            sqlite3.Error: If query fails.
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                SELECT id, file_path
+                FROM video_files
+                WHERE state = ?
+                  AND file_path IS NOT NULL
+                  AND file_path != ''
+                  AND COALESCE(duration_seconds, 0) <= 0
+                """,
+                (DownloadState.COMPLETED.value,),
+            )
+
+            rows = cursor.fetchall()
+            self._close_connection(conn)
+            return [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            logger.error("Failed to get files missing duration: %s", e)
             raise
 
     def get_incomplete_season_downloads(self) -> list[dict[str, Any]]:

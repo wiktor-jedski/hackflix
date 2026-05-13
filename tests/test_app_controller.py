@@ -12,6 +12,7 @@ from src.controllers.app_controller import (
     AppController,
     DeleteWorker,
     DialogConfirmHandler,
+    DurationBackfillWorker,
     HelpOverlayHandler,
     LibraryRootHandler,
     NavigationContext,
@@ -307,6 +308,18 @@ class TestAppController:
         """Test shutdown method."""
         controller.shutdown()  # Should not raise
 
+    def test_shutdown_waits_for_duration_backfill(
+        self, controller: AppController
+    ) -> None:
+        """Test shutdown waits for a running duration backfill worker."""
+        worker = MagicMock()
+        worker.isRunning.return_value = True
+        controller._duration_backfill_worker = worker
+
+        controller.shutdown()
+
+        worker.wait.assert_called_once()
+
 
 class TestDeleteWorker:
     """Tests for background deletion safety."""
@@ -436,6 +449,53 @@ class TestDeleteWorker:
 
         assert (deleted, failed) == (0, 1)
         assert video_path.exists()
+
+
+class TestDurationBackfillWorker:
+    """Tests for background duration backfill."""
+
+    def test_run_emits_detected_durations(self, mocker) -> None:
+        """Verify existing completed files are probed and emitted."""
+        db_manager = MagicMock()
+        db_manager.get_completed_files_missing_duration.return_value = [
+            {"id": 1, "file_path": "/media/movie.mkv"},
+            {"id": 2, "file_path": "/media/broken.mkv"},
+        ]
+        probe = mocker.patch(
+            "src.controllers.app_controller.probe_duration_seconds",
+            side_effect=[7322, 0],
+        )
+        worker = DurationBackfillWorker(db_manager)
+        emissions: list[tuple[int, int]] = []
+        finished: list[bool] = []
+        worker.duration_detected.connect(
+            lambda file_id, duration: emissions.append((file_id, duration))
+        )
+        worker.backfill_finished.connect(lambda: finished.append(True))
+
+        worker.run()
+
+        db_manager.get_completed_files_missing_duration.assert_called_once()
+        probe.assert_any_call("/media/movie.mkv")
+        probe.assert_any_call("/media/broken.mkv")
+        assert emissions == [(1, 7322)]
+        assert finished == [True]
+
+    def test_run_finishes_after_query_error(self, mocker) -> None:
+        """Verify worker emits finished even when backfill fails."""
+        db_manager = MagicMock()
+        db_manager.get_completed_files_missing_duration.side_effect = Exception(
+            "database error"
+        )
+        probe = mocker.patch("src.controllers.app_controller.probe_duration_seconds")
+        worker = DurationBackfillWorker(db_manager)
+        finished: list[bool] = []
+        worker.backfill_finished.connect(lambda: finished.append(True))
+
+        worker.run()
+
+        probe.assert_not_called()
+        assert finished == [True]
 
 
 class TestLibraryRootHandler:
@@ -950,6 +1010,7 @@ class TestAppControllerAdvanced:
                 {"id": 2, "file_path": "/video2.mp4"},
             ]
         )
+        controller._start_duration_backfill = MagicMock()
 
         controller.bootstrap()
 
@@ -966,6 +1027,7 @@ class TestAppControllerAdvanced:
         mock_pipeline = MagicMock()
         controller._pipeline_service = mock_pipeline
         controller._db_manager.get_incomplete_pipelines = MagicMock(return_value=[])
+        controller._start_duration_backfill = MagicMock()
 
         controller.bootstrap()
 
@@ -1011,6 +1073,32 @@ class TestAppControllerAdvanced:
 
         mock_pipeline.start_process.assert_not_called()
 
+    def test_on_duration_detected_persists_and_updates_visible_item(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test detected download duration is persisted and shown."""
+        controller._main_window = mock_main_window
+        controller._db_manager.update_duration = MagicMock()
+
+        controller._on_duration_detected(1, 7322)
+
+        controller._db_manager.update_duration.assert_called_once_with(1, 7322)
+        mock_main_window.library_view.update_item_by_file_id.assert_called_once_with(
+            1, {"duration_seconds": 7322}
+        )
+
+    def test_on_duration_detected_ignores_zero(
+        self, controller: AppController, mock_main_window: MagicMock
+    ) -> None:
+        """Test unavailable durations are ignored."""
+        controller._main_window = mock_main_window
+        controller._db_manager.update_duration = MagicMock()
+
+        controller._on_duration_detected(1, 0)
+
+        controller._db_manager.update_duration.assert_not_called()
+        mock_main_window.library_view.update_item_by_file_id.assert_not_called()
+
     def test_on_pipeline_error_shows_toast(
         self, controller: AppController, mock_main_window: MagicMock
     ) -> None:
@@ -1055,6 +1143,7 @@ class TestAppControllerAdvanced:
     def test_bootstrap_without_main_window(self, controller: AppController) -> None:
         """Test bootstrap without main window bound."""
         # Should not raise, just skip window operations
+        controller._start_duration_backfill = MagicMock()
         controller.bootstrap()
 
     def test_bootstrap_with_main_window(
@@ -1062,10 +1151,54 @@ class TestAppControllerAdvanced:
     ) -> None:
         """Test bootstrap with main window bound."""
         controller._main_window = mock_main_window
+        controller._start_duration_backfill = MagicMock()
         controller.bootstrap()
         mock_main_window.set_connection_status.assert_called_once_with(True)
         mock_main_window.set_sync_status.assert_called_once()
         mock_main_window.set_storage_usage.assert_called_once()
+        controller._start_duration_backfill.assert_called_once()
+
+    def test_start_duration_backfill_starts_worker(
+        self, controller: AppController, mocker
+    ) -> None:
+        """Test duration backfill starts a background worker."""
+        worker = MagicMock()
+        worker.duration_detected.connect = MagicMock()
+        worker.backfill_finished.connect = MagicMock()
+        worker.start = MagicMock()
+        worker_class = mocker.patch(
+            "src.controllers.app_controller.DurationBackfillWorker",
+            return_value=worker,
+        )
+
+        controller._start_duration_backfill()
+
+        worker_class.assert_called_once_with(controller._db_manager)
+        worker.duration_detected.connect.assert_called_once()
+        worker.backfill_finished.connect.assert_called_once()
+        worker.start.assert_called_once()
+        assert controller._duration_backfill_worker is worker
+
+    def test_start_duration_backfill_skips_when_running(
+        self, controller: AppController, mocker
+    ) -> None:
+        """Test duration backfill does not start twice."""
+        controller._duration_backfill_worker = MagicMock()
+        worker_class = mocker.patch(
+            "src.controllers.app_controller.DurationBackfillWorker"
+        )
+
+        controller._start_duration_backfill()
+
+        worker_class.assert_not_called()
+
+    def test_on_duration_backfill_finished(self, controller: AppController) -> None:
+        """Test finished backfill worker is released."""
+        controller._duration_backfill_worker = MagicMock()
+
+        controller._on_duration_backfill_finished()
+
+        assert controller._duration_backfill_worker is None
 
     def test_transition_to_calls_handlers(
         self, controller: AppController, mock_main_window: MagicMock
@@ -3986,6 +4119,7 @@ class TestAutoResumeDownloads:
                 },
             ]
         )
+        controller._start_duration_backfill = MagicMock()
 
         controller.bootstrap()
 
@@ -4007,6 +4141,7 @@ class TestAutoResumeDownloads:
         controller._torrent_service = mock_torrent_service
 
         controller._db_manager.get_incomplete_downloads = MagicMock(return_value=[])
+        controller._start_duration_backfill = MagicMock()
 
         controller.bootstrap()
 
@@ -4025,6 +4160,7 @@ class TestAutoResumeDownloads:
         """
         controller._main_window = mock_main_window
         controller._torrent_service = None
+        controller._start_duration_backfill = MagicMock()
 
         controller.bootstrap()
 
@@ -4064,6 +4200,79 @@ class TestAutoResumeDownloads:
         controller._resume_download(video)
 
         mock_torrent_service.add_magnet.assert_not_called()
+
+    def test_resume_series_magnet_from_incomplete_season(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_torrent_service: MagicMock,
+    ) -> None:
+        """Verify queued series magnet resumes from a season row without season magnet."""
+        controller._torrent_service = mock_torrent_service
+        mock_torrent_service.add_magnet.return_value = True
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "resume-series",
+                        "type": "series",
+                        "title": "Series",
+                        "magnet": "magnet:?series",
+                        "seasons": [
+                            {"season_number": 1, "episodes": [{"number": 1}]},
+                            {"season_number": 2, "episodes": [{"number": 1}]},
+                        ],
+                    }
+                ]
+            }
+        )
+        season = db_manager.get_seasons("resume-series")[0]
+
+        controller._resume_season_download(season)
+
+        context, magnet = mock_torrent_service.add_magnet.call_args.args
+        assert context.download_type.value == "season"
+        assert context.id == season["id"]
+        assert magnet == "magnet:?series"
+        assert (
+            controller._active_series_download_contexts["resume-series"] == season["id"]
+        )
+
+    def test_resume_series_magnet_uses_active_service_context(
+        self,
+        controller: AppController,
+        db_manager: DatabaseManager,
+        mock_torrent_service: MagicMock,
+    ) -> None:
+        """Verify controller records torrent service resume-data contexts."""
+        from src.services.torrent_service import DownloadContext, DownloadType
+
+        controller._torrent_service = mock_torrent_service
+        mock_torrent_service.add_magnet.return_value = False
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "service-resumed-series",
+                        "type": "series",
+                        "title": "Series",
+                        "magnet": "magnet:?series",
+                        "seasons": [{"season_number": 1, "episodes": [{"number": 1}]}],
+                    }
+                ]
+            }
+        )
+        season = db_manager.get_seasons("service-resumed-series")[0]
+        mock_torrent_service.get_active_downloads.return_value = [
+            DownloadContext(DownloadType.SEASON, season["id"])
+        ]
+
+        controller._resume_season_download(season)
+
+        assert (
+            controller._active_series_download_contexts["service-resumed-series"]
+            == season["id"]
+        )
 
     def test_multiple_incomplete_downloads_all_resumed(
         self,
@@ -4132,6 +4341,7 @@ class TestAutoResumeDownloads:
                 },
             ]
         )
+        controller._start_duration_backfill = MagicMock()
 
         controller.bootstrap()
 
@@ -4175,6 +4385,7 @@ class TestAutoResumeDownloads:
         controller._db_manager.get_incomplete_downloads = MagicMock(
             side_effect=Exception("Database error")
         )
+        controller._start_duration_backfill = MagicMock()
 
         controller.bootstrap()
 
@@ -4228,6 +4439,7 @@ class TestAutoResumeDownloads:
                 },
             ]
         )
+        controller._start_duration_backfill = MagicMock()
 
         controller.bootstrap()
 

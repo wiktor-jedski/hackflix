@@ -216,7 +216,7 @@ class TestDownloadSubtitle:
 
                 mock_post.assert_called_once_with(
                     "https://api.opensubtitles.com/api/v1/download",
-                    json={"file_id": 12345},
+                    json={"file_id": 12345, "sub_format": "srt"},
                     timeout=30,
                 )
                 mock_get.assert_called_once_with(

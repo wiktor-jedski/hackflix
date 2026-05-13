@@ -143,6 +143,35 @@ class TestSchema:
 
         assert "watched_at" in columns
 
+    def test_initialize_database_adds_duration_to_existing_video_files(
+        self, tmp_path: Path
+    ) -> None:
+        """Verify duration_seconds is added to existing video_files tables."""
+        db_path = tmp_path / "test_duration_migration.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            CREATE TABLE video_files (
+                id INTEGER,
+                media_item_id TEXT,
+                state TEXT,
+                pipeline_state TEXT
+            )
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        initialize_database(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(video_files)")
+        columns = {row[1] for row in cursor.fetchall()}
+        conn.close()
+
+        assert "duration_seconds" in columns
+
 
 class TestDatabaseManager:
     """Tests for DatabaseManager class."""
@@ -610,6 +639,57 @@ class TestDatabaseManager:
 
         video = db_manager.get_video_file(video["id"])
         assert video["resume_position_seconds"] == 3600
+
+    def test_update_duration(self, db_manager: DatabaseManager) -> None:
+        """Test updating total playback duration."""
+        content = {
+            "items": [
+                {
+                    "id": "movie-test",
+                    "type": "movie",
+                    "title": "Test Movie",
+                    "magnet": "magnet:?test",
+                    "subtitle_id": None,
+                }
+            ]
+        }
+        db_manager.upsert_content(content)
+
+        video = db_manager.get_video_details("movie-test")
+        assert video["duration_seconds"] == 0
+
+        db_manager.update_duration(video["id"], 7322)
+
+        video = db_manager.get_video_file(video["id"])
+        assert video["duration_seconds"] == 7322
+
+    def test_get_completed_files_missing_duration(
+        self, db_manager: DatabaseManager
+    ) -> None:
+        """Test completed files without duration are returned for backfill."""
+        content = {
+            "items": [
+                {
+                    "id": "movie-test",
+                    "type": "movie",
+                    "title": "Test Movie",
+                    "magnet": "magnet:?test",
+                    "subtitle_id": None,
+                }
+            ]
+        }
+        db_manager.upsert_content(content)
+        video = db_manager.get_video_details("movie-test")
+        db_manager.update_file_state(video["id"], DownloadState.COMPLETED, 100)
+        db_manager.update_file_path(video["id"], "/tmp/movie.mkv")
+
+        files = db_manager.get_completed_files_missing_duration()
+
+        assert files == [{"id": video["id"], "file_path": "/tmp/movie.mkv"}]
+
+        db_manager.update_duration(video["id"], 120)
+
+        assert db_manager.get_completed_files_missing_duration() == []
 
     def test_mark_video_file_watched(self, db_manager: DatabaseManager) -> None:
         """Test marking a video file watched clears resume and sets timestamp."""
@@ -1243,6 +1323,35 @@ class TestResetState:
         assert season is not None
         assert season["state"] == "PENDING"
         assert season["download_progress"] == 0
+
+    def test_update_series_seasons_state(self, db_manager: DatabaseManager) -> None:
+        """Test updating all seasons for a series."""
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "series-state",
+                        "type": "series",
+                        "title": "Series",
+                        "seasons": [
+                            {"season_number": 1, "episodes": [{"number": 1}]},
+                            {"season_number": 2, "episodes": [{"number": 1}]},
+                        ],
+                    }
+                ]
+            }
+        )
+
+        db_manager.update_series_seasons_state(
+            "series-state", DownloadState.DOWNLOADING, 42
+        )
+
+        seasons = db_manager.get_seasons("series-state")
+        assert [season["state"] for season in seasons] == [
+            "DOWNLOADING",
+            "DOWNLOADING",
+        ]
+        assert [season["download_progress"] for season in seasons] == [42, 42]
 
     def test_reset_season_state(self, db_manager: DatabaseManager) -> None:
         """Test resetting one season leaves other seasons untouched."""

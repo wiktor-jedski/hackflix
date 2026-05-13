@@ -20,6 +20,7 @@ from src.qt import QObject, QThread, QTimer, Qt, Signal, Slot
 from src.config import CACHE_DIR, MEDIA_LIBRARY_PATH, DownloadState, PipelineState
 from src.database.db_manager import DatabaseManager
 from src.ui.enums import Action, AppState, MediaTab
+from src.utils.media_duration import probe_duration_seconds
 from src.utils.subtitle_parser import SubtitleLine
 
 if TYPE_CHECKING:
@@ -116,6 +117,35 @@ class DeleteWorker(QThread):
                 failed += 1
 
         return deleted, failed
+
+
+class DurationBackfillWorker(QThread):
+    """Probe missing media durations away from the UI thread."""
+
+    duration_detected = Signal(int, int)
+    backfill_finished = Signal()
+
+    def __init__(
+        self,
+        db_manager: DatabaseManager,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._db_manager = db_manager
+
+    def run(self) -> None:
+        """Probe durations for completed files that predate duration storage."""
+        try:
+            files = self._db_manager.get_completed_files_missing_duration()
+            for video_file in files:
+                file_id = int(video_file["id"])
+                duration_seconds = probe_duration_seconds(str(video_file["file_path"]))
+                if duration_seconds > 0:
+                    self.duration_detected.emit(file_id, duration_seconds)
+        except Exception as e:
+            logger.error("Duration backfill failed: %s", e)
+        finally:
+            self.backfill_finished.emit()
 
 
 @dataclass
@@ -478,6 +508,7 @@ class AppController(QObject):
         self._pending_pipeline_ids: list[int] = []
         self._play_after_pipeline_ids: set[int] = set()
         self._delete_worker: DeleteWorker | None = None
+        self._duration_backfill_worker: DurationBackfillWorker | None = None
         self._delete_title: str = ""
         self._last_storage_refresh_at = 0.0
 
@@ -534,6 +565,10 @@ class AppController(QObject):
             )
             torrent_service.download_completed.connect(
                 self._on_download_completed,
+                Qt.ConnectionType.QueuedConnection,  # type: ignore[too-many-positional-arguments]
+            )
+            torrent_service.duration_detected.connect(
+                self._on_duration_detected,
                 Qt.ConnectionType.QueuedConnection,  # type: ignore[too-many-positional-arguments]
             )
             torrent_service.download_error.connect(
@@ -599,6 +634,9 @@ class AppController(QObject):
         # Load initial library data
         self.refresh_library()
 
+        # Backfill durations for completed files from older app versions.
+        self._start_duration_backfill()
+
         # Auto-resume incomplete downloads
         self._resume_incomplete_downloads()
 
@@ -606,6 +644,25 @@ class AppController(QObject):
         self._resume_incomplete_pipelines()
 
         logger.info("AppController bootstrap complete")
+
+    def _start_duration_backfill(self) -> None:
+        """Start background duration probing for existing completed files."""
+        if self._duration_backfill_worker is not None:
+            return
+
+        worker = DurationBackfillWorker(self._db_manager)
+        worker.duration_detected.connect(
+            self._on_duration_detected,
+            Qt.ConnectionType.QueuedConnection,  # type: ignore[too-many-positional-arguments]
+        )
+        worker.backfill_finished.connect(self._on_duration_backfill_finished)
+        self._duration_backfill_worker = worker
+        worker.start()
+
+    @Slot()
+    def _on_duration_backfill_finished(self) -> None:
+        """Release finished duration backfill worker."""
+        self._duration_backfill_worker = None
 
     def _refresh_storage_usage(self) -> None:
         """Update storage usage for the filesystem backing the media library."""
@@ -711,7 +768,20 @@ class AppController(QObject):
 
     def _resume_season_download(self, season: dict[str, Any]) -> None:
         """Resume a season download from database state."""
+        series_id = self._series_id_for_series_magnet_context(season)
+        if series_id and series_id in self._active_series_download_contexts:
+            self._series_download_status[series_id] = {
+                "state": season.get("state", DownloadState.QUEUED.value),
+                "download_progress": season.get("download_progress", 0),
+            }
+            logger.info("Skipping duplicate resumed series download for %s", series_id)
+            return
+
         magnet = season.get("magnet_link")
+        if not magnet and series_id:
+            media_item = self._db_manager.get_media_item(series_id)
+            magnet = media_item.get("magnet_link") if media_item else None
+
         if not magnet:
             logger.warning(
                 "Cannot resume season download %d: no magnet link", season.get("id")
@@ -726,11 +796,58 @@ class AppController(QObject):
         season_id = season["id"]
         context = DownloadContext(DownloadType.SEASON, season_id)
 
-        if self._torrent_service.add_magnet(context, magnet):
+        added = self._torrent_service.add_magnet(context, magnet)
+        active = added or self._download_context_active(context)
+        if active:
             self._active_download_types[season_id] = DownloadType.SEASON.value
+            if series_id:
+                selection = DownloadSelection(
+                    "season",
+                    season_id,
+                    magnet,
+                    "series",
+                    series_id,
+                )
+                self._record_series_download(selection)
+                self._series_download_status[series_id] = {
+                    "state": season.get("state", DownloadState.QUEUED.value),
+                    "download_progress": season.get("download_progress", 0),
+                }
             logger.info("Resumed season download for season %d", season_id)
         else:
             logger.warning("Failed to resume season download for season %d", season_id)
+
+    def _download_context_active(self, context: Any) -> bool:
+        """Return whether the torrent service already tracks a context."""
+        if not self._torrent_service:
+            return False
+
+        try:
+            active_downloads = self._torrent_service.get_active_downloads()
+        except Exception as e:
+            logger.error("Failed to inspect active downloads: %s", e)
+            return False
+
+        return any(
+            active.download_type == context.download_type and active.id == context.id
+            for active in active_downloads
+        )
+
+    def _series_id_for_series_magnet_context(
+        self, season: dict[str, Any]
+    ) -> str | None:
+        """Return parent series ID when a season row represents a series magnet."""
+        if season.get("magnet_link"):
+            return None
+
+        series_id = season.get("media_item_id")
+        if not series_id:
+            return None
+
+        media_item = self._db_manager.get_media_item(str(series_id))
+        if media_item and media_item.get("magnet_link"):
+            return str(series_id)
+        return None
 
     def _resume_incomplete_pipelines(self) -> None:
         """Resume any incomplete pipeline processes on startup."""
@@ -769,6 +886,12 @@ class AppController(QObject):
         if self._metadata_service and self._metadata_service.isRunning():
             self._metadata_service.stop()
             self._metadata_service.wait()
+
+        if (
+            self._duration_backfill_worker
+            and self._duration_backfill_worker.isRunning()
+        ):
+            self._duration_backfill_worker.wait()
 
         if self._torrent_service and self._torrent_service.isRunning():
             self._torrent_service.stop()
@@ -908,6 +1031,7 @@ class AppController(QObject):
                         view_item["resume_position_seconds"] = video.get(
                             "resume_position_seconds", 0
                         )
+                        view_item["duration_seconds"] = video.get("duration_seconds", 0)
                         view_item["watched_at"] = video.get("watched_at")
                     else:
                         view_item["state"] = DownloadState.PENDING.value
@@ -1021,6 +1145,7 @@ class AppController(QObject):
                     "pipeline_state": ep.get("pipeline_state"),
                     "download_progress": ep.get("download_progress", 0),
                     "resume_position_seconds": ep.get("resume_position_seconds", 0),
+                    "duration_seconds": ep.get("duration_seconds", 0),
                     "watched_at": ep.get("watched_at"),
                 }
                 if ep.get("media_item_id"):
@@ -1335,14 +1460,21 @@ class AppController(QObject):
         if selection.source != "series" or selection.series_id is None:
             return
 
+        status = {
+            "state": DownloadState.QUEUED.value,
+            "download_progress": 0,
+        }
         self._active_series_download_contexts[selection.series_id] = (
             selection.context_id
         )
         self._series_by_download_context[selection.context_id] = selection.series_id
-        self._series_download_status[selection.series_id] = {
-            "state": DownloadState.QUEUED.value,
-            "download_progress": 0,
-        }
+        self._series_download_status[selection.series_id] = status
+        try:
+            self._db_manager.update_series_seasons_state(
+                selection.series_id, DownloadState.QUEUED, 0
+            )
+        except Exception as e:
+            logger.error("Failed to persist series download state: %s", e)
 
     def _apply_series_download_overlay(
         self, series_id: str, view_item: dict[str, Any]
@@ -1709,7 +1841,11 @@ class AppController(QObject):
                 )
 
         try:
-            if download_type == "season":
+            if series_id:
+                self._db_manager.update_series_seasons_state(
+                    series_id, DownloadState.DOWNLOADING, percentage
+                )
+            elif download_type == "season":
                 self._db_manager.update_season_state(
                     context_id, DownloadState.DOWNLOADING, percentage
                 )
@@ -1786,6 +1922,23 @@ class AppController(QObject):
                     self._pending_episode_pipeline_by_season.pop(season_id, None)
                 self.start_pipeline(file_id)
 
+    @Slot(int, int)
+    def _on_duration_detected(self, file_id: int, duration_seconds: int) -> None:
+        """Persist and display detected media duration."""
+        if duration_seconds <= 0:
+            return
+
+        try:
+            self._db_manager.update_duration(file_id, duration_seconds)
+        except Exception as e:
+            logger.error("Failed to persist media duration: %s", e)
+            return
+
+        if self._main_window:
+            self._main_window.library_view.update_item_by_file_id(
+                file_id, {"duration_seconds": duration_seconds}
+            )
+
     @Slot(int, str)
     def _on_download_error(self, file_id: int, error: str) -> None:
         """Handle download error.
@@ -1816,6 +1969,9 @@ class AppController(QObject):
                     self._update_visible_series_download(
                         series_id, self._series_download_status[series_id]
                     )
+                self._db_manager.update_series_seasons_state(
+                    series_id, DownloadState.ERROR
+                )
             if download_type == "season":
                 self._db_manager.update_season_state(file_id, DownloadState.ERROR)
             elif self._db_manager.get_video_file(file_id):
@@ -1828,12 +1984,17 @@ class AppController(QObject):
     @Slot(int)
     def _on_season_completed(self, season_id: int) -> None:
         """Handle season pack completion."""
+        series_id = self._series_by_download_context.pop(season_id, None)
         try:
-            self._db_manager.update_season_state(
-                season_id, DownloadState.COMPLETED, 100
-            )
+            if series_id:
+                self._db_manager.update_series_seasons_state(
+                    series_id, DownloadState.COMPLETED, 100
+                )
+            else:
+                self._db_manager.update_season_state(
+                    season_id, DownloadState.COMPLETED, 100
+                )
             self._active_download_types.pop(season_id, None)
-            series_id = self._series_by_download_context.pop(season_id, None)
             if series_id:
                 self._active_series_download_contexts.pop(series_id, None)
                 self._series_download_status.pop(series_id, None)
@@ -1841,11 +2002,18 @@ class AppController(QObject):
             logger.error("Failed to persist season completion: %s", e)
 
         if self._main_window:
-            if self._current_season_id == season_id:
+            if series_id and self._current_season_id:
+                self.load_episodes(self._current_season_id)
+            elif self._current_season_id == season_id:
                 self.load_episodes(season_id)
             elif self._current_series_id:
                 self.load_seasons(self._current_series_id)
-            self._main_window.show_toast(self.tr("Season download completed"), "info")
+            self._main_window.show_toast(
+                self.tr("Series download completed")
+                if series_id
+                else self.tr("Season download completed"),
+                "info",
+            )
         self._refresh_storage_usage()
 
     # =========================================================================

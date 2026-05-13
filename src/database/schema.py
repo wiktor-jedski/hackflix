@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS video_files (
     download_progress INTEGER DEFAULT 0,
     pipeline_state TEXT DEFAULT 'NONE' CHECK(pipeline_state IN ('NONE', 'FETCHING_SUBS', 'TRANSLATING', 'SUBS_READY', 'FAILED')),
     resume_position_seconds INTEGER DEFAULT 0,
+    duration_seconds INTEGER DEFAULT 0,
     watched_at TIMESTAMP,
     FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
     FOREIGN KEY (season_id) REFERENCES seasons(id) ON DELETE CASCADE
@@ -116,6 +117,11 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     if "watched_at" not in columns:
         logger.info("Migrating: Adding video_files.watched_at")
         cursor.execute("ALTER TABLE video_files ADD COLUMN watched_at TIMESTAMP")
+    if "duration_seconds" not in columns:
+        logger.info("Migrating: Adding video_files.duration_seconds")
+        cursor.execute(
+            "ALTER TABLE video_files ADD COLUMN duration_seconds INTEGER DEFAULT 0"
+        )
 
     cursor.execute("PRAGMA table_info(media_items)")
     media_columns = {row[1] for row in cursor.fetchall()}

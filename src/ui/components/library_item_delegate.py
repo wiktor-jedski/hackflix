@@ -55,6 +55,7 @@ class LibraryItemRole:
     FileIdRole = Qt.ItemDataRole.UserRole + 14
     ResumePositionRole = Qt.ItemDataRole.UserRole + 15
     WatchedAtRole = Qt.ItemDataRole.UserRole + 16
+    DurationSecondsRole = Qt.ItemDataRole.UserRole + 17
 
 
 class LibraryItemDelegate(QStyledItemDelegate):
@@ -129,11 +130,12 @@ class LibraryItemDelegate(QStyledItemDelegate):
         poster_rect = QRect(rect.left(), rect.top(), POSTER_WIDTH, POSTER_HEIGHT)
 
         # Status area (right)
+        status_width = self._status_area_width(index)
         status_rect = QRect(
-            rect.right() - STATUS_ICON_SIZE,
-            rect.top() + (rect.height() - STATUS_ICON_SIZE) // 2,
-            STATUS_ICON_SIZE,
-            STATUS_ICON_SIZE,
+            rect.right() - status_width,
+            rect.top(),
+            status_width,
+            rect.height(),
         )
 
         # Metadata area (center)
@@ -169,7 +171,9 @@ class LibraryItemDelegate(QStyledItemDelegate):
 
         painter.fillRect(rect, color)
 
-    def _draw_poster(self, painter: QPainter, rect: QRect, index: QModelIndex | QPersistentModelIndex) -> None:
+    def _draw_poster(
+        self, painter: QPainter, rect: QRect, index: QModelIndex | QPersistentModelIndex
+    ) -> None:
         """Draw the poster image.
 
         Args:
@@ -197,7 +201,9 @@ class LibraryItemDelegate(QStyledItemDelegate):
         # Draw placeholder
         painter.fillRect(rect, QColor(SURFACE_HOVER_COLOR))
         painter.setPen(QColor(TEXT_SECONDARY))
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, tr("LibraryItemDelegate", "No\nImage"))
+        painter.drawText(
+            rect, Qt.AlignmentFlag.AlignCenter, tr("LibraryItemDelegate", "No\nImage")
+        )
 
     def _get_cached_poster(self, path: str) -> QPixmap | None:
         """Get a poster pixmap from cache or load it.
@@ -349,7 +355,25 @@ class LibraryItemDelegate(QStyledItemDelegate):
 
         return ""
 
-    def _draw_status(self, painter: QPainter, rect: QRect, index: QModelIndex | QPersistentModelIndex) -> None:
+    def _status_area_width(
+        self,
+        index: QModelIndex | QPersistentModelIndex,
+    ) -> int:
+        """Return right-side status area width for the row."""
+        duration_text = self._duration_text(index)
+        if not duration_text:
+            return STATUS_ICON_SIZE
+
+        font = QFont(FONT_FAMILY, FONT_SIZE_BODY)
+        text_width = QFontMetrics(font).horizontalAdvance(duration_text)
+        return max(STATUS_ICON_SIZE, text_width)
+
+    def _draw_status(
+        self,
+        painter: QPainter,
+        rect: QRect,
+        index: QModelIndex | QPersistentModelIndex,
+    ) -> None:
         """Draw the status icon.
 
         Args:
@@ -386,11 +410,35 @@ class LibraryItemDelegate(QStyledItemDelegate):
         icon = self._STATUS_ICONS.get(status, "?")
         color = self._STATUS_COLORS.get(status, TEXT_SECONDARY)
 
+        duration_text = self._duration_text(index)
+        icon_rect = QRect(
+            rect.left(),
+            rect.top() + (rect.height() - STATUS_ICON_SIZE) // 2,
+            rect.width(),
+            STATUS_ICON_SIZE,
+        )
+        if duration_text:
+            icon_rect.moveTop(
+                rect.top() + max(0, (rect.height() // 2) - STATUS_ICON_SIZE)
+            )
+
         # Draw icon
         font = QFont(FONT_FAMILY, STATUS_ICON_SIZE - 8)
         painter.setFont(font)
         painter.setPen(QColor(color))
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, icon)
+        painter.drawText(icon_rect, Qt.AlignmentFlag.AlignCenter, icon)
+
+        if duration_text:
+            duration_font = QFont(FONT_FAMILY, FONT_SIZE_BODY)
+            painter.setFont(duration_font)
+            painter.setPen(QColor(TEXT_SECONDARY))
+            duration_rect = QRect(
+                rect.left(),
+                icon_rect.bottom() + 2,
+                rect.width(),
+                QFontMetrics(duration_font).height(),
+            )
+            painter.drawText(duration_rect, Qt.AlignmentFlag.AlignCenter, duration_text)
 
         # Draw progress percentage if downloading
         if status == "downloading" and progress > 0:
@@ -399,7 +447,32 @@ class LibraryItemDelegate(QStyledItemDelegate):
             progress_rect = QRect(
                 rect.left(), rect.bottom() + 2, rect.width(), FONT_SIZE_SMALL
             )
-            painter.drawText(progress_rect, Qt.AlignmentFlag.AlignCenter, f"{progress}%")
+            painter.drawText(
+                progress_rect, Qt.AlignmentFlag.AlignCenter, f"{progress}%"
+            )
+
+    def _duration_text(self, index: QModelIndex | QPersistentModelIndex) -> str:
+        """Return formatted duration text for downloaded playable items."""
+        item_type = index.data(LibraryItemRole.TypeRole)
+        download_state = index.data(LibraryItemRole.DownloadStateRole)
+        duration_seconds = int(index.data(LibraryItemRole.DurationSecondsRole) or 0)
+        if (
+            item_type not in {"movie", "episode"}
+            or download_state != DownloadState.COMPLETED.value
+            or duration_seconds <= 0
+        ):
+            return ""
+        return self._format_duration(duration_seconds)
+
+    def _format_duration(self, seconds: int) -> str:
+        """Format duration seconds as M:SS or H:MM:SS."""
+        safe_seconds = max(0, seconds)
+        hours = safe_seconds // 3600
+        minutes = (safe_seconds % 3600) // 60
+        remaining_seconds = safe_seconds % 60
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{remaining_seconds:02d}"
+        return f"{minutes}:{remaining_seconds:02d}"
 
     def sizeHint(
         self,

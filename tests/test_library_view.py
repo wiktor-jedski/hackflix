@@ -100,6 +100,21 @@ class TestLibraryView:
 
         assert item.text().startswith("[Download] Test Movie 1")
 
+    def test_set_items_stores_duration_role(self, library_view: LibraryView) -> None:
+        """Test duration is exposed to the item delegate."""
+        item_data = {
+            "id": "movie-duration",
+            "type": "movie",
+            "title": "Duration Movie",
+            "state": DownloadState.COMPLETED.value,
+            "duration_seconds": 7322,
+        }
+
+        library_view.set_items([item_data])
+
+        item = library_view._model.item(0)
+        assert item.data(LibraryItemRole.DurationSecondsRole) == 7322
+
     @pytest.mark.parametrize(
         ("item_data", "expected"),
         [

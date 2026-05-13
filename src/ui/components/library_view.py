@@ -303,6 +303,11 @@ class LibraryView(QFrame):
                 item_data.get("resume_position_seconds"),
             )
             self._set_item_role_data(
+                model_item,
+                LibraryItemRole.DurationSecondsRole,
+                item_data.get("duration_seconds"),
+            )
+            self._set_item_role_data(
                 model_item, LibraryItemRole.WatchedAtRole, item_data.get("watched_at")
             )
             model_item.setSizeHint(QSize(-1, ROW_HEIGHT))
@@ -518,11 +523,41 @@ class LibraryView(QFrame):
                         "resume_position_seconds"
                     ]
                     changed = True
+            if "duration_seconds" in updates:
+                if item_data.get("duration_seconds") != updates["duration_seconds"]:
+                    item_data["duration_seconds"] = updates["duration_seconds"]
+                    changed = True
             if "watched_at" in updates:
                 if item_data.get("watched_at") != updates["watched_at"]:
                     item_data["watched_at"] = updates["watched_at"]
                     changed = True
             if changed:
+                self._replace_item_role_data(
+                    item, LibraryItemRole.DownloadStateRole, item_data.get("state")
+                )
+                self._replace_item_role_data(
+                    item,
+                    LibraryItemRole.DownloadProgressRole,
+                    item_data.get("download_progress"),
+                )
+                self._replace_item_role_data(
+                    item,
+                    LibraryItemRole.PipelineStateRole,
+                    item_data.get("pipeline_state"),
+                )
+                self._replace_item_role_data(
+                    item,
+                    LibraryItemRole.ResumePositionRole,
+                    item_data.get("resume_position_seconds"),
+                )
+                self._replace_item_role_data(
+                    item,
+                    LibraryItemRole.DurationSecondsRole,
+                    item_data.get("duration_seconds"),
+                )
+                self._replace_item_role_data(
+                    item, LibraryItemRole.WatchedAtRole, item_data.get("watched_at")
+                )
                 item.setText(self._format_item_text(item_data))
                 if icon_changed:
                     item.setIcon(self._build_item_icon(item_data))
@@ -601,6 +636,7 @@ class LibraryView(QFrame):
             "episode_number": item.data(LibraryItemRole.EpisodeNumberRole),
             "poster_path": item.data(LibraryItemRole.PosterPathRole),
             "resume_position_seconds": item.data(LibraryItemRole.ResumePositionRole),
+            "duration_seconds": item.data(LibraryItemRole.DurationSecondsRole),
             "watched_at": item.data(LibraryItemRole.WatchedAtRole),
         }
 

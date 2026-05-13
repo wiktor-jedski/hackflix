@@ -18,6 +18,8 @@ from typing import Any, cast
 
 import libtorrent as _libtorrent
 
+from src.utils.media_duration import probe_duration_seconds
+
 lt = cast(Any, _libtorrent)
 
 VIDEO_EXTENSIONS = frozenset({".mkv", ".mp4", ".avi", ".webm", ".mov", ".wmv", ".flv"})
@@ -68,7 +70,10 @@ def find_largest_video(handle: Any) -> str | None:
     for i in range(files.num_files()):
         file_path = save_path / files.file_path(i)
         file_size = files.file_size(i)
-        if file_path.suffix.lower() in VIDEO_EXTENSIONS and file_size > largest_video[1]:
+        if (
+            file_path.suffix.lower() in VIDEO_EXTENSIONS
+            and file_size > largest_video[1]
+        ):
             largest_video = (file_path, file_size)
 
     return str(largest_video[0]) if largest_video[0] else None
@@ -90,6 +95,7 @@ def get_video_files(handle: Any) -> list[dict[str, Any]]:
                 {
                     "path": str(file_path),
                     "size": files.file_size(i),
+                    "duration_seconds": probe_duration_seconds(file_path),
                 }
             )
 
@@ -247,7 +253,14 @@ def main() -> int:
                 if context_type == "movie":
                     video_path = find_largest_video(handle)
                     if video_path:
-                        emit({"event": "completed", "id": context_id, "path": video_path})
+                        emit(
+                            {
+                                "event": "completed",
+                                "id": context_id,
+                                "path": video_path,
+                                "duration_seconds": probe_duration_seconds(video_path),
+                            }
+                        )
                     else:
                         emit(
                             {

@@ -28,6 +28,7 @@ from src.config import (
     TORRENT_STATE_DIR,
 )
 from src.database.db_manager import DatabaseManager
+from src.utils.media_duration import probe_duration_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ lt = _LazyLibtorrent()
 
 # Video file extensions to identify the main content
 VIDEO_EXTENSIONS = frozenset({".mkv", ".mp4", ".avi", ".webm", ".mov", ".wmv", ".flv"})
+VideoFileMatch = tuple[Path, int, int]
 
 
 class DownloadType(Enum):
@@ -90,12 +92,14 @@ class TorrentService(QObject):
                           For movies: video_file_id. For seasons: season_id.
         download_completed: Emitted with (video_file_id: int, file_path: str).
                            Emitted once per video file (multiple times for seasons).
+        duration_detected: Emitted with (video_file_id: int, duration_seconds: int).
         download_error: Emitted with (context_id: int, error_message: str).
                        For movies: video_file_id. For seasons: season_id.
     """
 
     download_progress = Signal(int, int, float, float)  # context_id, %, down, up
     download_completed = Signal(int, str)  # video_file_id, file_path
+    duration_detected = Signal(int, int)  # video_file_id, duration_seconds
     download_error = Signal(int, str)  # context_id, error_message
     season_completed = Signal(int)  # season_id
 
@@ -452,6 +456,9 @@ class TorrentService(QObject):
                 "Torrent worker completed context %d: %s", context_id, event["path"]
             )
             self.download_completed.emit(file_id, str(event["path"]))
+            duration_seconds = int(event.get("duration_seconds") or 0)
+            if duration_seconds > 0:
+                self.duration_detected.emit(file_id, duration_seconds)
             self._unregister_handle(context_id)
         elif event_name == "season_completed":
             logger.info("Torrent worker completed season context %d", context_id)
@@ -553,15 +560,19 @@ class TorrentService(QObject):
         """Match worker-reported season files to episode rows."""
         context = self._contexts.get(season_id)
         db_season_id = context.id if context else self._context_db_id(season_id)
-        episodes = self._db_manager.get_episodes(db_season_id)
+        episodes = self._get_download_context_episodes(db_season_id)
         if not episodes:
-            error_msg = "No episodes found for season"
+            error_msg = "No episodes found for download context"
             logger.error("Download error for season %d: %s", db_season_id, error_msg)
             self.download_error.emit(db_season_id, error_msg)
             return
 
-        video_files = [
-            (Path(str(file_data["path"])), int(file_data["size"]))
+        video_files: list[VideoFileMatch] = [
+            (
+                Path(str(file_data["path"])),
+                int(file_data["size"]),
+                int(file_data.get("duration_seconds") or 0),
+            )
             for file_data in event.get("files", [])
             if file_data.get("path") and file_data.get("size") is not None
         ]
@@ -579,7 +590,10 @@ class TorrentService(QObject):
             return
 
         for episode_id, video_path in matches.items():
+            duration_seconds = self._duration_for_path(video_files, video_path)
             self.download_completed.emit(episode_id, str(video_path))
+            if duration_seconds > 0:
+                self.duration_detected.emit(episode_id, duration_seconds)
             logger.info("Episode %d completed: %s", episode_id, video_path)
 
         self.season_completed.emit(db_season_id)
@@ -589,6 +603,22 @@ class TorrentService(QObject):
             len(matches),
             len(episodes),
         )
+
+    def _get_download_context_episodes(self, season_id: int) -> list[dict[str, Any]]:
+        """Return episodes for a season or its whole-series magnet context."""
+        season = self._db_manager.get_season(season_id)
+        if not season:
+            return self._db_manager.get_episodes(season_id)
+
+        media_item = self._db_manager.get_media_item(str(season["media_item_id"]))
+        if (
+            media_item
+            and media_item.get("magnet_link")
+            and not season.get("magnet_link")
+        ):
+            return self._db_manager.get_series_episodes(str(season["media_item_id"]))
+
+        return self._db_manager.get_episodes(season_id)
 
     def _send_worker_command(self, command: dict[str, Any]) -> bool:
         """Send a JSON command to the worker process."""
@@ -856,6 +886,9 @@ class TorrentService(QObject):
 
         if video_path:
             self.download_completed.emit(file_id, str(video_path))
+            duration_seconds = probe_duration_seconds(video_path)
+            if duration_seconds > 0:
+                self.duration_detected.emit(file_id, duration_seconds)
             logger.info("Movie download completed for file %d: %s", file_id, video_path)
         else:
             error_msg = "No video file found in torrent"
@@ -872,10 +905,10 @@ class TorrentService(QObject):
             handle: Torrent handle.
         """
         season_id = context.id
-        episodes = self._db_manager.get_episodes(season_id)
+        episodes = self._get_download_context_episodes(season_id)
 
         if not episodes:
-            error_msg = "No episodes found for season"
+            error_msg = "No episodes found for download context"
             logger.error("Download error for season %d: %s", season_id, error_msg)
             self.download_error.emit(season_id, error_msg)
             return
@@ -898,7 +931,10 @@ class TorrentService(QObject):
 
         # Update each matched episode
         for episode_id, video_path in matches.items():
+            duration_seconds = self._duration_for_path(video_files, video_path)
             self.download_completed.emit(episode_id, str(video_path))
+            if duration_seconds > 0:
+                self.duration_detected.emit(episode_id, duration_seconds)
             logger.info("Episode %d completed: %s", episode_id, video_path)
 
         self.season_completed.emit(season_id)
@@ -909,21 +945,21 @@ class TorrentService(QObject):
             len(episodes),
         )
 
-    def _get_video_files_from_torrent(self, handle: Any) -> list[tuple[Path, int]]:
+    def _get_video_files_from_torrent(self, handle: Any) -> list[tuple[Path, int, int]]:
         """Get all video files from a torrent.
 
         Args:
             handle: Torrent handle.
 
         Returns:
-            List of (file_path, file_size) tuples for video files.
+            List of (file_path, file_size, duration_seconds) tuples for video files.
         """
         torrent_info = handle.torrent_file()
         if not torrent_info:
             return []
 
         save_path = Path(handle.status().save_path)
-        video_files: list[tuple[Path, int]] = []
+        video_files: list[VideoFileMatch] = []
 
         files = torrent_info.files()
         for i in range(files.num_files()):
@@ -932,12 +968,16 @@ class TorrentService(QObject):
             ext = file_path.suffix.lower()
 
             if ext in VIDEO_EXTENSIONS:
-                video_files.append((file_path, file_size))
+                video_files.append(
+                    (file_path, file_size, probe_duration_seconds(file_path))
+                )
 
         return video_files
 
     def _match_episode_files(
-        self, episodes: list[dict[str, Any]], video_files: list[tuple[Path, int]]
+        self,
+        episodes: list[dict[str, Any]],
+        video_files: list[VideoFileMatch],
     ) -> dict[int, Path]:
         """Match video files to episodes based on season and episode numbers.
 
@@ -950,7 +990,7 @@ class TorrentService(QObject):
 
         Args:
             episodes: Episode dicts with id, episode_number, and optional season_number.
-            video_files: List of (path, size) tuples for video files in torrent.
+            video_files: List of (path, size, duration_seconds) tuples.
 
         Returns:
             Dictionary mapping video_file_id -> matched video path.
@@ -962,9 +1002,9 @@ class TorrentService(QObject):
             episode_num = episode["episode_number"]
             season_num = episode.get("season_number")
 
-            best_match: tuple[Path | None, int] = (None, 0)
+            best_match: tuple[Path | None, int, int] = (None, 0, 0)
 
-            for file_path, file_size in video_files:
+            for file_path, file_size, duration_seconds in video_files:
                 extracted_season, extracted_num = self._extract_season_episode(
                     str(file_path)
                 )
@@ -976,12 +1016,23 @@ class TorrentService(QObject):
                     continue
 
                 if extracted_num == episode_num and file_size > best_match[1]:
-                    best_match = (file_path, file_size)
+                    best_match = (file_path, file_size, duration_seconds)
 
             if best_match[0]:
                 matches[episode_id] = best_match[0]
 
         return matches
+
+    def _duration_for_path(
+        self,
+        video_files: list[VideoFileMatch],
+        path: Path,
+    ) -> int:
+        """Return pre-probed duration for a matched path."""
+        for video_file_path, _file_size, duration_seconds in video_files:
+            if video_file_path == path:
+                return duration_seconds
+        return 0
 
     def _extract_season_episode(self, path: str) -> tuple[int | None, int | None]:
         """Extract season and episode numbers from a path or filename.

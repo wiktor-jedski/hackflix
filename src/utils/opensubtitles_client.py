@@ -48,7 +48,7 @@ class OpenSubtitlesClient:
         """Download a subtitle file by its file ID.
 
         The OpenSubtitles API uses a two-step download process:
-        1. POST to /download with file_id to get a temporary download URL
+        1. POST to /download with file_id and SRT format to get a temporary download URL
         2. GET the actual subtitle content from that temporary URL
 
         Args:
@@ -73,7 +73,7 @@ class OpenSubtitlesClient:
             # Step 1: POST to /download to get temporary download URL
             response = self.session.post(
                 f"{self.BASE_URL}/download",
-                json={"file_id": file_id},
+                json={"file_id": file_id, "sub_format": "srt"},
                 timeout=30,
             )
 

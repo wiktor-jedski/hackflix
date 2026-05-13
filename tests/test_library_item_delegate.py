@@ -36,6 +36,10 @@ class TestLibraryItemRole:
             LibraryItemRole.SeasonNumberRole,
             LibraryItemRole.EpisodeNumberRole,
             LibraryItemRole.EpisodeTitleRole,
+            LibraryItemRole.FileIdRole,
+            LibraryItemRole.ResumePositionRole,
+            LibraryItemRole.WatchedAtRole,
+            LibraryItemRole.DurationSecondsRole,
         ]
         assert len(roles) == len(set(roles))
 
@@ -528,6 +532,50 @@ class TestLibraryItemDelegateDrawStatus:
         delegate._draw_status(painter, rect, index)
 
         painter.drawText.assert_called()
+
+    def test_draw_status_completed_with_duration(
+        self, delegate: LibraryItemDelegate, painter: MagicMock
+    ) -> None:
+        """Test completed playable rows draw duration text."""
+        rect = QRect(700, 40, 96, 96)
+        index = MagicMock(spec=QModelIndex)
+        index.data.side_effect = lambda role: {
+            LibraryItemRole.TypeRole: "movie",
+            LibraryItemRole.DownloadStateRole: DownloadState.COMPLETED.value,
+            LibraryItemRole.DownloadProgressRole: 100,
+            LibraryItemRole.DurationSecondsRole: 7322,
+        }.get(role)
+
+        delegate._draw_status(painter, rect, index)
+
+        assert painter.drawText.call_count == 2
+        assert painter.drawText.call_args_list[-1].args[2] == "2:02:02"
+
+    def test_duration_text_hidden_for_pending_items(
+        self, delegate: LibraryItemDelegate
+    ) -> None:
+        """Test duration is shown only for completed playable rows."""
+        index = MagicMock(spec=QModelIndex)
+        index.data.side_effect = lambda role: {
+            LibraryItemRole.TypeRole: "movie",
+            LibraryItemRole.DownloadStateRole: DownloadState.PENDING.value,
+            LibraryItemRole.DurationSecondsRole: 125,
+        }.get(role)
+
+        assert delegate._duration_text(index) == ""
+
+    def test_status_area_expands_for_duration(
+        self, delegate: LibraryItemDelegate
+    ) -> None:
+        """Test duration rows reserve enough right-side width."""
+        index = MagicMock(spec=QModelIndex)
+        index.data.side_effect = lambda role: {
+            LibraryItemRole.TypeRole: "episode",
+            LibraryItemRole.DownloadStateRole: DownloadState.COMPLETED.value,
+            LibraryItemRole.DurationSecondsRole: 125,
+        }.get(role)
+
+        assert delegate._status_area_width(index) >= 32
 
     def test_draw_status_downloading_with_progress(
         self, delegate: LibraryItemDelegate, painter: MagicMock

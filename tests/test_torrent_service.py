@@ -2153,9 +2153,9 @@ class TestDownloadStateCancelAndRetry:
         ]
 
         video_files = [
-            (Path("/downloads/Show.S01E01.mkv"), 1000),
-            (Path("/downloads/Show.S01E02.mkv"), 1100),
-            (Path("/downloads/Show.S01E03.mkv"), 1200),
+            (Path("/downloads/Show.S01E01.mkv"), 1000, 0),
+            (Path("/downloads/Show.S01E02.mkv"), 1100, 0),
+            (Path("/downloads/Show.S01E03.mkv"), 1200, 0),
         ]
 
         matches = service._match_episode_files(episodes, video_files)
@@ -2180,8 +2180,8 @@ class TestDownloadStateCancelAndRetry:
         ]
 
         video_files = [
-            (Path("/downloads/Show.S01E01.mkv"), 1000),
-            (Path("/downloads/Show.S01E03.mkv"), 1200),
+            (Path("/downloads/Show.S01E01.mkv"), 1000, 0),
+            (Path("/downloads/Show.S01E03.mkv"), 1200, 0),
             # Episode 2 missing
         ]
 
@@ -2203,8 +2203,8 @@ class TestDownloadStateCancelAndRetry:
         episodes = [{"id": 1, "episode_number": 1}]
 
         video_files = [
-            (Path("/downloads/Show.S01E01.720p.mkv"), 500),
-            (Path("/downloads/Show.S01E01.1080p.mkv"), 1000),
+            (Path("/downloads/Show.S01E01.720p.mkv"), 500, 0),
+            (Path("/downloads/Show.S01E01.1080p.mkv"), 1000, 0),
         ]
 
         matches = service._match_episode_files(episodes, video_files)
@@ -2222,8 +2222,8 @@ class TestDownloadStateCancelAndRetry:
 
         episodes = [{"id": 201, "season_number": 2, "episode_number": 1}]
         video_files = [
-            (Path("/downloads/Show.S01/Show.S01E01.mkv"), 5000),
-            (Path("/downloads/Show.S02/Show.S02E01.mkv"), 1000),
+            (Path("/downloads/Show.S01/Show.S01E01.mkv"), 5000, 0),
+            (Path("/downloads/Show.S02/Show.S02E01.mkv"), 1000, 0),
         ]
 
         matches = service._match_episode_files(episodes, video_files)
@@ -2255,6 +2255,40 @@ class TestDownloadStateCancelAndRetry:
         episode = db_manager.get_episodes(season["id"])[0]
 
         assert episode["season_number"] == 2
+
+    def test_series_magnet_context_matches_all_series_episodes(
+        self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
+    ) -> None:
+        """Test season context backed by series magnet matches every season."""
+        from src.services.torrent_service import TorrentService
+
+        db_manager.upsert_content(
+            {
+                "items": [
+                    {
+                        "id": "series-wide",
+                        "type": "series",
+                        "title": "Series",
+                        "magnet": "magnet:?series",
+                        "seasons": [
+                            {
+                                "season_number": 1,
+                                "episodes": [{"number": 1, "title": "S1"}],
+                            },
+                            {
+                                "season_number": 2,
+                                "episodes": [{"number": 1, "title": "S2"}],
+                            },
+                        ],
+                    }
+                ]
+            }
+        )
+        season_id = db_manager.get_seasons("series-wide")[0]["id"]
+        service = TorrentService(db_manager=db_manager)
+        episodes = service._get_download_context_episodes(season_id)
+
+        assert [episode["season_number"] for episode in episodes] == [1, 2]
 
     def test_complete_worker_season_download_emits_episode_completions(
         self, mock_libtorrent_module: mock.MagicMock, db_manager: DatabaseManager
@@ -2345,7 +2379,7 @@ class TestDownloadStateCancelAndRetry:
         result = service._get_video_files_from_torrent(mock_handle)
 
         assert len(result) == 3  # 3 video files
-        paths = [p for p, _ in result]
+        paths = [p for p, _size, _duration in result]
         assert tmp_path / "ep1.mkv" in paths
         assert tmp_path / "ep2.mp4" in paths
         assert tmp_path / "sample.avi" in paths

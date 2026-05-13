@@ -30,7 +30,9 @@ def test_get_listen_interfaces_uses_detected_routable_ip(
     socket_context = mock.MagicMock()
     socket_context.__enter__.return_value = socket_instance
 
-    with mock.patch.object(torrent_worker.socket, "socket", return_value=socket_context):
+    with mock.patch.object(
+        torrent_worker.socket, "socket", return_value=socket_context
+    ):
         assert torrent_worker.get_listen_interfaces() == "192.168.0.88:6881"
 
 
@@ -44,7 +46,9 @@ def test_get_listen_interfaces_falls_back_for_loopback(
     socket_context = mock.MagicMock()
     socket_context.__enter__.return_value = socket_instance
 
-    with mock.patch.object(torrent_worker.socket, "socket", return_value=socket_context):
+    with mock.patch.object(
+        torrent_worker.socket, "socket", return_value=socket_context
+    ):
         assert torrent_worker.get_listen_interfaces() == "0.0.0.0:6881,[::]:6881"
 
 
@@ -74,8 +78,16 @@ def test_get_video_files_returns_video_paths(tmp_path) -> None:
     handle.torrent_file.return_value = torrent_info
 
     assert torrent_worker.get_video_files(handle) == [
-        {"path": str(tmp_path / "Show.S01E01.mkv"), "size": 1000},
-        {"path": str(tmp_path / "Show.S01E02.mp4"), "size": 1100},
+        {
+            "path": str(tmp_path / "Show.S01E01.mkv"),
+            "size": 1000,
+            "duration_seconds": 0,
+        },
+        {
+            "path": str(tmp_path / "Show.S01E02.mp4"),
+            "size": 1100,
+            "duration_seconds": 0,
+        },
     ]
 
 
