@@ -1,0 +1,50 @@
+[project]
+name = "hackflix"
+version = "0.1.0"
+description = "Movie player application for Raspberry Pi 5 with voice-over translations"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "PyQt6>=6.6.0",
+    "python-vlc>=3.0.0",
+    "libtorrent>=2.0.0",
+    "edge-tts>=6.1.0",
+    "pydub>=0.25.0",
+    "python-dotenv>=1.0.0",
+    "google-genai>=1.75.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-qt>=4.2.0",
+    "pytest-mock>=3.10.0",
+    "pytest-cov>=4.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v"
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*"]
+
+[tool.ty.src]
+exclude = ["tests/"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.11",
+    "ty>=0.0.11",
+]
