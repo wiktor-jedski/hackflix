@@ -325,14 +325,6 @@ class AudioTrackOverlay(QFrame):
 
         self.adjustSize()
 
-    def get_tracks(self) -> list[dict[str, Any]]:
-        """Get the current list of tracks.
-
-        Returns:
-            List of track dictionaries.
-        """
-        return self._tracks
-
 
 class PlayerView(QFrame):
     """Full-screen player view for video playback.
@@ -560,14 +552,6 @@ class PlayerView(QFrame):
         """Hide the audio track selection overlay."""
         self._audio_track_overlay.hide()
 
-    def is_audio_track_overlay_visible(self) -> bool:
-        """Check if audio track overlay is visible.
-
-        Returns:
-            True if overlay is visible, False otherwise.
-        """
-        return self._audio_track_overlay.isVisible()
-
     def hide_cursor(self) -> None:
         """Hide the mouse cursor for full-screen experience."""
         if not self._cursor_hidden:
@@ -608,7 +592,3 @@ class PlayerView(QFrame):
     def set_focus(self) -> None:
         """Set focus to the player view for keyboard input."""
         self.setFocus()
-
-    def trigger_activity(self) -> None:
-        """Trigger activity to reset OSD timer (e.g., on key press)."""
-        self._reset_osd_timer()

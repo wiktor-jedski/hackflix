@@ -805,45 +805,6 @@ class TestPlayerServiceSubtitles:
         service.initialize(12345)
         return service
 
-    def test_load_subtitle(
-        self,
-        mock_vlc_module: mock.MagicMock,
-        playing_service: Any,
-        tmp_path: Path,
-    ) -> None:
-        """Test loading a subtitle file."""
-        subtitle_file = tmp_path / "test.srt"
-        subtitle_file.touch()
-
-        playing_service.load_subtitle(str(subtitle_file))
-
-        mock_vlc_module._mock_player.add_slave.assert_called_once_with(
-            mock_vlc_module.MediaSlaveType.subtitle,
-            subtitle_file.resolve().as_uri(),
-            True,
-        )
-        mock_vlc_module._mock_player.video_set_subtitle_file.assert_not_called()
-
-    def test_load_subtitle_not_found(
-        self,
-        mock_vlc_module: mock.MagicMock,
-        playing_service: Any,
-    ) -> None:
-        """Test loading a non-existent subtitle file."""
-        playing_service.load_subtitle("/nonexistent/subtitle.srt")
-
-        mock_vlc_module._mock_player.video_set_subtitle_file.assert_not_called()
-
-    def test_load_subtitle_not_initialized(
-        self,
-        mock_vlc_module: mock.MagicMock,
-    ) -> None:
-        """Test load_subtitle when not initialized."""
-        from src.services.player_service import PlayerService
-
-        service = PlayerService()
-        service.load_subtitle("/some/subtitle.srt")  # Should not raise
-
     def test_get_subtitle_tracks(
         self,
         mock_vlc_module: mock.MagicMock,
@@ -973,16 +934,6 @@ class TestPlayerServiceSubtitles:
 
         assert playing_service.get_current_subtitle_track() is None
 
-    def test_get_external_subtitle_track_id(
-        self,
-        mock_vlc_module: mock.MagicMock,
-        playing_service: Any,
-    ) -> None:
-        """Test external subtitle track id is stored after activation."""
-        playing_service._activate_first_subtitle_track()
-
-        assert playing_service.get_external_subtitle_track_id() == 1
-
     def test_activate_first_subtitle_track(
         self,
         mock_vlc_module: mock.MagicMock,
@@ -1008,7 +959,7 @@ class TestPlayerServiceSubtitles:
         playing_service._activate_first_subtitle_track()
 
         mock_vlc_module._mock_player.video_set_spu.assert_called_once_with(2)
-        assert playing_service.get_external_subtitle_track_id() == 2
+        assert playing_service._external_subtitle_track_id == 2
 
     def test_activate_first_subtitle_track_no_tracks(
         self,

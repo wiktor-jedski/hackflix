@@ -287,7 +287,7 @@ class TestSearchSubtitles:
             }
 
             with patch.object(client.session, "get", return_value=mock_response):
-                result = client.search_subtitles("test query")
+                result = client.search_subtitles_with_params({"query": "test query"})
 
             assert len(result) == 2
             assert result[0]["id"] == "123"
@@ -302,7 +302,9 @@ class TestSearchSubtitles:
             mock_response.json.return_value = {"data": []}
 
             with patch.object(client.session, "get", return_value=mock_response):
-                result = client.search_subtitles("nonexistent movie")
+                result = client.search_subtitles_with_params(
+                    {"query": "nonexistent movie"}
+                )
 
             assert result == []
 
@@ -318,7 +320,9 @@ class TestSearchSubtitles:
             with patch.object(
                 client.session, "get", return_value=mock_response
             ) as mock_get:
-                client.search_subtitles("test", language="pl", limit=5)
+                client.search_subtitles_with_params(
+                    {"query": "test", "languages": "pl"}, limit=5
+                )
 
                 mock_get.assert_called_once()
                 call_params = mock_get.call_args[1]["params"]
@@ -368,7 +372,7 @@ class TestSearchSubtitles:
                     "Network error"
                 )
 
-                result = client.search_subtitles("test")
+                result = client.search_subtitles_with_params({"query": "test"})
 
             assert result == []
 

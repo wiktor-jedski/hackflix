@@ -486,60 +486,6 @@ class TestMetadataServicePosterCaching:
         assert result.exists()
 
 
-class TestMetadataServiceGetPosterPath:
-    """Tests for get_poster_path method."""
-
-    @pytest.fixture
-    def service(self, db_manager: DatabaseManager, tmp_path: Path) -> MetadataService:
-        """Create a MetadataService with test configuration."""
-        svc = MetadataService(
-            db_manager=db_manager,
-            catalog_url="https://example.com/content.json",
-            cache_dir=tmp_path / "cache",
-        )
-        svc._ensure_cache_dirs()
-        return svc
-
-    def test_get_poster_path_returns_jpg(self, service: MetadataService) -> None:
-        """Test get_poster_path finds .jpg poster."""
-        poster = service._poster_dir / "movie-1.jpg"
-        poster.write_bytes(b"image")
-
-        result = service.get_poster_path("movie-1")
-        assert result == poster
-
-    def test_get_poster_path_returns_jpeg(self, service: MetadataService) -> None:
-        """Test get_poster_path finds .jpeg poster."""
-        poster = service._poster_dir / "movie-1.jpeg"
-        poster.write_bytes(b"image")
-
-        result = service.get_poster_path("movie-1")
-        assert result == poster
-
-    def test_get_poster_path_returns_png(self, service: MetadataService) -> None:
-        """Test get_poster_path finds .png poster."""
-        poster = service._poster_dir / "movie-1.png"
-        poster.write_bytes(b"image")
-
-        result = service.get_poster_path("movie-1")
-        assert result == poster
-
-    def test_get_poster_path_returns_webp(self, service: MetadataService) -> None:
-        """Test get_poster_path finds .webp poster."""
-        poster = service._poster_dir / "movie-1.webp"
-        poster.write_bytes(b"image")
-
-        result = service.get_poster_path("movie-1")
-        assert result == poster
-
-    def test_get_poster_path_returns_none_for_missing(
-        self, service: MetadataService
-    ) -> None:
-        """Test get_poster_path returns None for non-cached poster."""
-        result = service.get_poster_path("nonexistent")
-        assert result is None
-
-
 class TestMetadataServiceSeriesDataValidation:
     """Tests for Series data parsing and validation."""
 

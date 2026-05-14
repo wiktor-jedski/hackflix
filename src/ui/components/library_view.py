@@ -332,14 +332,6 @@ class LibraryView(QFrame):
         """Replace Qt item role data while avoiding PySide None ownership issues."""
         item.setData("" if value is None else value, role)
 
-    def get_items(self) -> list[dict[str, Any]]:
-        """Get the current items.
-
-        Returns:
-            List of item dictionaries.
-        """
-        return self._items
-
     def select_next(self) -> bool:
         """Select the next item in the list.
 
@@ -405,17 +397,6 @@ class LibraryView(QFrame):
             return None
 
         return self._get_item_data(current)
-
-    def get_selected_index(self) -> int:
-        """Get the index of the currently selected item.
-
-        Returns:
-            Row index, or -1 if nothing selected.
-        """
-        current = self._list_view.currentIndex()
-        if not current.isValid():
-            return -1
-        return current.row()
 
     def _get_item_data(self, index: QModelIndex) -> dict[str, Any]:
         """Extract item data from a model index.

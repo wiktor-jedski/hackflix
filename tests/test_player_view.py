@@ -173,24 +173,20 @@ class TestAudioTrackOverlay:
     ) -> None:
         """Test set_tracks populates the overlay."""
         overlay.set_tracks(sample_tracks)
-        assert len(overlay.get_tracks()) == 3
-
-    def test_get_tracks_empty(self, overlay: AudioTrackOverlay) -> None:
-        """Test get_tracks returns empty list initially."""
-        assert overlay.get_tracks() == []
+        assert overlay._tracks == sample_tracks
 
     def test_set_tracks_clears_previous(
         self, overlay: AudioTrackOverlay, sample_tracks: list[dict[str, Any]]
     ) -> None:
         """Test that set_tracks clears previous tracks."""
         overlay.set_tracks(sample_tracks)
-        assert len(overlay.get_tracks()) == 3
+        assert len(overlay._tracks) == 3
 
         # Set new tracks
         new_tracks = [{"id": 1, "name": "French", "is_current": True}]
         overlay.set_tracks(new_tracks)
-        assert len(overlay.get_tracks()) == 1
-        assert overlay.get_tracks()[0]["name"] == "French"
+        assert len(overlay._tracks) == 1
+        assert overlay._tracks[0]["name"] == "French"
 
     def test_track_selected_signal_exists(self, overlay: AudioTrackOverlay) -> None:
         """Test that track_selected signal exists."""
@@ -305,15 +301,6 @@ class TestPlayerView:
         player_view.hide_audio_track_overlay()
         assert not player_view._audio_track_overlay.isVisible()
 
-    def test_is_audio_track_overlay_visible(
-        self, player_view: PlayerView, sample_tracks: list[dict[str, Any]]
-    ) -> None:
-        """Test is_audio_track_overlay_visible returns correct state."""
-        player_view.show()
-        assert not player_view.is_audio_track_overlay_visible()
-        player_view.show_audio_track_overlay(sample_tracks)
-        assert player_view.is_audio_track_overlay_visible()
-
     def test_hide_cursor(self, player_view: PlayerView) -> None:
         """Test hide_cursor hides the mouse cursor."""
         player_view.hide_cursor()
@@ -361,11 +348,6 @@ class TestPlayerView:
         player_view.set_focus()
         # Focus behavior depends on widget hierarchy
 
-    def test_trigger_activity(self, player_view: PlayerView) -> None:
-        """Test trigger_activity resets OSD timer."""
-        player_view.trigger_activity()
-        assert player_view._osd_timer.isActive()
-
     def test_view_ready_signal(self, player_view: PlayerView, qtbot) -> None:
         """Test view_ready signal is emitted on show."""
         with qtbot.waitSignal(player_view.view_ready, timeout=1000) as blocker:
@@ -410,15 +392,6 @@ class TestPlayerView:
         )
         expected_right = player_view.width() - scaled(20)
         assert abs(track_overlay_right - expected_right) <= 1
-
-    def test_osd_timer_resets_on_activity(self, player_view: PlayerView) -> None:
-        """Test OSD timer resets when activity is triggered."""
-        player_view.show_pause_indicator(True)
-        assert player_view._osd_timer.isActive()
-
-        # Trigger activity again
-        player_view.trigger_activity()
-        assert player_view._osd_timer.isActive()
 
     def test_multiple_osd_indicators_in_sequence(self, player_view: PlayerView) -> None:
         """Test showing different OSD indicators in sequence."""
@@ -469,11 +442,11 @@ class TestPlayerViewIntegration:
             {"id": 2, "name": "Polish Voiceover", "is_current": False},
         ]
         player_view.show_audio_track_overlay(tracks)
-        assert player_view.is_audio_track_overlay_visible()
+        assert player_view._audio_track_overlay.isVisible()
 
         # Hide audio tracks
         player_view.hide_audio_track_overlay()
-        assert not player_view.is_audio_track_overlay_visible()
+        assert not player_view._audio_track_overlay.isVisible()
 
         # Exit fullscreen
         player_view.exit_fullscreen()

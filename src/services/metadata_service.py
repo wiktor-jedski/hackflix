@@ -192,18 +192,3 @@ class MetadataService(QThread):
         if suffix in POSTER_EXTENSIONS:
             return suffix
         return ".jpg"
-
-    def get_poster_path(self, item_id: str) -> Path | None:
-        """Get the cached poster path for a media item.
-
-        Args:
-            item_id: Media item ID.
-
-        Returns:
-            Path to cached poster or None if not cached.
-        """
-        for ext in [".jpg", ".jpeg", ".png", ".webp"]:
-            poster_path = self._poster_dir / f"{self._safe_cache_name(item_id)}{ext}"
-            if poster_path.exists():
-                return poster_path
-        return None

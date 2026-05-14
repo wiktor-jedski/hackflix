@@ -88,7 +88,7 @@ class TestLibraryView:
     ) -> None:
         """Test setting items in the view."""
         library_view.set_items(sample_items)
-        assert len(library_view.get_items()) == 3
+        assert len(library_view._items) == 3
 
     def test_set_items_formats_status_text(
         self, library_view: LibraryView, sample_items: list[dict]
@@ -397,19 +397,6 @@ class TestLibraryView:
         result = library_view.select_by_id("nonexistent")
         assert result is False
 
-    def test_get_selected_index(
-        self, library_view: LibraryView, sample_items: list[dict]
-    ) -> None:
-        """Test get_selected_index returns correct index."""
-        library_view.set_items(sample_items)
-        assert library_view.get_selected_index() == 0
-        library_view.select_next()
-        assert library_view.get_selected_index() == 1
-
-    def test_get_selected_index_empty(self, library_view: LibraryView) -> None:
-        """Test get_selected_index returns -1 when empty."""
-        assert library_view.get_selected_index() == -1
-
     def test_item_activated_signal(
         self, library_view: LibraryView, sample_items: list[dict], qtbot
     ) -> None:
@@ -436,7 +423,7 @@ class TestLibraryView:
         """Test clearing the view."""
         library_view.set_items(sample_items)
         library_view.clear()
-        assert len(library_view.get_items()) == 0
+        assert len(library_view._items) == 0
 
     def test_update_item(
         self, library_view: LibraryView, sample_items: list[dict]
@@ -453,7 +440,7 @@ class TestLibraryView:
         # The update should not raise an exception
         # Visual verification would require rendering
         item = library_view._model.item(0)
-        assert library_view.get_items()[0]["download_progress"] == 50
+        assert library_view._items[0]["download_progress"] == 50
         assert item.text().startswith("[Downloading 50%]")
 
     def test_set_items_does_not_store_explicit_none_role_values(
@@ -506,10 +493,10 @@ class TestLibraryView:
         for row in range(library_view._model.rowCount()):
             item = library_view._model.item(row)
             assert (
-                library_view.get_items()[row]["state"]
+                library_view._items[row]["state"]
                 == DownloadState.DOWNLOADING.value
             )
-            assert library_view.get_items()[row]["download_progress"] == 49
+            assert library_view._items[row]["download_progress"] == 49
             assert item.text().startswith("[Downloading 49%]")
 
     def test_progress_update_does_not_rebuild_icon(
@@ -552,7 +539,7 @@ class TestLibraryView:
         )
 
         item = library_view._model.item(0)
-        assert library_view.get_items()[0]["state"] == DownloadState.ERROR.value
+        assert library_view._items[0]["state"] == DownloadState.ERROR.value
         assert item.text().startswith("[Error]")
 
     def test_update_item_by_file_id_not_found(

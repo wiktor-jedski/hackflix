@@ -7,7 +7,7 @@ for multi-language support using Qt's translation system.
 import logging
 from pathlib import Path
 
-from src.qt import QCoreApplication, QLocale, QTranslator
+from src.qt import QCoreApplication, QTranslator
 
 logger = logging.getLogger(__name__)
 
@@ -70,19 +70,6 @@ def setup_translations(
     return False
 
 
-def get_system_locale() -> str:
-    """Get the system's current locale language code.
-
-    Returns:
-        Two-letter language code (e.g., "en", "pl").
-    """
-    locale = QLocale.system()
-    language = locale.name()[:2].lower()
-    if len(language) != 2 or not language.isalpha():
-        return "en"
-    return language
-
-
 def tr(context: str, text: str) -> str:
     """Translate a text string.
 
@@ -98,83 +85,3 @@ def tr(context: str, text: str) -> str:
     """
     return QCoreApplication.translate(context, text)
 
-
-def create_translation_source() -> dict[str, dict[str, str]]:
-    """Create a dictionary of all translatable strings.
-
-    This is used to generate .ts translation source files.
-    Returns a dictionary mapping context -> {source: translation}.
-
-    Returns:
-        Dictionary of translatable strings organized by context.
-    """
-    return {
-        "LibraryView": {
-            "Movies": "",
-            "Series": "",
-            "No items found": "",
-            "Season": "",
-            "Season %n": "",
-            "Episode": "",
-            "Episode %n": "",
-            "Play": "",
-            "Resume {minutes} min": "",
-            "Watched": "",
-            "Downloading {progress}%": "",
-            "Error": "",
-            "Queued": "",
-            "Download": "",
-        },
-        "LibraryItemDelegate": {
-            "No\nImage": "",
-            "Unknown Title": "",
-            "%n Season": "",
-            "%n Seasons": "",
-            "Season %n": "",
-            "%n Episode": "",
-            "%n Episodes": "",
-            "Episode %n": "",
-            "Episode %n: %t": "",
-        },
-        "StatusBar": {
-            "Online": "",
-            "Offline": "",
-            "Last Sync: %s": "",
-            "Syncing...": "",
-        },
-        "SearchOverlay": {
-            "Search": "",
-            "Type to search...": "",
-            "Press Enter to search, Esc to cancel": "",
-        },
-        "HelpOverlay": {
-            "Help": "Pomoc",
-            "Press Esc to close": "Naciśnij Esc, aby zamknąć",
-        },
-        "ConfirmDialog": {
-            "Delete %s?": "",
-            "This will remove the file from disk but keep the catalog entry.": "",
-            "Press Enter to confirm, Esc to cancel": "",
-        },
-        "ToastNotification": {
-            "Sync started": "",
-            "Sync completed": "",
-            "Sync failed: %s": "",
-            "Download started": "",
-            "Download completed": "",
-            "Download failed: %s": "",
-            "Filter cleared": "",
-        },
-        "AppController": {
-            "{percent}% used": "",
-            "Storage unavailable": "",
-            "Player not implemented yet": "",
-            "Starting download: %s": "",
-            "Deleted: %s": "",
-            "Failed to load library: %s": "",
-            "Failed to load seasons: %s": "",
-            "Failed to load episodes: %s": "",
-            "Metadata service not available": "",
-            "Sync already in progress": "",
-        },
-    }

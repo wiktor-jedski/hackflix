@@ -263,29 +263,6 @@ class PlayerService(QObject):
 
         return None
 
-    def load_subtitle(self, path: str) -> None:
-        """Load a subtitle file.
-
-        Args:
-            path: Path to the subtitle file (SRT format).
-        """
-        if not self._player:
-            logger.error("Player not initialized")
-            return
-
-        subtitle_file = Path(path)
-        if not subtitle_file.exists():
-            logger.warning("Subtitle file not found: %s", path)
-            return
-
-        try:
-            self._external_subtitle_track_id = None
-            self._subtitle_track_user_selected = False
-            self._add_subtitle_slave(subtitle_file)
-            logger.info("Loaded subtitle file: %s", path)
-        except Exception as e:
-            logger.error("Failed to load subtitle: %s", e)
-
     def get_subtitle_tracks(self) -> list[dict[str, Any]]:
         """Get list of available subtitle tracks.
 
@@ -347,10 +324,6 @@ class PlayerService(QObject):
             if track["is_current"]:
                 return track
         return None
-
-    def get_external_subtitle_track_id(self) -> int | None:
-        """Return the VLC track id selected for the loaded external subtitle."""
-        return self._external_subtitle_track_id
 
     def _decode_track_name(self, track_name: Any, track_id: int) -> str:
         """Decode a VLC track name into a UI-safe string."""

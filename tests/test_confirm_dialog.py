@@ -82,13 +82,12 @@ class TestConfirmDialog:
         max_width = int(screen.availableGeometry().width() * 0.85)
 
         long_title = "Delete Long Film?"
-        while (
-            metrics.horizontalAdvance(long_title) + (DIALOG_PADDING * 2) <= DIALOG_WIDTH
-        ):
+        while metrics.horizontalAdvance(long_title) + (DIALOG_PADDING * 2) < max_width:
             long_title = long_title.replace("?", " With Extra Words?")
 
         expected_width = metrics.horizontalAdvance(long_title) + (DIALOG_PADDING * 2)
-        assert expected_width < max_width
+        assert expected_width > DIALOG_WIDTH
+        assert expected_width >= max_width
 
         dialog = ConfirmDialog(
             long_title, "This action cannot be undone.", parent_widget
@@ -96,7 +95,7 @@ class TestConfirmDialog:
         qtbot.addWidget(dialog)
 
         assert dialog.width() > DIALOG_WIDTH
-        assert dialog.width() >= expected_width
+        assert dialog.width() == max_width
 
     def test_width_expands_without_primary_screen(
         self, parent_widget: QWidget, qtbot, monkeypatch

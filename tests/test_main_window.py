@@ -27,10 +27,6 @@ class TestMainWindow:
         """Test that MainWindow has library view."""
         assert main_window.library_view is not None
 
-    def test_has_status_bar(self, main_window: MainWindow) -> None:
-        """Test that MainWindow has status bar."""
-        assert main_window.status_bar is not None
-
     def test_has_input_manager(self, main_window: MainWindow) -> None:
         """Test that MainWindow has input manager."""
         assert main_window.input_manager is not None
@@ -75,14 +71,6 @@ class TestMainWindow:
         main_window.show_toast("Warning", "warning")
         main_window.show_toast("Error", "error")
         assert len(main_window._toast_manager._toasts) == 3
-
-    def test_clear_toasts(self, main_window: MainWindow, qtbot) -> None:
-        """Test clear_toasts removes all toasts."""
-        main_window.show_toast("Toast 1")
-        main_window.show_toast("Toast 2")
-        main_window.clear_toasts()
-        qtbot.wait(50)
-        assert len(main_window._toast_manager._toasts) == 0
 
     def test_set_connection_status(self, main_window: MainWindow) -> None:
         """Test set_connection_status updates status bar."""

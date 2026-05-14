@@ -139,11 +139,6 @@ class MainWindow(QMainWindow):
         return self._library_view
 
     @property
-    def status_bar(self) -> StatusBar:
-        """Get the status bar component."""
-        return self._status_bar
-
-    @property
     def player_view(self) -> PlayerView:
         """Get the player view component."""
         return self._player_view
@@ -305,10 +300,6 @@ class MainWindow(QMainWindow):
             timeout_ms: Optional custom timeout.
         """
         self._toast_manager.show_toast(message, level, timeout_ms)
-
-    def clear_toasts(self) -> None:
-        """Clear all active toast notifications."""
-        self._toast_manager.clear_all()
 
     def set_connection_status(self, online: bool) -> None:
         """Update the connection status display.

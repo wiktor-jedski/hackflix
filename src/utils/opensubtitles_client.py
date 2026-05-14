@@ -112,30 +112,6 @@ class OpenSubtitlesClient:
         except requests.exceptions.RequestException as e:
             raise OpenSubtitlesError(f"Request failed: {e}") from e
 
-    def search_subtitles(
-        self,
-        query: str,
-        language: str = "en",
-        limit: int = 10,
-    ) -> list[dict]:
-        """Search for subtitles by query.
-
-        Args:
-            query: Search query string.
-            language: Language filter code (e.g., "en", "pl").
-            limit: Maximum number of results.
-
-        Returns:
-            List of subtitle metadata dictionaries.
-        """
-        return self.search_subtitles_with_params(
-            params={
-                "query": query,
-                "languages": language,
-            },
-            limit=limit,
-        )
-
     def search_subtitles_with_params(
         self,
         params: dict,
